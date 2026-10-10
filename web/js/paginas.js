@@ -740,7 +740,7 @@ function avisoCatalogo(st, est) {
 async function mostrarPrecos(alvo, q, ir) {
   render(alvo, carregando('Consultando o Compras.gov.br… (a primeira consulta do dia pode levar alguns segundos)'));
   let d;
-  try { d = await api(`/precos${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade, atualizar: q.atualizar })}`); }
+  try { d = await api(`/precos${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade, filtro: q.filtro, atualizar: q.atualizar })}`); }
   catch (e) { render(alvo, erroBox(e)); return; }
   if (q.atualizar) { delete q.atualizar; history.replaceState(null, '', `#/precos${qs(q)}`); }
   const e = d.estatisticas;
@@ -751,7 +751,15 @@ async function mostrarPrecos(alvo, q, ir) {
   const filtroUnid = d.unidades.length ? h('div', {}, h('label', { for: 'p-unid' }, 'Unidade de fornecimento'),
     h('select', { id: 'p-unid', onchange: (ev) => ir({ unidade: ev.target.value }) },
       d.unidades.map((u) => h('option', { value: u.unidade, selected: u.unidade === d.unidade }, `${u.unidade} (${u.n})`)))) : null;
-  const kpi = (rot, val, dica) => h('div', { class: 'cartao kpi', title: dica || '' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val));
+  const kpi = (rot, val, dica, apoio) => h('div', { class: 'cartao kpi', title: dica || '' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val),
+    apoio ? h('div', { class: 'apoio' }, apoio) : null);
+  // Valores muito grandes (em geral erro de lançamento na fonte) ficam abreviados para caber no bloco
+  const preco = (v) => (v != null && v >= 1e6 ? moedaCurta(v) : moedaUnit(v));
+  const filtroEspec = h('form', { class: 'largo', onsubmit: (ev) => { ev.preventDefault(); ir({ filtro: ev.target.elements.filtro.value.trim(), item: '', unidade: '' }); } },
+    h('label', { for: 'p-filtro' }, 'Filtrar por especificação (todas as palavras)'),
+    h('div', { class: 'linha', style: { flexWrap: 'nowrap' } },
+      h('input', { id: 'p-filtro', name: 'filtro', type: 'search', value: q.filtro || '', placeholder: 'ex.: i7 16gb ssd, ultra 7, A4 75g', style: { flex: 1, minWidth: 0 } }),
+      h('button', { class: 'btn', type: 'submit' }, 'Filtrar')));
 
   const ordens = { data: (a, b) => String(b.data_compra).localeCompare(String(a.data_compra)), menor: (a, b) => (a.preco_unitario ?? 1e18) - (b.preco_unitario ?? 1e18), maior: (a, b) => (b.preco_unitario ?? -1) - (a.preco_unitario ?? -1) };
   let ordem = 'data'; let mostrar = 50;
@@ -762,7 +770,10 @@ async function mostrarPrecos(alvo, q, ir) {
       h('thead', {}, h('tr', {}, ['Data', 'Item', 'Unid.', 'Qtd.', 'Preço unitário', 'Fornecedor / marca', 'Órgão comprador', 'Local'].map((t) => h('th', {}, t)))),
       h('tbody', {}, regs.slice(0, mostrar).map((r) => h('tr', { class: r.fora_da_curva ? 'linha-alerta' : '' },
         h('td', {}, data(r.data_compra, false) || '—'),
-        h('td', { title: r.descricao_detalhada || '' }, r.descricao || '—', r.descricao_detalhada ? h('div', { class: 'suave pequeno' }, r.descricao_detalhada.slice(0, 120)) : null),
+        h('td', { title: r.descricao_detalhada || '' }, r.descricao || '—',
+          // a descrição detalhada costuma repetir a curta: só aparece quando acrescenta algo
+          r.descricao_detalhada && !r.descricao_detalhada.toLowerCase().startsWith(String(r.descricao || '').toLowerCase().slice(0, 30))
+            ? h('div', { class: 'suave pequeno' }, r.descricao_detalhada.slice(0, 160)) : null),
         h('td', {}, r.unidade || '—'), h('td', {}, numero(r.quantidade)),
         h('td', { class: 'num' }, moedaUnit(r.preco_unitario), r.fora_da_curva ? h('div', {}, h('span', { class: 'etiqueta vermelha', title: 'Fora da faixa usual (critério estatístico). Confira se é outro produto, outra unidade ou erro de digitação.' }, 'fora da curva')) : null),
         h('td', {}, r.fornecedor_nome || naoInformado(), r.marca ? h('div', { class: 'suave pequeno' }, `Marca: ${r.marca}`) : null),
@@ -780,18 +791,23 @@ async function mostrarPrecos(alvo, q, ir) {
         h('div', { class: 'linha' },
           h('a', { class: 'btn', href: `#/precos${qs({ q: q.q, uf: q.uf, meses: q.meses })}` }, '← Outro item'),
           h('button', { class: 'btn', onclick: () => ir({ atualizar: '1' }) }, '↻ Consultar de novo'),
-          h('a', { class: 'btn', href: `/api/precos/exportar${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade })}` }, '⬇ CSV'),
+          h('a', { class: 'btn', href: `/api/precos/exportar${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade, filtro: q.filtro })}` }, '⬇ CSV'),
           h('a', { class: 'btn', href: `#/precos/contratos${qs({ q: titulo.split(/[,(]/)[0].trim().toLowerCase() })}` }, 'Contratos parecidos'))),
       h('div', { class: 'suave pequeno' }, `Fonte: Compras.gov.br, Dados Abertos (Pesquisa de Preços). Consultado em ${dataUtc(d.consultado_em)}${d.cache ? ' (guardado por 24h)' : ''}.`),
       d.truncado ? h('div', { class: 'aviso amarelo', style: { marginTop: '8px' } }, `A fonte tem ${numero(d.total_fonte)} preços nesse período; trouxemos ${numero(d.baixados)}. Escolha um estado ou um período menor para ver tudo.`) : null,
-      h('div', { class: 'filtros', style: { marginTop: '10px' } }, filtroItem, filtroUnid)),
+      h('div', { class: 'filtros', style: { marginTop: '10px' } }, filtroEspec, filtroItem, filtroUnid),
+      q.filtro ? h('div', { class: 'suave pequeno', style: { marginTop: '6px' } }, `Mostrando só as compras cuja descrição tem: "${q.filtro}". `,
+        h('a', { href: `#/precos${qs({ ...q, filtro: '' })}` }, 'Limpar filtro')) : null),
     e.n ? h('div', { class: 'grade kpis', style: { marginTop: '14px' } },
       kpi('Preços encontrados', numero(e.n), `Na unidade ${d.unidade}. Preços de unidades diferentes não são comparados.`),
-      kpi('Menor preço', moedaUnit(e.menor)),
-      kpi('Mediana', moedaUnit(e.mediana), 'Metade dos preços está abaixo e metade acima. É a referência mais segura quando há valores muito diferentes.'),
-      kpi('Média', moedaUnit(e.media)),
+      kpi('Menor preço', preco(e.menor)),
+      kpi('Mediana', moedaUnit(e.mediana), 'Metade dos preços está abaixo e metade acima. É a referência mais segura quando há valores muito diferentes.',
+        h('span', { class: 'etiqueta verde' }, 'referência recomendada')),
+      kpi('Média', preco(e.media), e.media_distorcida ? 'A média está bem acima da mediana: alguns preços extremos (às vezes o valor total lançado como unitário) puxam a conta. Use a mediana ou a média sem fora da curva.' : '',
+        e.media_distorcida ? h('span', { class: 'etiqueta amarela' }, 'distorcida, não use') : null),
       kpi('Média sem fora da curva', moedaUnit(e.media_sem_fora_da_curva), e.n >= 4 ? `Desconsidera ${e.fora_da_curva} preço(s) fora da faixa de ${brl(e.limite_inferior)} a ${brl(e.limite_superior)}.` : 'Com menos de 4 preços não dá para apontar valores fora da curva.'),
-      kpi('Maior preço', moedaUnit(e.maior))) : h('div', { class: 'cartao', style: { marginTop: '14px' } }, vazio('Nenhum preço registrado para este item no período. Tente 24 meses ou o Brasil inteiro.')),
+      kpi('Maior preço', preco(e.maior), e.maior >= 1e6 ? `${brl(e.maior)}: provável erro de lançamento na fonte.` : '')) : h('div', { class: 'cartao', style: { marginTop: '14px' } },
+      vazio(q.filtro ? `Nenhuma compra com "${q.filtro}" na descrição. Tente menos palavras (ex.: só "i7").` : 'Nenhum preço registrado para este item no período. Tente 24 meses ou o Brasil inteiro.')),
     e.n ? h('div', { class: 'aviso azul', style: { marginTop: '14px' } },
       e.n < 3 ? h('strong', {}, 'Atenção: menos de 3 preços. A IN 65/2021 pede pelo menos 3 para calcular média ou mediana. ') : null,
       e.fora_da_curva ? `${e.fora_da_curva} preço(s) ficaram fora da faixa usual de ${brl(e.limite_inferior)} a ${brl(e.limite_superior)} e estão marcados em vermelho. `

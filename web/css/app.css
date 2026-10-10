@@ -175,8 +175,8 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
 }
 
 /* Indicadores: números sempre dentro do bloco */
-.kpi { min-width: 0; }
-.kpi .valor { font-size: clamp(1.15rem, 1.1rem + .6vw, 1.6rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.kpi { min-width: 0; container-type: inline-size; }
+.kpi .valor { font-size: clamp(1rem, 13cqi, 1.6rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .kpi .apoio { color: var(--texto-suave); font-size: .75rem; margin-top: 2px; overflow-wrap: anywhere; }
 .aviso { overflow-wrap: anywhere; }
 

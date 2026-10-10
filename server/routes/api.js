@@ -336,7 +336,8 @@ async function pesquisa(req, res) {
     const r2 = await consultarPrecos(db(), c, { forcar: req.query.atualizar === '1' });
     const cat = db().prepare('SELECT nome, classe FROM catalogo_compras WHERE tipo=? AND codigo=?')
       .get(c.tipo === 'servico' ? 'servico' : 'material', c.codigo);
-    return { consulta: { ...c, nome: cat?.nome || null, classe: cat?.classe || null }, ...r2, baixados: r2.registros.length, ...analisarPrecos(r2.registros, req.query) };
+    const filtro = String(req.query.filtro || '').slice(0, 120);
+    return { consulta: { ...c, nome: cat?.nome || null, classe: cat?.classe || null, filtro }, ...r2, baixados: r2.registros.length, ...analisarPrecos(r2.registros, { ...req.query, filtro }) };
   } catch (e) {
     erro(res, 502, `Não foi possível consultar o Compras.gov.br agora: ${e.message}`); return null;
   }
@@ -354,7 +355,7 @@ r.get('/precos/exportar', async (req, res) => {
     decimal(x.preco_unitario), x.fora_da_curva ? 'Sim' : '', x.fornecedor_nome, x.fornecedor_ni, x.marca, x.orgao_nome, x.uasg, x.uasg_nome, x.uf,
     x.municipio, x.id_compra, x.numero_item]);
   const est = p.estatisticas;
-  const rodape = [[], [`Fonte: Compras.gov.br — Dados Abertos, módulo Pesquisa de Preços. Período ${p.desde} a ${p.ate}. Consultado em ${p.consultado_em} (UTC).`],
+  const rodape = [[], [`Fonte: Compras.gov.br — Dados Abertos, módulo Pesquisa de Preços. Período ${p.desde} a ${p.ate}. Consultado em ${p.consultado_em} (UTC).${p.consulta.filtro ? ` Filtro de especificação: "${p.consulta.filtro}".` : ''}`],
     [`Unidade: ${p.unidade || '—'} · ${est.n || 0} preços · menor ${decimal(est.menor)} · mediana ${decimal(est.mediana)} · média ${decimal(est.media)} · média sem fora da curva ${decimal(est.media_sem_fora_da_curva)} · maior ${decimal(est.maior)}`],
     ['Fora da curva = critério estatístico (Tukey, 1,5 x intervalo interquartil). A análise crítica dos preços é do usuário (IN SEGES/ME 65/2021, art. 6º).']];
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
