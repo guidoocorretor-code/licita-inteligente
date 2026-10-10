@@ -10,9 +10,9 @@ export function avaliarAlertasPesquisas(db) {
     const desde = ps.ultimo_alerta_em || ps.criado_em;
     const { where, params } = montarFiltro({ ...filtros, criado_apos: desde });
     const novos = db.prepare(`SELECT l.id, l.objeto, l.orgao_nome, l.uf FROM licitacoes l ${where} ORDER BY l.id DESC LIMIT 50`).all(...params);
-    const ins = db.prepare(`INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, licitacao_id) VALUES (?,?,?,?,?,?)`);
+    const ins = db.prepare(`INSERT INTO notificacoes (empresa_id, usuario_id, cliente_id, tipo, titulo, mensagem, licitacao_id) VALUES (?,?,?,?,?,?,?)`);
     for (const n of novos) {
-      ins.run(ps.empresa_id, ps.usuario_id, 'pesquisa_salva', `Nova oportunidade: ${ps.nome}`,
+      ins.run(ps.empresa_id, ps.usuario_id, ps.cliente_id || 0, 'pesquisa_salva', `Nova oportunidade: ${ps.nome}`,
         `${(n.objeto || '').slice(0, 200)} — ${n.orgao_nome || ''} ${n.uf ? '(' + n.uf + ')' : ''}`, n.id);
       geradas++;
     }
@@ -28,14 +28,14 @@ const TIPOS_EVENTO_ALERTA = { alteracao: 'Edital alterado', situacao: 'Mudança 
 
 function acompanhamentos(db) {
   return db.prepare(`
-    SELECT usuario_id, empresa_id, licitacao_id, MIN(desde) desde, MAX(oportunidade_id) oportunidade_id, MAX(prazo_interno) prazo_interno FROM (
-      SELECT f.usuario_id, u.empresa_id, CAST(f.referencia AS INTEGER) licitacao_id, f.criado_em desde, NULL oportunidade_id, NULL prazo_interno
+    SELECT usuario_id, empresa_id, cliente_id, licitacao_id, MIN(desde) desde, MAX(oportunidade_id) oportunidade_id, MAX(prazo_interno) prazo_interno FROM (
+      SELECT f.usuario_id, u.empresa_id, f.cliente_id, CAST(f.referencia AS INTEGER) licitacao_id, f.criado_em desde, NULL oportunidade_id, NULL prazo_interno
         FROM favoritos f JOIN usuarios u ON u.id = f.usuario_id AND u.ativo = 1 WHERE f.tipo = 'licitacao'
       UNION ALL
-      SELECT u.id, o.empresa_id, o.licitacao_id, o.criado_em, o.id, o.prazo_interno
+      SELECT u.id, o.empresa_id, o.cliente_id, o.licitacao_id, o.criado_em, o.id, o.prazo_interno
         FROM oportunidades o JOIN usuarios u ON u.empresa_id = o.empresa_id AND u.ativo = 1
         WHERE o.responsavel_id IS NULL OR o.responsavel_id = u.id
-    ) GROUP BY usuario_id, licitacao_id`).all();
+    ) GROUP BY usuario_id, cliente_id, licitacao_id`).all();
 }
 
 /**
@@ -46,17 +46,19 @@ export function avaliarAlertasAcompanhadas(db, agora) {
   const lic = db.prepare('SELECT id, objeto, orgao_nome, uf, data_encerramento_proposta, status_calculado FROM licitacoes WHERE id = ?');
   const jaGerado = db.prepare('SELECT 1 FROM alertas_gerados WHERE usuario_id = ? AND chave = ?');
   const marcar = db.prepare('INSERT OR IGNORE INTO alertas_gerados (usuario_id, chave) VALUES (?, ?)');
-  const notificar = db.prepare('INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, licitacao_id) VALUES (?,?,?,?,?,?)');
+  const notificar = db.prepare('INSERT INTO notificacoes (empresa_id, usuario_id, cliente_id, tipo, titulo, mensagem, licitacao_id) VALUES (?,?,?,?,?,?,?)');
   const eventos = db.prepare(`SELECT id, tipo, descricao FROM licitacao_eventos WHERE licitacao_id = ? AND tipo IN ('alteracao','situacao','resultado','documento')
     AND detectado_em > ? AND detectado_em > datetime('now','-7 days') ORDER BY id`);
   const base = Date.parse(`${agora}Z`);
   const hoje = agora.slice(0, 10);
   const amanha = new Date(base + 86400000).toISOString().slice(0, 10);
   let geradas = 0;
-  const emitir = (a, chave, tipo, titulo, mensagem) => {
+  const emitir = (a, chaveBase, tipo, titulo, mensagem) => {
+    // Mesma licitação acompanhada para duas empresas assessoradas: um aviso para cada uma
+    const chave = a.cliente_id ? `${chaveBase}:c${a.cliente_id}` : chaveBase;
     if (jaGerado.get(a.usuario_id, chave)) return;
     marcar.run(a.usuario_id, chave);
-    notificar.run(a.empresa_id, a.usuario_id, tipo, titulo, mensagem, a.licitacao_id);
+    notificar.run(a.empresa_id, a.usuario_id, a.cliente_id || 0, tipo, titulo, mensagem, a.licitacao_id);
     geradas++;
   };
   for (const a of acompanhamentos(db)) {

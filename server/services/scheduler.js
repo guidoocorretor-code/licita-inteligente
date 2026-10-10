@@ -9,6 +9,7 @@ import { enviarAlertasPendentes } from './email.js';
 import { agoraBrasilia } from './status.js';
 import { precisaAtualizarCatalogo, sincronizarCatalogo } from './precos.js';
 import { espacoEmDisco } from '../lib/disco.js';
+import { avaliarAlertasVencimentos } from './clientes.js';
 
 export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   let ultimoEmail = 0;
@@ -17,6 +18,7 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   const tick = async () => {
     // Alertas de prazo/mudança e e-mail rodam antes das sincronizações, que podem demorar
     try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
+    try { avaliarAlertasVencimentos(db, agoraBrasilia().slice(0, 10)); } catch (e) { console.error('[vencimentos]', e.message); }
     if (Date.now() - ultimoEmail >= 10 * 60_000) {
       ultimoEmail = Date.now();
       enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));

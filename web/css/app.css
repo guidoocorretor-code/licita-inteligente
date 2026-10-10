@@ -224,6 +224,39 @@ td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 tr.linha-alerta td { background: #fff8f7; }
 
 /* Busca nos itens: mostra por que a licitação apareceu */
-.itens-achados { margin-top: 6px; font-size: .85rem; background: var(--fundo); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
+.item-lic .orgao-local { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: .88rem; color: var(--texto-suave); }
+.item-lic .orgao-local .orgao { font-weight: 600; color: var(--texto); }
+.ficha { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+.campo-ficha { display: flex; flex-direction: column; gap: 2px; background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; min-width: 0; }
+.campo-ficha .rotulo { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-suave); font-weight: 600; }
+.campo-ficha .valor { font-size: .9rem; color: var(--texto); font-weight: 500; overflow-wrap: anywhere; }
+.campo-ficha.destaque { border-left: 3px solid var(--info); }
+.campo-ficha.urgente { border-left: 3px solid var(--perigo); background: var(--perigo-fundo); }
+.campo-ficha.urgente .valor { color: var(--perigo); font-weight: 700; }
+.etiquetas-lic { margin-top: 8px; }
+.itens-achados { margin-top: 8px; font-size: .85rem; background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; overflow-wrap: anywhere; }
+.itens-achados summary { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.itens-achados[open] summary .previa { display: none; }
+.itens-achados summary .previa { color: var(--texto-suave); }
+.itens-achados ul { margin: 6px 0 2px; padding-left: 18px; display: grid; gap: 4px; }
 .resultado { grid-template-columns: minmax(0, 1fr); }
 .item-lic { min-width: 0; } .item-lic .objeto, .item-lic .meta { overflow-wrap: anywhere; }
+.item-lic .objeto { font-size: 1.02rem; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Empresas assessoradas */
+.faixa-empresa:empty { display: none; }
+.faixa-empresa { background: var(--info-fundo); border: 1px solid #c6dafc; color: #10408f; border-radius: var(--raio); padding: 8px 12px; margin-bottom: 12px; font-size: .9rem; }
+.etiqueta.empresa { background: #ede9fe; color: #4c1d95; }
+#seletor-empresa { max-width: 220px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--borda); font-weight: 600; }
+body.com-empresa #seletor-empresa { border-color: #7c3aed; background: #f5f3ff; color: #4c1d95; }
+.grade-empresas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.cartao.empresa .objeto { font-weight: 700; font-size: 1.05rem; text-decoration: none; color: var(--texto); overflow-wrap: anywhere; }
+.cartao.empresa.selecionada { border: 2px solid #7c3aed; }
+.cartao.empresa.inativa { opacity: .6; }
+dl.dados { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+dl.dados dt { color: var(--texto-suave); }
+dl.dados dd { margin: 0; overflow-wrap: anywhere; }
+.tabela-form input, .tabela-form select { width: 100%; min-width: 120px; }
+.form-empresa h3 { margin: 6px 0 8px; }
+@media (max-width: 760px) { #seletor-empresa { max-width: 130px; } .topo .nome-usuario { display: none; } }
+.modal:has(.tabela-form), .modal:has(.form-empresa) { max-width: 820px; }

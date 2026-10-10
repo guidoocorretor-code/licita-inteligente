@@ -288,7 +288,8 @@ CREATE TABLE IF NOT EXISTS favoritos (
   lista TEXT NOT NULL DEFAULT 'Geral',
   nota TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (usuario_id, tipo, referencia, lista)
+  cliente_id INTEGER NOT NULL DEFAULT 0,       -- empresa assessorada (0 = sem empresa)
+  UNIQUE (usuario_id, cliente_id, tipo, referencia, lista)
 );
 CREATE INDEX IF NOT EXISTS ix_fav_emp ON favoritos(empresa_id, usuario_id);
 
@@ -336,7 +337,8 @@ CREATE TABLE IF NOT EXISTS oportunidades (
   posicao INTEGER NOT NULL DEFAULT 0,
   criado_em TEXT NOT NULL DEFAULT (datetime('now')),
   atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (empresa_id, licitacao_id)
+  cliente_id INTEGER NOT NULL DEFAULT 0,       -- empresa assessorada (0 = sem empresa)
+  UNIQUE (empresa_id, cliente_id, licitacao_id)
 );
 
 CREATE TABLE IF NOT EXISTS oportunidade_historico (
@@ -461,3 +463,44 @@ CREATE TABLE IF NOT EXISTS precos_consultas (
   truncado INTEGER NOT NULL DEFAULT 0,
   consultado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ============ Empresas assessoradas (clientes da assessoria) e suas certidões ============
+-- "empresas" (acima) é a conta que usa o sistema; "clientes" são as empresas que ela assessora.
+CREATE TABLE IF NOT EXISTS clientes (
+  id INTEGER PRIMARY KEY,
+  empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  cnpj TEXT NOT NULL,                 -- só dígitos
+  razao_social TEXT NOT NULL,
+  nome_fantasia TEXT,
+  porte TEXT,                         -- MEI | ME | EPP | Demais (informado pelo usuário)
+  uf TEXT,
+  municipio TEXT,
+  email TEXT,
+  telefone TEXT,
+  resp_nome TEXT,                     -- responsável legal
+  resp_cargo TEXT,
+  resp_email TEXT,
+  resp_telefone TEXT,
+  observacoes TEXT,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (empresa_id, cnpj)
+);
+
+CREATE TABLE IF NOT EXISTS cliente_documentos (
+  id INTEGER PRIMARY KEY,
+  cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,                 -- ver TIPOS_DOCUMENTO em services/clientes.js
+  descricao TEXT,
+  numero TEXT,
+  emissao TEXT,                       -- AAAA-MM-DD
+  validade TEXT,                      -- AAAA-MM-DD; NULL = sem validade informada
+  arquivo_caminho TEXT,               -- relativo a STORAGE_DIR; o mesmo PDF (ex.: SICAF) pode servir a vários
+  arquivo_nome TEXT,
+  arquivo_tamanho INTEGER,
+  criado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_clidoc_cli ON cliente_documentos(cliente_id);
+CREATE INDEX IF NOT EXISTS ix_clidoc_val ON cliente_documentos(validade);

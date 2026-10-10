@@ -10,6 +10,10 @@ import { salvarLicitacao } from '../services/repositorio.js';
 import { sincronizarFonte, testarFonte, reprocessarFalhas, sincronizarDetalhesDe, sincronizacaoEmAndamento } from '../services/sync.js';
 import { paraCsv, paraXlsx } from '../services/exportacao.js';
 import { espacoEmDisco } from '../lib/disco.js';
+import multer from 'multer';
+import { TIPOS_DOCUMENTO, PORTES, criarCliente, atualizarCliente, excluirCliente, listarClientes, listarDocumentos,
+  adicionarDocumentos, excluirDocumento, caminhoArquivo, validarCnpj } from '../services/clientes.js';
+import { agoraBrasilia } from '../services/status.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
@@ -73,6 +77,19 @@ r.post('/auth/senha', exigirLogin, (req, res) => {
 
 r.use(exigirLogin);
 
+// Empresa assessorada selecionada no topo da tela (cabeçalho X-Cliente; ?cliente= em links diretos).
+// req.clienteId: número = só dessa empresa; null = "Todas". Novos registros vão para req.clienteId ou 0 (sem empresa).
+r.use((req, res, next) => {
+  const v = inteiro(req.get('x-cliente') ?? req.query.cliente);
+  req.clienteId = null;
+  if (v > 0) {
+    if (!db().prepare('SELECT 1 FROM clientes WHERE id=? AND empresa_id=?').get(v, req.usuario.empresa_id)) return erro(res, 404, 'Empresa selecionada não encontrada. Escolha outra no topo da tela.');
+    req.clienteId = v;
+  }
+  next();
+});
+const doCliente = (req, col = 'cliente_id') => (req.clienteId ? { sql: ` AND ${col} = ?`, p: [req.clienteId] } : { sql: '', p: [] });
+
 // ---------------- Metadados ----------------
 r.get('/meta', (req, res) => {
   const plataformas = db().prepare('SELECT DISTINCT plataforma_origem p FROM licitacoes WHERE plataforma_origem IS NOT NULL ORDER BY p').all().map((x) => x.p);
@@ -116,9 +133,14 @@ r.get('/licitacoes/:id', (req, res) => {
     documentos: db().prepare('SELECT * FROM licitacao_documentos WHERE licitacao_id=? ORDER BY sequencial').all(id),
     eventos: db().prepare('SELECT * FROM licitacao_eventos WHERE licitacao_id=? ORDER BY detectado_em DESC, id DESC LIMIT 200').all(id),
     fontes: db().prepare('SELECT fonte_codigo, id_externo, url, primeira_vez, ultima_vez FROM licitacao_fontes WHERE licitacao_id=?').all(id),
-    favorito: !!db().prepare("SELECT 1 FROM favoritos WHERE usuario_id=? AND tipo='licitacao' AND referencia=?").get(u.id, String(id)),
+    favorito: !!db().prepare("SELECT 1 FROM favoritos WHERE usuario_id=? AND tipo='licitacao' AND referencia=? AND cliente_id=?").get(u.id, String(id), req.clienteId || 0),
     oportunidade: db().prepare(`SELECT o.*, e.nome etapa_nome FROM oportunidades o JOIN kanban_etapas e ON e.id=o.etapa_id
-      WHERE o.empresa_id=? AND o.licitacao_id=?`).get(u.empresa_id, id) || null,
+      WHERE o.empresa_id=? AND o.licitacao_id=? AND o.cliente_id=?`).get(u.empresa_id, id, req.clienteId || 0) || null,
+    // Em quais empresas assessoradas esta licitação já está (favorito ou Kanban)
+    empresas: db().prepare(`SELECT DISTINCT cl.id, COALESCE(cl.nome_fantasia, cl.razao_social) nome FROM clientes cl
+      WHERE cl.empresa_id=? AND (cl.id IN (SELECT cliente_id FROM oportunidades WHERE empresa_id=? AND licitacao_id=?)
+        OR cl.id IN (SELECT cliente_id FROM favoritos WHERE usuario_id=? AND tipo='licitacao' AND referencia=?))`)
+      .all(u.empresa_id, u.empresa_id, id, u.id, String(id)),
     contratos: contratosDaLicitacao(db(), id),
   });
 });
@@ -146,7 +168,9 @@ r.get('/jornal', (req, res) => {
 
 // ---------------- Favoritos ----------------
 r.get('/favoritos', (req, res) => {
-  const favs = db().prepare('SELECT * FROM favoritos WHERE usuario_id=? AND empresa_id=? ORDER BY criado_em DESC').all(req.usuario.id, req.usuario.empresa_id);
+  const c = doCliente(req, 'f.cliente_id');
+  const favs = db().prepare(`SELECT f.*, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome FROM favoritos f LEFT JOIN clientes cl ON cl.id = f.cliente_id
+    WHERE f.usuario_id=? AND f.empresa_id=?${c.sql} ORDER BY f.criado_em DESC`).all(req.usuario.id, req.usuario.empresa_id, ...c.p);
   const lic = favs.filter((f) => f.tipo === 'licitacao').map((f) => Number(f.referencia));
   const licitacoes = lic.length ? db().prepare(`SELECT id, objeto, orgao_nome, uf, municipio, status_calculado, data_encerramento_proposta, valor_estimado, valor_estimado_situacao
     FROM licitacoes WHERE id IN (${lic.map(() => '?').join(',')})`).all(...lic) : [];
@@ -156,25 +180,32 @@ r.post('/favoritos', (req, res) => {
   const { tipo, referencia, lista = 'Geral', nota = null } = req.body || {};
   if (!['licitacao', 'orgao', 'fornecedor', 'pesquisa'].includes(tipo) || !referencia) return erro(res, 400, 'Tipo ou referência inválidos.');
   if (tipo === 'licitacao' && !db().prepare('SELECT 1 FROM licitacoes WHERE id=?').get(inteiro(referencia))) return erro(res, 404, 'Licitação não encontrada.');
-  db().prepare(`INSERT INTO favoritos (empresa_id, usuario_id, tipo, referencia, lista, nota) VALUES (?,?,?,?,?,?)
-    ON CONFLICT(usuario_id, tipo, referencia, lista) DO UPDATE SET nota=excluded.nota`)
-    .run(req.usuario.empresa_id, req.usuario.id, tipo, String(referencia).slice(0, 200), String(lista).slice(0, 60), nota ? String(nota).slice(0, 1000) : null);
+  db().prepare(`INSERT INTO favoritos (empresa_id, usuario_id, cliente_id, tipo, referencia, lista, nota) VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(usuario_id, cliente_id, tipo, referencia, lista) DO UPDATE SET nota=excluded.nota`)
+    .run(req.usuario.empresa_id, req.usuario.id, req.clienteId || 0, tipo, String(referencia).slice(0, 200), String(lista).slice(0, 60), nota ? String(nota).slice(0, 1000) : null);
   res.status(201).json({ ok: true });
 });
 r.delete('/favoritos', (req, res) => {
-  const { tipo, referencia } = req.query;
-  const out = db().prepare('DELETE FROM favoritos WHERE usuario_id=? AND empresa_id=? AND tipo=? AND referencia=?').run(req.usuario.id, req.usuario.empresa_id, tipo, String(referencia));
+  const { tipo, referencia, id } = req.query;
+  // Com "Todas" selecionado, remove pelo id (um favorito de uma empresa); com uma empresa, só os dela
+  const out = id
+    ? db().prepare('DELETE FROM favoritos WHERE usuario_id=? AND empresa_id=? AND id=?').run(req.usuario.id, req.usuario.empresa_id, inteiro(id))
+    : db().prepare('DELETE FROM favoritos WHERE usuario_id=? AND empresa_id=? AND tipo=? AND referencia=? AND cliente_id=?')
+      .run(req.usuario.id, req.usuario.empresa_id, tipo, String(referencia), req.clienteId || 0);
   res.json({ removidos: Number(out.changes) });
 });
 
 // ---------------- Pesquisas salvas ----------------
-r.get('/pesquisas', (req, res) => res.json(db().prepare('SELECT * FROM pesquisas_salvas WHERE usuario_id=? AND empresa_id=? ORDER BY nome').all(req.usuario.id, req.usuario.empresa_id)));
+r.get('/pesquisas', (req, res) => {
+  const c = doCliente(req);
+  res.json(db().prepare(`SELECT * FROM pesquisas_salvas WHERE usuario_id=? AND empresa_id=?${c.sql} ORDER BY nome`).all(req.usuario.id, req.usuario.empresa_id, ...c.p));
+});
 r.post('/pesquisas', (req, res) => {
   const { nome, filtros, alertar } = req.body || {};
   if (!nome || typeof filtros !== 'object') return erro(res, 400, 'Informe nome e filtros.');
   const limpos = Object.fromEntries(Object.entries(filtros).filter(([k, v]) => v !== '' && v != null && !['pagina', 'tamanho'].includes(k)));
-  const out = db().prepare(`INSERT INTO pesquisas_salvas (empresa_id, usuario_id, nome, filtros_json, alertar, ultimo_alerta_em) VALUES (?,?,?,?,?,datetime('now'))`)
-    .run(req.usuario.empresa_id, req.usuario.id, String(nome).slice(0, 120), JSON.stringify(limpos), alertar ? 1 : 0);
+  const out = db().prepare(`INSERT INTO pesquisas_salvas (empresa_id, usuario_id, cliente_id, nome, filtros_json, alertar, ultimo_alerta_em) VALUES (?,?,?,?,?,?,datetime('now'))`)
+    .run(req.usuario.empresa_id, req.usuario.id, req.clienteId || 0, String(nome).slice(0, 120), JSON.stringify(limpos), alertar ? 1 : 0);
   res.status(201).json({ id: Number(out.lastInsertRowid) });
 });
 r.patch('/pesquisas/:id', (req, res) => {
@@ -189,16 +220,25 @@ r.delete('/pesquisas/:id', (req, res) => {
 });
 
 // ---------------- Notificações ----------------
-r.get('/notificacoes', (req, res) => res.json(db().prepare('SELECT * FROM notificacoes WHERE usuario_id=? ORDER BY id DESC LIMIT 100').all(req.usuario.id)));
-r.post('/notificacoes/lidas', (req, res) => { db().prepare('UPDATE notificacoes SET lida=1 WHERE usuario_id=?').run(req.usuario.id); res.json({ ok: true }); });
+r.get('/notificacoes', (req, res) => {
+  const c = doCliente(req, 'n.cliente_id');
+  res.json(db().prepare(`SELECT n.*, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome FROM notificacoes n LEFT JOIN clientes cl ON cl.id = n.cliente_id
+    WHERE n.usuario_id=?${c.sql} ORDER BY n.id DESC LIMIT 100`).all(req.usuario.id, ...c.p));
+});
+r.post('/notificacoes/lidas', (req, res) => {
+  const c = doCliente(req);
+  db().prepare(`UPDATE notificacoes SET lida=1 WHERE usuario_id=?${c.sql}`).run(req.usuario.id, ...c.p); res.json({ ok: true });
+});
 
 // ---------------- Kanban (etapa interna separada da situação oficial) ----------------
 r.get('/kanban', (req, res) => {
   const emp = req.usuario.empresa_id; garantirEtapas(db(), emp);
   const etapas = db().prepare('SELECT * FROM kanban_etapas WHERE empresa_id=? ORDER BY ordem').all(emp);
+  const c = doCliente(req, 'o.cliente_id');
   const cards = db().prepare(`SELECT o.*, l.objeto, l.orgao_nome, l.uf, l.status_calculado, l.data_encerramento_proposta, l.valor_estimado, l.valor_estimado_situacao,
-      u.nome responsavel_nome FROM oportunidades o JOIN licitacoes l ON l.id=o.licitacao_id LEFT JOIN usuarios u ON u.id=o.responsavel_id
-      WHERE o.empresa_id=? ORDER BY o.posicao, o.id`).all(emp);
+      u.nome responsavel_nome, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome
+      FROM oportunidades o JOIN licitacoes l ON l.id=o.licitacao_id LEFT JOIN usuarios u ON u.id=o.responsavel_id LEFT JOIN clientes cl ON cl.id=o.cliente_id
+      WHERE o.empresa_id=?${c.sql} ORDER BY o.posicao, o.id`).all(emp, ...c.p);
   const usuarios = db().prepare('SELECT id, nome FROM usuarios WHERE empresa_id=? AND ativo=1 ORDER BY nome').all(emp);
   res.json({ etapas, cards, usuarios });
 });
@@ -207,9 +247,10 @@ r.post('/kanban', exigirPapel('analista'), (req, res) => {
   const licId = inteiro(req.body?.licitacao_id);
   if (!db().prepare('SELECT 1 FROM licitacoes WHERE id=?').get(licId)) return erro(res, 404, 'Licitação não encontrada.');
   const primeira = db().prepare('SELECT id FROM kanban_etapas WHERE empresa_id=? ORDER BY ordem LIMIT 1').get(emp);
-  const existe = db().prepare('SELECT id FROM oportunidades WHERE empresa_id=? AND licitacao_id=?').get(emp, licId);
+  const cli = req.clienteId || 0;
+  const existe = db().prepare('SELECT id FROM oportunidades WHERE empresa_id=? AND licitacao_id=? AND cliente_id=?').get(emp, licId, cli);
   if (existe) return res.json({ id: existe.id, existente: true });
-  const out = db().prepare('INSERT INTO oportunidades (empresa_id, licitacao_id, etapa_id, responsavel_id) VALUES (?,?,?,?)').run(emp, licId, primeira.id, req.usuario.id);
+  const out = db().prepare('INSERT INTO oportunidades (empresa_id, cliente_id, licitacao_id, etapa_id, responsavel_id) VALUES (?,?,?,?,?)').run(emp, cli, licId, primeira.id, req.usuario.id);
   const id = Number(out.lastInsertRowid);
   db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'criacao','Oportunidade criada')").run(id, req.usuario.id);
   auditar(req, 'kanban_criar', 'oportunidade', id);
@@ -268,10 +309,10 @@ r.delete('/kanban/:id', exigirPapel('gestor'), (req, res) => {
 
 // ---------------- Calendário de prazos (Fase 3) ----------------
 r.get('/calendario', (req, res) => {
-  res.json(eventosCalendario(db(), { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id, de: dataOk(req.query.de), ate: dataOk(req.query.ate) }));
+  res.json(eventosCalendario(db(), { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id, clienteId: req.clienteId, de: dataOk(req.query.de), ate: dataOk(req.query.ate) }));
 });
 r.get('/calendario.ics', (req, res) => {
-  const ev = eventosCalendario(db(), { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id });
+  const ev = eventosCalendario(db(), { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id, clienteId: req.clienteId });
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="prazos-licitacoes.ics"');
   res.send(gerarIcs(ev, { urlBase: urlBase(req) }));
@@ -290,6 +331,57 @@ r.delete('/calendario/link', (req, res) => {
   auditar(req, 'calendario_link_revogar', 'usuario', req.usuario.id);
   res.json({ ok: true });
 });
+
+// ---------------- Empresas assessoradas e certidões ----------------
+const hojeBr = () => agoraBrasilia().slice(0, 10);
+const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } }).single('arquivo');
+const receberPdf = (req, res, next) => uploadPdf(req, res, (e) => (e ? erro(res, 400, e.code === 'LIMIT_FILE_SIZE' ? 'O PDF pode ter no máximo 10 MB.' : 'Falha no envio do arquivo.') : next()));
+const clienteDaConta = (req) => db().prepare('SELECT * FROM clientes WHERE id=? AND empresa_id=?').get(inteiro(req.params.id), req.usuario.empresa_id);
+
+r.get('/clientes', (req, res) => res.json({ clientes: listarClientes(db(), req.usuario.empresa_id, hojeBr()), tipos: TIPOS_DOCUMENTO, portes: PORTES }));
+r.post('/clientes', exigirPapel('analista'), (req, res) => {
+  const id = criarCliente(db(), req.usuario.empresa_id, req.body || {});
+  auditar(req, 'cliente_criar', 'cliente', id); res.status(201).json({ id });
+});
+r.get('/clientes/:id', (req, res) => {
+  const c = clienteDaConta(req);
+  if (!c) return erro(res, 404, 'Empresa não encontrada.');
+  res.json({ cliente: c, documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: c.id, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO, portes: PORTES });
+});
+r.patch('/clientes/:id', exigirPapel('analista'), (req, res) => {
+  if (!atualizarCliente(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Empresa não encontrada.');
+  auditar(req, 'cliente_editar', 'cliente', req.params.id); res.json({ ok: true });
+});
+r.delete('/clientes/:id', exigirPapel('gestor'), (req, res) => {
+  if (!excluirCliente(db(), req.usuario.empresa_id, inteiro(req.params.id))) return erro(res, 404, 'Empresa não encontrada.');
+  auditar(req, 'cliente_excluir', 'cliente', req.params.id); res.json({ ok: true });
+});
+r.get('/cnpj/validar', (req, res) => res.json({ valido: !!validarCnpj(req.query.cnpj) }));
+// Documentos: multipart com "arquivo" (PDF opcional) e "dados" (JSON: { itens: [...], substitui: [ids] })
+r.post('/clientes/:id/documentos', exigirPapel('analista'), receberPdf, (req, res) => {
+  const c = clienteDaConta(req);
+  if (!c) return erro(res, 404, 'Empresa não encontrada.');
+  let dados;
+  try { dados = JSON.parse(req.body?.dados || '{}'); } catch { return erro(res, 400, 'Dados inválidos.'); }
+  const ids = transacao(db(), () => adicionarDocumentos(db(), c.id, req.usuario.id, dados.itens, req.file, (dados.substitui || []).map(Number)));
+  auditar(req, 'cliente_documento_criar', 'cliente', c.id, { ids }); res.status(201).json({ ids });
+});
+r.delete('/clientes/:id/documentos/:doc', exigirPapel('analista'), (req, res) => {
+  const c = clienteDaConta(req);
+  if (!c || !excluirDocumento(db(), c.id, inteiro(req.params.doc))) return erro(res, 404, 'Documento não encontrado.');
+  auditar(req, 'cliente_documento_excluir', 'cliente', c.id, { doc: req.params.doc }); res.json({ ok: true });
+});
+r.get('/clientes/:id/documentos/:doc/arquivo', (req, res) => {
+  const c = clienteDaConta(req);
+  const d = c && db().prepare('SELECT arquivo_caminho, arquivo_nome FROM cliente_documentos WHERE id=? AND cliente_id=?').get(inteiro(req.params.doc), c.id);
+  const abs = d?.arquivo_caminho && caminhoArquivo(d.arquivo_caminho);
+  if (!abs) return erro(res, 404, 'Arquivo não encontrado.');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(d.arquivo_nome || 'documento.pdf')}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.sendFile(abs, (e) => { if (e && !res.headersSent) erro(res, 404, 'Arquivo não encontrado.'); });
+});
+r.get('/vencimentos', (req, res) => res.json({ documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: req.clienteId, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO }));
 
 // ---------------- Preferências de alerta e e-mail (Fase 3) ----------------
 r.get('/preferencias', (req, res) => {
