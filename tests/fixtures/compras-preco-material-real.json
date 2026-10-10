@@ -1,0 +1,15 @@
+{
+  "_origem": "Registro REAL retornado por GET https://dadosabertos.compras.gov.br/modulo-pesquisa-preco/1_consultarMaterial?tipo=codigoItemCatalogo&codigo=150420 em 10/10/2026 (1º de 26). Textos longos (objetoCompra, descricaoDetalhadaItem) resumidos.",
+  "idCompra": "11000106000192022", "dataCompra": "2022-09-21", "forma": "SISPP", "modalidade": 6,
+  "dataHoraAtualizacaoCompra": "2023-09-22T03:30:00.039773", "idItemCompra": 1397380, "numeroItemCompra": 1,
+  "niFornecedor": "21883166000173", "codigoItemCatalogo": 150420, "quantidade": 301.00000000, "precoUnitario": 8.97000000,
+  "descricaoItem": "BOTOM, NOME: BOTOM", "siglaUnidadeFornecimento": "UN", "nomeUnidadeFornecimento": "UNIDADE",
+  "capacidadeUnidadeFornecimento": 0E-8, "siglaUnidadeMedida": null, "nomeUnidadeMedida": null, "criterioJulgamento": " ",
+  "percentualMaiorDesconto": 0E-8, "nomeFornecedor": "MERITO BRINDES E PREMIACOES - LTDA", "marca": "IT-c",
+  "dataResultado": "2022-09-21", "dataHoraAtualizacaoItem": "2023-09-22T04:00:00.037898", "codigoUasg": "110001",
+  "nomeUasg": "SECRETARIA DE ADMINISTRAÇÃO", "codigoOrgao": 20101, "nomeOrgao": "PRESIDENCIA DA REPUBLICA", "estado": "DF",
+  "codigoMunicipio": 5300108, "municipio": "BRASÍLIA", "poder": "E", "esfera": "F", "dataHoraAtualizacaoUasg": "2026-06-03T11:16:00",
+  "codigoClasse": 8455, "nomeClasse": "DISTINTIVOS E INSÍGNIAS", "idCompraItem": "1100010600019202200001",
+  "objetoCompra": "Aquisição de botons (resumido)", "descricaoDetalhadaItem": "Botom esmaltado 17,5 mm x 12 mm (resumido)",
+  "dataAtualizacaoFato": "2023-09-22T04:00:00.037898", "codigoPdm": 15779, "nomePdm": "BOTOM"
+}
