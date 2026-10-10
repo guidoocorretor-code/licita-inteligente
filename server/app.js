@@ -3,6 +3,8 @@ import path from 'node:path';
 import { config } from './config.js';
 import api from './routes/api.js';
 import { exigirCabecalhoAjax } from './lib/auth.js';
+import { getDb } from './db/index.js';
+import { usuarioDoToken, eventosCalendario, gerarIcs } from './services/calendario.js';
 
 export function criarApp() {
   const app = express();
@@ -17,6 +19,15 @@ export function criarApp() {
     next();
   });
   app.get('/saude', (req, res) => res.json({ ok: true, app: config.appName }));
+  // Assinatura do calendário (Google Agenda, Outlook, celular): link secreto e revogável, somente leitura
+  app.get('/calendario/:token.ics', (req, res) => {
+    const u = usuarioDoToken(getDb(), req.params.token);
+    if (!u) return res.status(404).type('text/plain').send('Calendário não encontrado ou link revogado.');
+    const base = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(gerarIcs(eventosCalendario(getDb(), { empresaId: u.empresa_id, usuarioId: u.id }), { nome: `Licitações — ${u.nome}`, urlBase: base }));
+  });
   const jsonPadrao = express.json({ limit: '1mb' });
   app.use('/api', (req, res, next) => (req.path === '/fontes/importar-json' ? next() : jsonPadrao(req, res, next)), exigirCabecalhoAjax, api);
   // Código da tela (HTML/JS/CSS) é sempre revalidado pelo ETag, para uma publicação nova aparecer no

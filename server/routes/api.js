@@ -10,6 +10,8 @@ import { salvarLicitacao } from '../services/repositorio.js';
 import { sincronizarFonte, testarFonte, reprocessarFalhas, sincronizarDetalhesDe, sincronizacaoEmAndamento } from '../services/sync.js';
 import { paraCsv, paraXlsx } from '../services/exportacao.js';
 import { CONECTORES } from '../connectors/registro.js';
+import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
+import { statusEmail, enviarEmailTeste } from '../services/email.js';
 
 export const ETAPAS_PADRAO = ['Nova oportunidade', 'Em análise', 'Aguardando decisão', 'Documentação em preparação',
   'Proposta em elaboração', 'Pronta para envio', 'Participação confirmada', 'Em disputa', 'Aguardando resultado',
@@ -27,6 +29,9 @@ const r = express.Router();
 const db = () => getDb();
 const erro = (res, status, msg) => res.status(status).json({ erro: msg });
 const inteiro = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
+export const urlBase = (req) => (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+const dataOk = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Limitador simples para login (por IP)
 const tentativasIp = new Map();
@@ -223,11 +228,19 @@ r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
     }
     if (responsavel_id !== undefined) {
       const rid = responsavel_id === null ? null : inteiro(responsavel_id);
-      if (rid && !db().prepare('SELECT 1 FROM usuarios WHERE id=? AND empresa_id=?').get(rid, emp)) throw Object.assign(new Error('Responsável inválido.'), { status: 400 });
-      db().prepare('UPDATE oportunidades SET responsavel_id=? WHERE id=?').run(rid, id);
-      db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'atribuicao',?)").run(id, req.usuario.id, `Responsável: ${rid ?? 'nenhum'}`);
+      const resp = rid ? db().prepare('SELECT nome FROM usuarios WHERE id=? AND empresa_id=?').get(rid, emp) : null;
+      if (rid && !resp) throw Object.assign(new Error('Responsável inválido.'), { status: 400 });
+      if (rid !== op.responsavel_id) {
+        db().prepare('UPDATE oportunidades SET responsavel_id=? WHERE id=?').run(rid, id);
+        db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'atribuicao',?)").run(id, req.usuario.id, `Responsável: ${resp?.nome ?? 'nenhum'}`);
+      }
     }
-    if (prazo_interno !== undefined) db().prepare('UPDATE oportunidades SET prazo_interno=? WHERE id=?').run(prazo_interno || null, id);
+    if (prazo_interno !== undefined && (prazo_interno || null) !== op.prazo_interno) {
+      if (prazo_interno && !dataOk(prazo_interno)) throw Object.assign(new Error('Prazo interno inválido.'), { status: 400 });
+      db().prepare('UPDATE oportunidades SET prazo_interno=? WHERE id=?').run(prazo_interno || null, id);
+      const txt = prazo_interno ? prazo_interno.split('-').reverse().join('/') : 'removido';
+      db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'prazo',?)").run(id, req.usuario.id, txt);
+    }
     if (posicao != null) db().prepare('UPDATE oportunidades SET posicao=? WHERE id=?').run(inteiro(posicao), id);
   });
   res.json({ ok: true });
@@ -247,6 +260,58 @@ r.delete('/kanban/:id', exigirPapel('gestor'), (req, res) => {
   const out = db().prepare('DELETE FROM oportunidades WHERE id=? AND empresa_id=?').run(inteiro(req.params.id), req.usuario.empresa_id);
   if (!out.changes) return erro(res, 404, 'Oportunidade não encontrada.');
   auditar(req, 'kanban_excluir', 'oportunidade', req.params.id); res.json({ ok: true });
+});
+
+// ---------------- Calendário de prazos (Fase 3) ----------------
+r.get('/calendario', (req, res) => {
+  res.json(eventosCalendario(db(), { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id, de: dataOk(req.query.de), ate: dataOk(req.query.ate) }));
+});
+r.get('/calendario.ics', (req, res) => {
+  const ev = eventosCalendario(db(), { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id });
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="prazos-licitacoes.ics"');
+  res.send(gerarIcs(ev, { urlBase: urlBase(req) }));
+});
+r.get('/calendario/link', (req, res) => {
+  const t = db().prepare('SELECT criado_em FROM calendario_tokens WHERE usuario_id=?').get(req.usuario.id);
+  res.json({ ativo: !!t, criado_em: t?.criado_em || null });
+});
+r.post('/calendario/link', (req, res) => {
+  const token = gerarTokenCalendario(db(), req.usuario.id);
+  auditar(req, 'calendario_link_gerar', 'usuario', req.usuario.id);
+  res.status(201).json({ url: `${urlBase(req)}/calendario/${token}.ics` });
+});
+r.delete('/calendario/link', (req, res) => {
+  revogarTokenCalendario(db(), req.usuario.id);
+  auditar(req, 'calendario_link_revogar', 'usuario', req.usuario.id);
+  res.json({ ok: true });
+});
+
+// ---------------- Preferências de alerta e e-mail (Fase 3) ----------------
+r.get('/preferencias', (req, res) => {
+  const p = db().prepare('SELECT alertas_email, email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id);
+  res.json({ alertas_email: p ? !!p.alertas_email : true, email_alertas: p?.email_alertas || '', email_login: req.usuario.email, email: statusEmail().configurado });
+});
+r.patch('/preferencias', (req, res) => {
+  const atual = db().prepare('SELECT alertas_email, email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id) || { alertas_email: 1, email_alertas: null };
+  const { alertas_email, email_alertas } = req.body || {};
+  let destino = atual.email_alertas;
+  if (email_alertas !== undefined) {
+    destino = String(email_alertas || '').trim().toLowerCase() || null;
+    if (destino && (!EMAIL_RE.test(destino) || destino.length > 200)) return erro(res, 400, 'E-mail para alertas inválido.');
+  }
+  const ativo = alertas_email === undefined ? atual.alertas_email : (alertas_email ? 1 : 0);
+  db().prepare(`INSERT INTO usuario_preferencias (usuario_id, alertas_email, email_alertas) VALUES (?,?,?)
+    ON CONFLICT(usuario_id) DO UPDATE SET alertas_email=excluded.alertas_email, email_alertas=excluded.email_alertas`).run(req.usuario.id, ativo, destino);
+  auditar(req, 'preferencias_alterar', 'usuario', req.usuario.id, { alertas_email: !!ativo, email_alertas: destino });
+  res.json({ ok: true });
+});
+r.get('/email/status', exigirPapel('admin'), (req, res) => res.json(statusEmail()));
+r.post('/email/teste', async (req, res) => {
+  const p = db().prepare('SELECT email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id);
+  const destino = p?.email_alertas || req.usuario.email;
+  try { await enviarEmailTeste({ nome: req.usuario.nome, email: destino }); res.json({ ok: true, mensagem: `E-mail de teste enviado para ${destino}.` }); }
+  catch (e) { erro(res, 400, e.message); }
 });
 
 // ---------------- Fontes de dados (admin) ----------------

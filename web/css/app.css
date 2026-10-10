@@ -196,3 +196,20 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
 .cartao:has(.rosca) { container-type: inline-size; }
 @container (max-width: 520px) { .rosca { grid-template-columns: 1fr; justify-items: center; } .rosca-legenda { width: 100%; } }
 @media (max-width: 420px) { .rosca { grid-template-columns: 1fr; justify-items: center; } .rosca-legenda { width: 100%; } }
+
+/* Calendário de prazos */
+.grade-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cab-cal { font-size: .78rem; font-weight: 600; color: var(--texto-suave); text-align: center; padding: 4px 0; }
+.dia-cal { min-height: 96px; border: 1px solid var(--borda); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; gap: 3px; min-width: 0; background: var(--superficie); }
+.dia-cal.fora { background: var(--fundo); opacity: .6; }
+.dia-cal.hoje { border: 2px solid var(--cor-primaria); }
+.dia-cal .num { font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
+.chip-cal { display: block; font-size: .72rem; line-height: 1.25; padding: 2px 5px; border-radius: 4px; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--texto); }
+.chip-cal.verde { background: var(--ok-fundo); border-left: 3px solid var(--ok); }
+.chip-cal.vermelha { background: var(--perigo-fundo); border-left: 3px solid var(--perigo); }
+.chip-cal.azul { background: var(--info-fundo); border-left: 3px solid var(--info); }
+@media (max-width: 760px) {
+  .dia-cal { min-height: 54px; }
+  .chip-cal { font-size: 0; height: 6px; padding: 0; }
+  .chip-cal b { display: none; }
+}
