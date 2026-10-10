@@ -9,6 +9,7 @@ import { SEGMENTOS } from '../services/segmentos.js';
 import { salvarLicitacao } from '../services/repositorio.js';
 import { sincronizarFonte, testarFonte, reprocessarFalhas, sincronizarDetalhesDe, sincronizacaoEmAndamento } from '../services/sync.js';
 import { paraCsv, paraXlsx } from '../services/exportacao.js';
+import { espacoEmDisco } from '../lib/disco.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
@@ -81,7 +82,7 @@ r.get('/meta', (req, res) => {
 });
 
 // ---------------- Dashboard ----------------
-r.get('/dashboard', (req, res) => res.json(indicadores(db(), { usuarioId: req.usuario.id })));
+r.get('/dashboard', (req, res) => res.json({ ...indicadores(db(), { usuarioId: req.usuario.id }), disco: espacoEmDisco() }));
 
 // ---------------- Busca e licitações ----------------
 r.get('/licitacoes', (req, res) => {

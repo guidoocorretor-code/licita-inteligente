@@ -9,6 +9,7 @@ import { normalizarPncp, normalizarItemPncp } from '../../server/services/normal
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
 import { buscar } from '../../server/services/busca.js';
 import { completarItensAbertas } from '../../server/services/sync.js';
+import { espacoEmDisco } from '../../server/lib/disco.js';
 import { abrirBanco, indexarItensPendentes, indexarItensEmSegundoPlano } from '../../server/db/index.js';
 
 process.env.HTTP_MIN_INTERVAL_MS = '0';
@@ -113,4 +114,11 @@ test('indexação em lotes: só os itens que faltam, sem duplicar', () => {
   assert.deepEqual([r2.indexados, r2.fim], [1, true]);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM itens_fts_docsize').get().n, 3);
   db.exec("INSERT INTO itens_fts(itens_fts) VALUES('integrity-check')");
+});
+
+test('espaço em disco: avisa quando o volume está quase cheio', () => {
+  const fs = (livre) => () => ({ blocks: 512, bsize: 1048576, bavail: livre }); // volume de 512 MB
+  assert.deepEqual(espacoEmDisco('/x', fs(300)), { total_mb: 512, livre_mb: 300, livre_pct: 58.6, baixo: false });
+  assert.equal(espacoEmDisco('/x', fs(40)).baixo, true);   // menos de 10%
+  assert.equal(espacoEmDisco('/x', () => { throw new Error('sem acesso'); }), null);
 });

@@ -28,6 +28,10 @@ export async function dashboard(alvo, _r, est) {
     avisos.push(h('div', { class: 'aviso azul' }, 'O banco ainda não tem licitações. ',
       ehAdmin(est) ? h('a', { href: '#/fontes' }, 'Vá em Fontes de dados para sincronizar ou importar.') : 'Peça ao administrador para sincronizar as fontes.'));
   }
+  if (d.disco?.baixo) {
+    avisos.push(h('div', { class: 'aviso vermelho' }, h('strong', {}, `Disco quase cheio: ${numero(d.disco.livre_mb)} MB livres de ${numero(d.disco.total_mb)} MB. `),
+      'As sincronizações estão pausadas para o banco não travar. Aumente o volume no Railway (clique no volume > Settings) e elas voltam sozinhas.'));
+  }
   for (const f of d.conectores_com_falha) {
     avisos.push(h('div', { class: 'aviso vermelho' }, `Conector com falha: ${f.nome} (${f.situacao_conexao === 'bloqueada_rede' ? 'acesso de rede bloqueado' : 'erro'}). `,
       h('span', { class: 'pequeno' }, f.ultimo_erro || '')));
