@@ -12,6 +12,9 @@ export function abrirBanco(caminho = config.dbPath) {
   conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const schema = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   conn.exec(schema);
+  // Bancos criados antes da busca nos itens: indexa os itens que já estavam baixados (uma vez só)
+  const semIndice = conn.prepare('SELECT 1 FROM itens_fts_docsize LIMIT 1').get() == null;
+  if (semIndice && conn.prepare('SELECT 1 FROM licitacao_itens LIMIT 1').get()) conn.exec("INSERT INTO itens_fts(itens_fts) VALUES ('rebuild')");
   semearFontes(conn);
   return conn;
 }

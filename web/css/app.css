@@ -107,7 +107,7 @@ tr.clicavel { cursor: pointer; }
 tr.clicavel:hover td { background: #f8fafc; }
 
 .resultado { display: grid; gap: 10px; }
-.item-lic { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; }
+.item-lic { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; }
 .item-lic .objeto { font-weight: 600; text-decoration: none; color: var(--texto); }
 .item-lic .objeto:hover { color: var(--cor-primaria); text-decoration: underline; }
 .item-lic .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .84rem; color: var(--texto-suave); }
@@ -165,8 +165,8 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
   .btn.botao-menu { display: inline-flex; }
   .topo { padding: 10px 12px; }
   .conteudo { padding: 14px 12px 60px; }
-  .item-lic { grid-template-columns: 1fr; }
-  .item-lic .lado { text-align: left; justify-items: start; grid-auto-flow: column; justify-content: start; }
+  .item-lic { grid-template-columns: minmax(0, 1fr); }
+  .item-lic .lado { text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
   dl.detalhes { grid-template-columns: 1fr; }
   dl.detalhes dt { margin-top: 6px; }
   .filtros .largo { grid-column: span 1; }
@@ -222,3 +222,8 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
 .item-cat:hover { border-color: var(--cor-primaria); background: var(--cor-primaria-clara); }
 td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 tr.linha-alerta td { background: #fff8f7; }
+
+/* Busca nos itens: mostra por que a licitação apareceu */
+.itens-achados { margin-top: 6px; font-size: .85rem; background: var(--fundo); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
+.resultado { grid-template-columns: minmax(0, 1fr); }
+.item-lic { min-width: 0; } .item-lic .objeto, .item-lic .meta { overflow-wrap: anywhere; }
