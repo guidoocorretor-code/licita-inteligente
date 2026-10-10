@@ -214,11 +214,39 @@ function formDocumentos(c, tipos, { sicaf = false, renovar = null } = {}, aoSalv
       sicaf ? null : h('td', {}, numero), sicaf ? null : h('td', {}, desc));
   };
   const corpoTabela = sicaf ? DO_SICAF.map((t) => linhaDoc(t, true)) : [linhaDoc(renovar?.tipo || 'municipal', !!renovar)];
+  const leitura = h('div', { class: 'status-receita' });
+  // SICAF: ao escolher o PDF, o sistema lê a declaração e preenche as validades (só campos vazios)
+  if (sicaf) arquivo.addEventListener('change', async () => {
+    const f = arquivo.files[0];
+    if (!f) return;
+    leitura.className = 'status-receita aviso azul'; render(leitura, 'Lendo as datas do PDF...');
+    const fd = new FormData(); fd.append('arquivo', f);
+    try {
+      const r = await api(`/clientes/${c.id}/sicaf/ler`, { metodo: 'POST', corpo: fd });
+      let n = 0;
+      for (const l of linhas) {
+        l.validade.classList.remove('lido-pdf');
+        const v = r.validades[l.tipo()];
+        if (v && !l.validade.value) { l.validade.value = v; l.validade.classList.add('lido-pdf'); n++; }
+        if (l.tipo() === 'sicaf' && r.emitido_em && !l.emissao.value) l.emissao.value = r.emitido_em;
+      }
+      const faltam = DO_SICAF.filter((t) => !r.validades[t]).map((t) => tipos[t]);
+      const avisos = [];
+      if (!r.eh_sicaf) avisos.push('Este PDF não parece ser a declaração do SICAF. ');
+      if (r.cnpj_confere === false) avisos.push(`O CNPJ do PDF (${fmtCnpj(r.cnpj)}) é diferente do CNPJ desta empresa. `);
+      if (r.sem_texto) avisos.push('O PDF não tem texto (parece escaneado): digite as datas. ');
+      leitura.className = `status-receita aviso ${avisos.length ? 'vermelho' : n ? 'verde' : 'amarelo'}`;
+      render(leitura, h('strong', {}, avisos.join('') || (n ? `${n} validade(s) preenchida(s) a partir do PDF. ` : 'Nenhuma validade encontrada no PDF. ')),
+        faltam.length && !r.sem_texto ? h('span', {}, `Não constam no PDF: ${faltam.join(', ')}. `) : null,
+        h('div', { class: 'pequeno', style: { marginTop: '4px' } }, 'Confira as datas destacadas com o PDF antes de salvar.'));
+    } catch (e) { leitura.className = 'status-receita aviso amarelo'; render(leitura, e.message); }
+  });
   const conteudo = h('div', {},
-    sicaf ? h('p', { class: 'pequeno' }, 'Abra o PDF do SICAF (relatório "Situação do Fornecedor") e digite a validade de cada certidão que aparece nele. ',
-      'Deixe em branco o que não constar. Todas as datas ficam ligadas ao mesmo PDF.') : null,
+    sicaf ? h('p', { class: 'pequeno' }, 'Escolha o PDF da declaração do SICAF ("Situação do Fornecedor"): o sistema lê e preenche as validades. ',
+      'Confira e corrija o que for preciso; o que não constar fica em branco. Todas as datas ficam ligadas ao mesmo PDF.') : null,
     renovar ? h('p', { class: 'pequeno' }, `Renovando "${renovar.tipo_nome}" (validade atual ${renovar.validade ? data(renovar.validade, false) : 'não informada'}). A certidão antiga sai da lista.`) : null,
     h('div', { class: 'campo' }, h('label', { for: 'd-arquivo' }, sicaf ? 'PDF do SICAF (até 10 MB)' : 'PDF da certidão (opcional, até 10 MB)'), arquivo),
+    sicaf ? leitura : null,
     h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-form' },
       h('thead', {}, h('tr', {}, ['Certidão', 'Validade', 'Emissão', ...(sicaf ? [] : ['Número', 'Descrição'])].map((x) => h('th', {}, x)))),
       h('tbody', {}, corpoTabela))));
