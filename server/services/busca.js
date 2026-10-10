@@ -1,5 +1,6 @@
 // Busca avançada combinável sobre licitações (todas as fontes, já deduplicadas).
 import { statusDaVisao, agoraBrasilia } from './status.js';
+import { SISTEMAS } from './sistemas.js';
 
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
 const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
@@ -52,6 +53,8 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   inList('l.esfera', lista(f.esfera));
   inList('l.modalidade_id', lista(f.modalidade).map(Number).filter(Number.isFinite));
   inList('l.plataforma_origem', lista(f.plataforma));
+  inList('l.sistema_eletronico', lista(f.sistema));
+  if (f.sistema_custo) inList('l.sistema_eletronico', Object.entries(SISTEMAS).filter(([, x]) => lista(f.sistema_custo).includes(x.custo)).map(([k]) => k));
   inList('l.segmento', lista(f.segmento));
 
   let status = lista(f.status);
@@ -108,7 +111,7 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
 export const COLUNAS_LISTA = `l.id, l.numero_controle_pncp, l.numero_compra, l.ano, l.processo, l.orgao_nome, l.orgao_cnpj, l.esfera,
   l.uf, l.municipio, l.modalidade_nome, l.objeto, l.segmento, l.valor_estimado, l.valor_estimado_situacao, l.valor_homologado,
   l.data_publicacao, l.data_abertura_proposta, l.data_encerramento_proposta, l.status_calculado, l.status_motivo,
-  l.situacao_oficial_nome, l.plataforma_origem, l.link_origem, l.link_pncp, l.ultima_verificacao, l.me_epp_exclusivo,
+  l.situacao_oficial_nome, l.plataforma_origem, l.sistema_eletronico, l.link_origem, l.link_pncp, l.ultima_verificacao, l.me_epp_exclusivo,
   l.num_itens, l.tem_documentos, l.regime_legal, l.criterio_julgamento, l.modo_disputa_nome, l.srp,
   (SELECT group_concat(fonte_codigo) FROM licitacao_fontes lf WHERE lf.licitacao_id = l.id) AS fontes`;
 

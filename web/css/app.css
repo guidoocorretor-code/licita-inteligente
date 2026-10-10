@@ -274,3 +274,9 @@ dl.dados dd { margin: 0; overflow-wrap: anywhere; }
 .form-empresa input, .form-empresa select, .form-empresa textarea { width: 100%; box-sizing: border-box; min-width: 0; }
 .form-empresa .cnpj-linha .btn { width: auto; flex: none; }
 input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
+.etiqueta.pequena { font-size: .68rem; padding: 1px 6px; vertical-align: middle; }
+.campo-ficha.pago { border-left: 3px solid var(--perigo); }
+.aviso-sistema { margin-top: 8px; font-size: .84rem; padding: 6px 10px; border-radius: 8px; background: var(--fundo); border: 1px solid var(--borda); }
+.aviso-sistema.pago { background: var(--perigo-fundo); border-color: #f6c3bd; color: #7a1a12; }
+.aviso-sistema.gratuito { background: var(--ok-fundo); border-color: #b7e4c7; color: #14532d; }
+.aviso-sistema a { color: inherit; font-weight: 600; }
