@@ -1,0 +1,96 @@
+(node:1757) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1770) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1776) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✖ PNCP: consulta real de contratações publicadas (729.383526ms)
+✖ PNCP: itens e documentos reais de uma contratação conhecida (855.552116ms)
+✖ PNCP: sincronização real (abertas no ES, pregão eletrônico) persiste e deduplica (984.566391ms)
+✖ Compras.gov.br 14.133: consulta real (877.695723ms)
+✖ Compras.gov.br legado: consulta real (804.386551ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 0
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4370.575818
+
+✖ failing tests:
+
+test at tests/integration/conectores.test.js:11:1
+✖ PNCP: consulta real de contratações publicadas (729.383526ms)
+  Error: Falha de rede ao acessar pncp.gov.br: Request was cancelled.
+      at getJson (file:///home/claude/licita-inteligente/server/lib/http.js:57:11)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async Object.testar (file:///home/claude/licita-inteligente/server/connectors/pncp.js:54:23)
+      at async TestContext.<anonymous> (file:///home/claude/licita-inteligente/tests/integration/conectores.test.js:12:13)
+      at async Test.run (node:internal/test_runner/test:1054:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3) {
+    status: null,
+    url: 'https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao?dataInicial=20261009&dataFinal=20261010&codigoModalidadeContratacao=6&pagina=1&tamanhoPagina=10',
+    corpo: null,
+    tipo: 'bloqueada_rede'
+  }
+
+test at tests/integration/conectores.test.js:17:1
+✖ PNCP: itens e documentos reais de uma contratação conhecida (855.552116ms)
+  Error: Falha de rede ao acessar pncp.gov.br: Request was cancelled.
+      at getJson (file:///home/claude/licita-inteligente/server/lib/http.js:57:11)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async buscarItens (file:///home/claude/licita-inteligente/server/connectors/pncp.js:33:30)
+      at async TestContext.<anonymous> (file:///home/claude/licita-inteligente/tests/integration/conectores.test.js:18:17)
+      at async Test.run (node:internal/test_runner/test:1054:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    status: null,
+    url: 'https://pncp.gov.br/api/pncp/v1/orgaos/28127603014802/compras/2026/3/itens?pagina=1&tamanhoPagina=500',
+    corpo: null,
+    tipo: 'bloqueada_rede'
+  }
+
+test at tests/integration/conectores.test.js:25:1
+✖ PNCP: sincronização real (abertas no ES, pregão eletrônico) persiste e deduplica (984.566391ms)
+  AssertionError [ERR_ASSERTION]: Falha de rede ao acessar pncp.gov.br: Request was cancelled.
+      at TestContext.<anonymous> (file:///home/claude/licita-inteligente/tests/integration/conectores.test.js:29:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async Test.run (node:internal/test_runner/test:1054:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'erro',
+    expected: 'erro',
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/integration/conectores.test.js:37:1
+✖ Compras.gov.br 14.133: consulta real (877.695723ms)
+  Error: Falha de rede ao acessar dadosabertos.compras.gov.br: Request was cancelled.
+      at getJson (file:///home/claude/licita-inteligente/server/lib/http.js:57:11)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async Object.testar (file:///home/claude/licita-inteligente/server/connectors/comprasgov.js:26:23)
+      at async TestContext.<anonymous> (file:///home/claude/licita-inteligente/tests/integration/conectores.test.js:38:13)
+      at async Test.run (node:internal/test_runner/test:1054:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    status: null,
+    url: 'https://dadosabertos.compras.gov.br/modulo-contratacoes/1_consultarContratacoes_PNCP_14133?pagina=1&tamanhoPagina=10&dataPublicacaoPncpInicial=2026-10-09&dataPublicacaoPncpFinal=2026-10-10&codigoModalidade=6',
+    corpo: null,
+    tipo: 'bloqueada_rede'
+  }
+
+test at tests/integration/conectores.test.js:42:1
+✖ Compras.gov.br legado: consulta real (804.386551ms)
+  Error: Falha de rede ao acessar dadosabertos.compras.gov.br: Request was cancelled.
+      at getJson (file:///home/claude/licita-inteligente/server/lib/http.js:57:11)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async Object.testar (file:///home/claude/licita-inteligente/server/connectors/comprasgov.js:49:23)
+      at async TestContext.<anonymous> (file:///home/claude/licita-inteligente/tests/integration/conectores.test.js:43:13)
+      at async Test.run (node:internal/test_runner/test:1054:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    status: null,
+    url: 'https://dadosabertos.compras.gov.br/modulo-legado/1_consultarLicitacao?pagina=1&tamanhoPagina=10&data_publicacao_inicial=2026-10-09&data_publicacao_final=2026-10-10',
+    corpo: null,
+    tipo: 'bloqueada_rede'
+  }

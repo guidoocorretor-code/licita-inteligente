@@ -1,0 +1,8 @@
+{
+  "_origem": "Documento REAL retornado por GET https://pncp.gov.br/api/pncp/v1/orgaos/28127603014802/compras/2026/3/arquivos em 10/10/2026.",
+  "uri": "https://pncp.gov.br/pncp-api/v1/orgaos/28127603014802/compras/2026/3/arquivos/2",
+  "url": "https://pncp.gov.br/pncp-api/v1/orgaos/28127603014802/compras/2026/3/arquivos/2",
+  "cnpj": "28127603014802", "anoCompra": 2026, "sequencialCompra": 3, "statusAtivo": true,
+  "dataPublicacaoPncp": "2026-10-01T07:38:01", "sequencialDocumento": 2, "tipoDocumentoNome": "Edital",
+  "tipoDocumentoDescricao": "Edital", "titulo": "92556005900052026001", "tipoDocumentoId": 2
+}

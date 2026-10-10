@@ -1,0 +1,62 @@
+
+> licita-inteligente@0.2.0 test
+> node --disable-warning=ExperimentalWarning --test --test-reporter=spec "tests/unit/*.test.js"
+
+✔ rotas exigem login e cookie é HttpOnly/SameSite (376.441423ms)
+✔ senha errada repetida bloqueia a conta (1916.661075ms)
+✔ proteção CSRF: alteração sem cabeçalho é recusada (328.68731ms)
+✔ busca, detalhe e favoritos funcionam e ficam isolados por usuário/empresa (661.12461ms)
+[api] Error: Etapa inválida.
+    at file:///home/claude/licita-inteligente/server/routes/api.js:217:36
+    at transacao (file:///home/claude/licita-inteligente/server/db/index.js:43:19)
+    at file:///home/claude/licita-inteligente/server/routes/api.js:214:3
+    at Layer.handle [as handle_request] (/home/claude/licita-inteligente/node_modules/express/lib/router/layer.js:95:5)
+    at next (/home/claude/licita-inteligente/node_modules/express/lib/router/route.js:149:13)
+    at file:///home/claude/licita-inteligente/server/lib/auth.js:73:55
+    at Layer.handle [as handle_request] (/home/claude/licita-inteligente/node_modules/express/lib/router/layer.js:95:5)
+    at next (/home/claude/licita-inteligente/node_modules/express/lib/router/route.js:149:13)
+    at Route.dispatch (/home/claude/licita-inteligente/node_modules/express/lib/router/route.js:119:3)
+    at Layer.handle [as handle_request] (/home/claude/licita-inteligente/node_modules/express/lib/router/layer.js:95:5)
+    at /home/claude/licita-inteligente/node_modules/express/lib/router/index.js:284:15
+    at param (/home/claude/licita-inteligente/node_modules/express/lib/router/index.js:365:14)
+    at param (/home/claude/licita-inteligente/node_modules/express/lib/router/index.js:376:14)
+    at Function.process_params (/home/claude/licita-inteligente/node_modules/express/lib/router/index.js:421:3)
+    at next (/home/claude/licita-inteligente/node_modules/express/lib/router/index.js:280:10)
+    at exigirLogin (file:///home/claude/licita-inteligente/server/lib/auth.js:68:5) {
+  status: 400
+}
+✔ Kanban: criação, movimentação com histórico e isolamento entre empresas (700.574711ms)
+✔ controle de acesso por papel (666.699179ms)
+✔ importação de JSON oficial e pesquisa salva com alerta (1449.089019ms)
+✔ exportação via API e dashboard calculado do banco (415.221078ms)
+✔ busca textual sem acento, palavras obrigatórias e excluídas (12.752586ms)
+✔ filtros combinados, visões, ordenação e paginação (7.424788ms)
+✔ exportação CSV (BOM, separador ;) e XLSX (62.656711ms)
+✔ normaliza registro real do PNCP sem inventar campos (1.566407ms)
+✔ normaliza registro real do Compras.gov.br 14.133 com mesma chave do PNCP (0.716076ms)
+✔ item com orçamento sigiloso não expõe valor 0 como estimativa (0.303476ms)
+✔ documento real é normalizado com URL (0.328423ms)
+✔ extração de regime legal e datas (0.331933ms)
+✔ importação e persistência do registro real (7.244776ms)
+✔ deduplicação: mesma contratação vinda do PNCP e do Compras.gov.br vira um único registro com duas origens (4.368303ms)
+✔ atualização: alteração de prazo gera evento e recalcula status (3.835018ms)
+✔ itens oficiais desertos levam à classificação deserta, com evento de resultado (3.540864ms)
+✔ documentos: primeira carga sem eventos; documento novo gera evento (2.858762ms)
+✔ status temporais são reavaliados com o passar do tempo (3.087404ms)
+✔ situação oficial prevalece (3.499797ms)
+✔ classificação por datas (0.267765ms)
+✔ prazo encerrado SEM evidência NÃO vira deserta (0.173938ms)
+✔ deserta/fracassada somente com situação oficial dos itens (0.260682ms)
+✔ fontes sem código: usa texto da situação (1.430955ms)
+✔ sincronização PNCP: paginação, persistência, detalhes, cursor e log (85.042992ms)
+✔ API indisponível: execução registrada como erro, cursor não avança, nada é inventado (468.874083ms)
+✔ falhas em detalhes ficam registradas e podem ser reprocessadas (1648.715174ms)
+✔ cliente HTTP: repete em 5xx/429 com espera e não repete em 4xx (285.542028ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8324.024099

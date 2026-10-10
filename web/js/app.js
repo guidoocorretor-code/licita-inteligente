@@ -1,0 +1,137 @@
+import { api } from './api.js';
+import { h, toast } from './ui.js';
+import * as P from './paginas.js';
+
+export const estado = { usuario: null, empresa: null, meta: null };
+
+// Menu completo. Módulos ainda não implementados aparecem com a fase prevista e NÃO simulam funcionamento.
+const MENU = [
+  ['Principal'],
+  ['dashboard', 'Dashboard'],
+  ['buscar', 'Buscar licitações'],
+  ['jornal', 'Jornal de licitações'],
+  ['oportunidades', 'Minhas oportunidades'],
+  ['favoritos', 'Favoritos'],
+  ['kanban', 'Kanban'],
+  ['notificacoes', 'Alertas'],
+  ['Gestão'],
+  ['calendario', 'Calendário', 3],
+  ['documentos', 'Documentos', 3],
+  ['fornecedores', 'Fornecedores', 3],
+  ['precos', 'Preços e contratos', 4],
+  ['propostas', 'Propostas', 4],
+  ['lances', 'Gestão de lances', 5],
+  ['Inteligência'],
+  ['ia-edital', 'Análise de edital por IA', 4],
+  ['ia-juridico', 'Assistente jurídico', 4],
+  ['financeiro', 'Financeiro', 5],
+  ['relatorios', 'Relatórios', 5],
+  ['Administração'],
+  ['fontes', 'Fontes de dados'],
+  ['configuracoes', 'Configurações'],
+];
+
+const ROTAS = {
+  dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
+  kanban: P.kanban, oportunidades: P.kanban, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+};
+
+function rotaAtual() {
+  const [nome, ...resto] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('/');
+  const [base, query] = nome.split('?');
+  return { nome: base, args: resto, query: new URLSearchParams(location.hash.split('?')[1] || '') , _q: query };
+}
+
+function montarLayout() {
+  const app = document.getElementById('app');
+  const lateral = h('nav', { class: 'lateral', 'aria-label': 'Menu principal' },
+    h('div', { class: 'marca' }, h('img', { src: '/icons/icon.svg', alt: '' }), estado.meta?.appName || 'Licita Inteligente'),
+    h('div', { class: 'menu' }, MENU.map(([id, rot, fase]) => {
+      if (!rot) return h('div', { class: 'secao' }, id);
+      return h('a', { href: `#/${id}`, 'data-rota': id, class: fase ? 'futuro' : '' }, rot, fase ? h('span', { class: 'fase', title: `Previsto para a Fase ${fase}` }, `Fase ${fase}`) : null);
+    })));
+  const busca = h('input', { type: 'search', placeholder: 'Busca rápida no objeto, órgão ou município…', 'aria-label': 'Busca global' });
+  const topo = h('header', { class: 'topo' },
+    h('button', { class: 'btn botao-menu', 'aria-label': 'Abrir menu', onclick: () => lateral.classList.toggle('aberta') }, '☰'),
+    h('form', { onsubmit: (e) => { e.preventDefault(); location.hash = `#/buscar?q=${encodeURIComponent(busca.value)}`; } }, busca),
+    h('div', { class: 'acoes-topo' },
+      h('a', { class: 'btn', href: '#/notificacoes', id: 'sino', title: 'Alertas' }, '🔔'),
+      h('span', { class: 'nome-usuario suave pequeno' }, `${estado.usuario.nome} · ${estado.empresa?.nome || ''}`),
+      h('button', { class: 'btn', onclick: sair }, 'Sair')));
+  const conteudo = h('main', { class: 'conteudo', id: 'conteudo' });
+  lateral.addEventListener('click', (e) => { if (e.target.closest('a')) lateral.classList.remove('aberta'); });
+  app.replaceChildren(h('div', { class: 'layout' }, lateral, h('div', { class: 'principal' }, topo, conteudo)));
+}
+
+async function navegar() {
+  if (!estado.usuario) return;
+  const r = rotaAtual();
+  document.querySelectorAll('.menu a').forEach((a) => a.classList.toggle('ativo', a.dataset.rota === r.nome));
+  const alvo = document.getElementById('conteudo');
+  const pagina = ROTAS[r.nome];
+  const item = MENU.find(([id]) => id === r.nome);
+  try {
+    if (pagina) await pagina(alvo, r, estado);
+    else if (item?.[2]) P.emDesenvolvimento(alvo, item[1], item[2]);
+    else { location.hash = '#/dashboard'; }
+  } catch (e) {
+    alvo.replaceChildren(h('div', { class: 'aviso vermelho' }, e.message));
+  }
+  window.scrollTo(0, 0);
+}
+
+async function sair() {
+  try { await api('/auth/logout', { metodo: 'POST', corpo: {} }); } catch { /* ignora */ }
+  estado.usuario = null; telaLogin();
+}
+
+function telaLogin(msg) {
+  const email = h('input', { type: 'email', required: true, autocomplete: 'username', id: 'email' });
+  const senha = h('input', { type: 'password', required: true, autocomplete: 'current-password', id: 'senha' });
+  const erro = h('div', { class: 'aviso vermelho', style: { display: msg ? 'block' : 'none' } }, msg || '');
+  const botao = h('button', { class: 'btn primario', type: 'submit', style: { width: '100%', justifyContent: 'center' } }, 'Entrar');
+  const form = h('form', {
+    onsubmit: async (e) => {
+      e.preventDefault(); botao.disabled = true; erro.style.display = 'none';
+      try {
+        await api('/auth/login', { metodo: 'POST', corpo: { email: email.value, senha: senha.value } });
+        await iniciar();
+      } catch (er) { erro.textContent = er.message; erro.style.display = 'block'; }
+      finally { botao.disabled = false; }
+    },
+  },
+  h('div', { class: 'marca', style: { color: 'var(--cor-primaria)', padding: '0 0 12px' } }, h('img', { src: '/icons/icon.svg', alt: '' }), 'Licita Inteligente'),
+  h('p', { class: 'suave' }, 'Inteligência e gestão de licitações públicas.'),
+  erro,
+  h('div', { class: 'campo' }, h('label', { for: 'email' }, 'E-mail'), email),
+  h('div', { class: 'campo' }, h('label', { for: 'senha' }, 'Senha'), senha),
+  botao,
+  h('p', { class: 'suave pequeno' }, 'Acesso restrito. Contas são criadas pelo administrador da empresa.'));
+  document.getElementById('app').replaceChildren(h('div', { class: 'tela-login' }, h('div', { class: 'cartao' }, form)));
+}
+
+async function atualizarSino() {
+  try {
+    const n = (await api('/notificacoes')).filter((x) => !x.lida).length;
+    const s = document.getElementById('sino');
+    if (s) s.textContent = n ? `🔔 ${n}` : '🔔';
+  } catch { /* ignora */ }
+}
+
+async function iniciar() {
+  try {
+    const eu = await api('/auth/eu');
+    estado.usuario = eu.usuario; estado.empresa = eu.empresa;
+    estado.meta = await api('/meta');
+  } catch { return telaLogin(); }
+  montarLayout();
+  await navegar();
+  atualizarSino();
+}
+
+window.addEventListener('hashchange', navegar);
+window.addEventListener('sessao-expirada', () => { if (estado.usuario) { estado.usuario = null; telaLogin('Sua sessão expirou. Entre novamente.'); } });
+window.addEventListener('atualizar-sino', atualizarSino);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+iniciar();
+export { toast };

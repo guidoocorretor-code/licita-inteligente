@@ -1,0 +1,24 @@
+{
+  "name": "licita-inteligente",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Sistema de inteligência e gestão de licitações públicas (PNCP, Compras.gov.br e outras fontes).",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "migrate": "node --disable-warning=ExperimentalWarning scripts/migrate.js",
+    "create-admin": "node --disable-warning=ExperimentalWarning scripts/create-admin.js",
+    "sync": "node --disable-warning=ExperimentalWarning scripts/sync.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-reporter=spec \"tests/unit/*.test.js\"",
+    "test:integration": "node --disable-warning=ExperimentalWarning --test --test-reporter=spec \"tests/integration/*.test.js\""
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}

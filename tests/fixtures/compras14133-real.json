@@ -1,0 +1,16 @@
+{
+  "_origem": "Registro REAL retornado por GET https://dadosabertos.compras.gov.br/modulo-contratacoes/1_consultarContratacoes_PNCP_14133?pagina=1&tamanhoPagina=10&dataPublicacaoPncpInicial=2026-09-01&dataPublicacaoPncpFinal=2026-09-02&codigoModalidade=6 em 10/10/2026 (amparoLegalDescricao truncado pela ferramenta de captura).",
+  "idCompra": "15830106000342026", "numeroControlePNCP": "05055128000176-1-000108/2026", "anoCompraPncp": 2026, "sequencialCompraPncp": 108,
+  "orgaoEntidadeCnpj": "05055128000176", "codigoOrgao": 54284, "orgaoEntidadeRazaoSocial": "UNIVERSIDADE FEDERAL DE CAMPINA GRANDE",
+  "orgaoEntidadeEsferaId": "F", "orgaoEntidadePoderId": "E", "unidadeOrgaoCodigoUnidade": "158301",
+  "unidadeOrgaoNomeUnidade": "CENTRO DE CIENCIAS E TECNOLOGIA AGROALIMENTAR", "unidadeOrgaoUfSigla": "PB", "unidadeOrgaoMunicipioNome": "POMBAL",
+  "unidadeOrgaoCodigoIbge": 2512101, "numeroCompra": "34", "modalidadeIdPncp": 8, "codigoModalidade": 6, "modalidadeNome": "Dispensa",
+  "srp": false, "modoDisputaIdPncp": 4, "codigoModoDisputa": 4, "amparoLegalCodigoPncp": 20, "amparoLegalNome": "Lei 14.133/2021, Art. 75, III, a",
+  "amparoLegalDescricao": "Dispensa de Licitação: não surgiram licitantes interessados ou não foram apresen...", "informacaoComplementar": null,
+  "processo": "23096.054524/2026-41", "objetoCompra": "Republicação da Dispensa Eletrônica nº 33/2026 relativa a aquisição de materiais",
+  "existeResultado": true, "orcamentoSigilosoCodigo": 1, "orcamentoSigilosoDescricao": "Compra sem sigilo", "situacaoCompraIdPncp": 1,
+  "situacaoCompraNomePncp": "Divulgada no PNCP", "tipoInstrumentoConvocatorioCodigoPncp": 2, "tipoInstrumentoConvocatorioNome": "Aviso de Contratação Direta",
+  "modoDisputaNomePncp": "Dispensa Com Disputa", "valorTotalEstimado": 6351.15, "valorTotalHomologado": 6195.20,
+  "dataInclusaoPncp": "2026-09-01T07:26:01", "dataAtualizacaoPncp": "2026-09-01T07:26:01", "dataPublicacaoPncp": "2026-09-01T07:26:01",
+  "dataAberturaPropostaPncp": "2026-09-01T08:00:00", "dataEncerramentoPropostaPncp": "2026-09-04T08:00:00", "contratacaoExcluida": false
+}

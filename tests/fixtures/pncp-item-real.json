@@ -1,0 +1,9 @@
+{
+  "_origem": "Item REAL retornado por GET https://pncp.gov.br/api/pncp/v1/orgaos/28127603014802/compras/2026/3/itens em 10/10/2026.",
+  "numeroItem": 1, "descricao": "Fornecimento Cartão / Crédito Telefone Celular", "materialOuServico": "S", "materialOuServicoNome": "Serviço",
+  "valorUnitarioEstimado": 0, "valorTotal": 0, "quantidade": 1.0, "unidadeMedida": "UNIDADE", "orcamentoSigiloso": true,
+  "itemCategoriaId": 3, "itemCategoriaNome": "Não se aplica", "criterioJulgamentoId": 1, "criterioJulgamentoNome": "Menor preço",
+  "situacaoCompraItem": 1, "situacaoCompraItemNome": "Em andamento", "tipoBeneficio": 5, "tipoBeneficioNome": "Não se aplica",
+  "incentivoProdutivoBasico": false, "dataInclusao": "2026-04-24T07:16:31", "dataAtualizacao": "2026-10-01T07:38:04", "temResultado": false,
+  "ncmNbsCodigo": null, "catalogoCodigoItem": null
+}
