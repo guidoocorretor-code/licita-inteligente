@@ -1,7 +1,7 @@
 import { api, qs } from './api.js';
 import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
-  confirmar, modal, barras, naoInformado, render,
+  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render,
 } from './ui.js';
 
 const ehAdmin = (e) => ['admin', 'superadmin'].includes(e.usuario.papel);
@@ -18,8 +18,10 @@ function cabecalho(titulo, subtitulo, ...acoes) {
 export async function dashboard(alvo, _r, est) {
   render(alvo, carregando());
   const d = await api('/dashboard');
-  const kpi = (rot, val, link, dica) => h('div', { class: 'cartao kpi', title: dica || '' },
-    h('a', { href: link || '#/buscar' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val)));
+  const kpi = (rot, val, link, dica, apoio) => h('div', { class: 'cartao kpi', title: dica || '' },
+    h('a', { href: link || '#/buscar' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val), apoio ? h('div', { class: 'apoio' }, apoio) : null));
+  const moedaKpi = (v) => (v == null ? moeda(v) : moedaCurta(v));
+  const ir = (params) => { location.hash = `#/buscar?${new URLSearchParams(params)}`; };
   const va = d.valor_estimado_abertas;
   const avisos = [];
   if (d.total === 0) {
@@ -41,23 +43,31 @@ export async function dashboard(alvo, _r, est) {
       kpi('Em disputa / aguardando resultado', numero(d.por_visao.em_disputa), '#/buscar?visao=em_disputa'),
       kpi('Encerradas', numero(d.por_visao.encerradas), '#/buscar?visao=encerradas'),
       kpi('Desertas ou fracassadas', numero(d.por_visao.desertas_fracassadas), '#/buscar?visao=desertas_fracassadas', 'Somente com situação oficial informada pela fonte nos itens.'),
-      kpi('Valor estimado das abertas', moeda(va.v), '#/buscar?visao=abertas', `Soma apenas de valores informados (${va.com_valor} licitações). ${va.sigilosos || 0} com orçamento sigiloso e ${va.sem_valor || 0} sem valor/zero não entram na soma.`),
-      kpi('Valor homologado (registrado)', moeda(d.valor_homologado.v), '#/buscar?visao=encerradas', `Valor homologado informado pela fonte em ${d.valor_homologado.n} licitações. Não é somado ao estimado.`),
+      kpi('Valor estimado das abertas', moedaKpi(va.v), '#/buscar?visao=abertas', `Soma apenas de valores informados (${va.com_valor} licitações). ${va.sigilosos || 0} com orçamento sigiloso e ${va.sem_valor || 0} sem valor/zero não entram na soma.`,
+        va.v ? `${moeda(va.v)} · ${numero(va.com_valor)} com valor` : null),
+      kpi('Valor homologado (registrado)', moedaKpi(d.valor_homologado.v), '#/buscar?visao=encerradas', `Valor homologado informado pela fonte em ${d.valor_homologado.n} licitações. Não é somado ao estimado.`,
+        d.valor_homologado.v ? moeda(d.valor_homologado.v) : null),
       kpi('Publicadas nas últimas 24h', numero(d.novas_24h), '#/jornal'),
       kpi('Publicadas nos últimos 7 dias', numero(d.novas_7d), '#/jornal'),
       kpi('Alertas não lidos', numero(d.alertas_pendentes), '#/notificacoes')),
     h('div', { class: 'grade duas', style: { marginTop: '14px' } },
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por situação'),
+        rosca([['abertas', 'Abertas'], ['em_disputa', 'Em disputa / aguardando'], ['encerradas', 'Encerradas'], ['desertas_fracassadas', 'Desertas ou fracassadas'], ['outras', 'Suspensas, revogadas e outras']]
+          .map(([v, rotulo]) => ({ v, rotulo, n: d.por_visao[v] || 0 })), { aoClicar: (f) => ir({ visao: f.v }) })),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por modalidade'),
+        rosca(d.por_modalidade, { aoClicar: (f) => (f.id ? ir({ visao: '', modalidade: f.id }) : null) })),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por plataforma de origem'), h('p', { class: 'suave pequeno' }, 'Sistema que publicou no PNCP (campo usuarioNome).'),
+        rosca(d.por_plataforma, { aoClicar: (f) => ir({ visao: '', plataforma: f.rotulo }) })),
       h('div', { class: 'cartao' }, h('h2', {}, 'Publicações nos últimos 30 dias'),
         d.evolucao.length ? h('div', {},
           h('div', { class: 'colunas-grafico' }, d.evolucao.map((e) => h('div', { style: { height: `${(e.n / maxEv) * 100}%` }, title: `${data(e.dia, false)}: ${e.n}` }))),
           h('div', { class: 'linha suave pequeno', style: { justifyContent: 'space-between' } }, h('span', {}, data(d.evolucao[0].dia, false)), h('span', {}, data(d.evolucao.at(-1).dia, false))))
           : vazio('Sem publicações no período.')),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por estado'), barras(d.por_uf, { max: 12 })),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por estado'), barras(d.por_uf, { max: 27 })),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por município (top 10)'), barras(d.por_municipio)),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por órgão (top 10)'), barras(d.por_orgao)),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por segmento'), h('p', { class: 'suave pequeno' }, 'Classificação automática por palavras-chave do objeto (estimativa).'), barras(d.por_segmento, { max: 15 })),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por modalidade'), barras(d.por_modalidade)),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por plataforma de origem'), h('p', { class: 'suave pequeno' }, 'Sistema que publicou no PNCP (campo usuarioNome).'), barras(d.por_plataforma))));
+    ));
 }
 
 // ============================ BUSCA ============================

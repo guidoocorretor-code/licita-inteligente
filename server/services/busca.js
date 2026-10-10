@@ -3,7 +3,10 @@ import { statusDaVisao, agoraBrasilia } from './status.js';
 
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
 const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
-const fts = (t) => `"${t.replace(/"/g, '')}"`;
+// Busca por prefixo para pegar plural e variações: "serviço" acha "serviços"; termos em -ção/-são
+// e -ções viram o radical ("locação"/"locações" -> "locac*") e acham as duas formas.
+const radical = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/([cs])(ao|oes)$/, '$1').replace(/"/g, '');
+const fts = (t) => `"${radical(t)}"*`;
 const dataOk = (v) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? String(v).slice(0, 10) : null);
 const numOk = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
 

@@ -36,8 +36,8 @@ export function indicadores(db, { usuarioId, agora = agoraBrasilia() } = {}) {
     por_municipio: todos(`SELECT municipio || ' / ' || uf rotulo, COUNT(*) n FROM licitacoes WHERE municipio IS NOT NULL GROUP BY municipio, uf ORDER BY n DESC LIMIT 10`),
     por_orgao: todos(`SELECT orgao_nome rotulo, orgao_cnpj cnpj, COUNT(*) n FROM licitacoes WHERE orgao_nome IS NOT NULL GROUP BY orgao_cnpj, orgao_nome ORDER BY n DESC LIMIT 10`),
     por_segmento: todos(`SELECT COALESCE(segmento,'(sem objeto)') rotulo, COUNT(*) n FROM licitacoes GROUP BY segmento ORDER BY n DESC`),
-    por_modalidade: todos(`SELECT COALESCE(modalidade_nome,'(não informada)') rotulo, COUNT(*) n FROM licitacoes GROUP BY modalidade_nome ORDER BY n DESC`),
-    por_plataforma: todos(`SELECT COALESCE(plataforma_origem,'(não informada)') rotulo, COUNT(*) n FROM licitacoes GROUP BY plataforma_origem ORDER BY n DESC LIMIT 12`),
+    por_modalidade: todos(`SELECT COALESCE(modalidade_nome,'(não informada)') rotulo, MIN(modalidade_id) id, COUNT(*) n FROM licitacoes GROUP BY modalidade_nome ORDER BY n DESC`),
+    por_plataforma: todos(`SELECT COALESCE(plataforma_origem,'(não informada)') rotulo, COUNT(*) n FROM licitacoes GROUP BY plataforma_origem ORDER BY n DESC`),
     evolucao: todos(`SELECT substr(data_publicacao,1,10) dia, COUNT(*) n FROM licitacoes WHERE data_publicacao >= ? GROUP BY dia ORDER BY dia`, menos(24 * 30)),
     alertas_pendentes: usuarioId ? um('SELECT COUNT(*) n FROM notificacoes WHERE usuario_id=? AND lida=0', usuarioId).n : 0,
     conectores_com_falha: todos(`SELECT codigo, nome, situacao_conexao, ultimo_erro, ultima_sincronizacao FROM fontes

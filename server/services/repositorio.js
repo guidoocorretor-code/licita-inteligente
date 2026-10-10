@@ -31,7 +31,7 @@ function upsertOrgao(db, c) {
   db.prepare(`INSERT INTO orgaos (cnpj, razao_social, esfera, poder) VALUES (?,?,?,?)
     ON CONFLICT(cnpj) DO UPDATE SET razao_social=COALESCE(excluded.razao_social, razao_social),
       esfera=COALESCE(excluded.esfera, esfera), poder=COALESCE(excluded.poder, poder), atualizado_em=datetime('now')`)
-    .run(c.orgao_cnpj, c.orgao_nome, c.esfera, c.poder);
+    .run(c.orgao_cnpj ?? null, c.orgao_nome ?? null, c.esfera ?? null, c.poder ?? null);
   return db.prepare('SELECT id FROM orgaos WHERE cnpj=?').get(c.orgao_cnpj).id;
 }
 

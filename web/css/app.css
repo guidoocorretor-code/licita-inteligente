@@ -110,7 +110,7 @@ tr.clicavel:hover td { background: #f8fafc; }
 .paginacao { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 
 .barras { display: grid; gap: 6px; }
-.barra { display: grid; grid-template-columns: minmax(90px, 38%) 1fr 48px; gap: 8px; align-items: center; font-size: .84rem; }
+.barra { display: grid; grid-template-columns: minmax(90px, 55%) 1fr 44px; gap: 8px; align-items: center; font-size: .84rem; }
 .barra .trilho { background: var(--neutro-fundo); border-radius: 4px; height: 12px; overflow: hidden; }
 .barra .preench { background: var(--cor-primaria); height: 100%; border-radius: 4px; }
 .barra .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -168,3 +168,28 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
   .evento { grid-template-columns: 1fr; gap: 2px; }
   .topo .nome-usuario { display: none; }
 }
+
+/* Indicadores: números sempre dentro do bloco */
+.kpi { min-width: 0; }
+.kpi .valor { font-size: clamp(1.15rem, 1.1rem + .6vw, 1.6rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.kpi .apoio { color: var(--texto-suave); font-size: .75rem; margin-top: 2px; overflow-wrap: anywhere; }
+.aviso { overflow-wrap: anywhere; }
+
+/* Gráfico de rosca + legenda */
+.rosca { display: grid; grid-template-columns: 140px 1fr; gap: 16px; align-items: center; }
+.rosca-svg { width: 140px; height: 140px; }
+.rosca-total { font-size: 18px; font-weight: 700; fill: var(--texto); }
+.rosca-rotulo { font-size: 10px; fill: var(--texto-suave); }
+.rosca-legenda { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: .84rem; min-width: 0; }
+.rosca-legenda li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 48px; gap: 8px; align-items: center; }
+.rosca-legenda li.clicavel { cursor: pointer; }
+.rosca-legenda li.clicavel:hover .nome { text-decoration: underline; }
+.rosca-legenda .amostra { width: 12px; height: 12px; border-radius: 3px; }
+.rosca-legenda .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rosca-legenda .n, .rosca-legenda .pct { text-align: right; font-variant-numeric: tabular-nums; }
+.rosca-legenda .pct { color: var(--texto-suave); }
+/* Em cartões estreitos (3 por linha no computador, ou celular) a rosca fica em cima e a legenda
+   ocupa a largura toda, para os nomes não serem cortados. */
+.cartao:has(.rosca) { container-type: inline-size; }
+@container (max-width: 520px) { .rosca { grid-template-columns: 1fr; justify-items: center; } .rosca-legenda { width: 100%; } }
+@media (max-width: 420px) { .rosca { grid-template-columns: 1fr; justify-items: center; } .rosca-legenda { width: 100%; } }
