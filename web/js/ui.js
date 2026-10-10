@@ -89,14 +89,27 @@ export function modal(titulo, conteudo, acoes = []) {
   return fechar;
 }
 
-export function barras(itens, { max = 10, rotulo = (i) => i.rotulo } = {}) {
-  const lista = itens.slice(0, max);
-  const maior = Math.max(1, ...lista.map((i) => i.n));
-  if (!lista.length) return vazio('Sem dados ainda.');
-  return h('div', { class: 'barras' }, lista.map((i) => h('div', { class: 'barra' },
-    h('span', { class: 'nome', title: rotulo(i) }, rotulo(i)),
-    h('span', { class: 'trilho' }, h('span', { class: 'preench', style: { width: `${(i.n / maior) * 100}%`, display: 'block' } })),
-    h('span', { class: 'n' }, numero(i.n)))));
+// Barras horizontais em páginas de `max` linhas, com ‹ › para ver as demais.
+// A escala é a mesma em todas as páginas (o maior valor geral), para as barras continuarem comparáveis.
+export function barras(itens, { max = 10, rotulo = (i) => i.rotulo, limite = 200 } = {}) {
+  if (!itens.length) return vazio('Sem dados ainda.');
+  const maior = Math.max(1, ...itens.map((i) => i.n));
+  const paginas = Math.ceil(itens.length / max);
+  const caixa = h('div', { class: 'barras-paginadas' });
+  const desenhar = (pag) => {
+    const ini = pag * max;
+    const lista = itens.slice(ini, ini + max);
+    const nav = paginas > 1 ? h('div', { class: 'barras-nav' },
+      h('button', { class: 'btn pequeno', 'aria-label': 'Anteriores', disabled: pag === 0, onclick: () => desenhar(pag - 1) }, '‹'),
+      h('span', { class: 'suave pequeno' }, `${ini + 1}–${ini + lista.length} de ${numero(itens.length)}${itens.length >= limite ? ' maiores' : ''}`),
+      h('button', { class: 'btn pequeno', 'aria-label': 'Próximos', disabled: pag >= paginas - 1, onclick: () => desenhar(pag + 1) }, '›')) : null;
+    caixa.replaceChildren(...[h('div', { class: 'barras' }, lista.map((i, n) => h('div', { class: 'barra' },
+      h('span', { class: 'nome', title: rotulo(i) }, h('span', { class: 'pos' }, `${ini + n + 1}.`), ' ', rotulo(i)),
+      h('span', { class: 'trilho' }, h('span', { class: 'preench', style: { width: `${(i.n / maior) * 100}%`, display: 'block' } })),
+      h('span', { class: 'n' }, numero(i.n))))), nav].filter(Boolean));
+  };
+  desenhar(0);
+  return caixa;
 }
 
 export const render = (el, ...n) => el.replaceChildren(...n.flat().filter((x) => x != null && x !== false));
