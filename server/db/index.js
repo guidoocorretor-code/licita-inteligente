@@ -12,6 +12,7 @@ export function abrirBanco(caminho = config.dbPath) {
   conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const schema = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   conn.exec(schema);
+  migrarClientes(conn);
   semearFontes(conn);
   return conn;
 }
@@ -22,6 +23,67 @@ export function getDb() {
 }
 
 export function setDb(conn) { db = conn; }
+
+const colunas = (conn, t) => conn.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+
+// Empresas assessoradas: favoritos, Kanban, pesquisas e alertas passam a ser separados por empresa (cliente_id).
+// Bancos antigos: favoritos e oportunidades são recriados porque a regra de "não repetir" passa a
+// incluir a empresa (a mesma licitação pode estar no Kanban de duas empresas). Os ids são mantidos.
+function migrarClientes(conn) {
+  for (const t of ['pesquisas_salvas', 'notificacoes']) {
+    if (!colunas(conn, t).includes('cliente_id')) conn.exec(`ALTER TABLE ${t} ADD COLUMN cliente_id INTEGER NOT NULL DEFAULT 0`);
+  }
+  const recriar = [];
+  if (!colunas(conn, 'favoritos').includes('cliente_id')) recriar.push('favoritos');
+  if (!colunas(conn, 'oportunidades').includes('cliente_id')) recriar.push('oportunidades');
+  if (recriar.length) {
+    conn.exec('PRAGMA foreign_keys = OFF');
+    try {
+      transacao(conn, () => {
+        if (recriar.includes('favoritos')) {
+          conn.exec(`CREATE TABLE favoritos_novo (
+            id INTEGER PRIMARY KEY,
+            empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            tipo TEXT NOT NULL CHECK (tipo IN ('licitacao','orgao','fornecedor','pesquisa')),
+            referencia TEXT NOT NULL,
+            lista TEXT NOT NULL DEFAULT 'Geral',
+            nota TEXT,
+            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            cliente_id INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (usuario_id, cliente_id, tipo, referencia, lista));
+          INSERT INTO favoritos_novo (id, empresa_id, usuario_id, tipo, referencia, lista, nota, criado_em)
+            SELECT id, empresa_id, usuario_id, tipo, referencia, lista, nota, criado_em FROM favoritos;
+          DROP TABLE favoritos;
+          ALTER TABLE favoritos_novo RENAME TO favoritos;`);
+        }
+        if (recriar.includes('oportunidades')) {
+          conn.exec(`CREATE TABLE oportunidades_novo (
+            id INTEGER PRIMARY KEY,
+            empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+            licitacao_id INTEGER NOT NULL REFERENCES licitacoes(id) ON DELETE CASCADE,
+            etapa_id INTEGER NOT NULL REFERENCES kanban_etapas(id),
+            responsavel_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+            prazo_interno TEXT,
+            posicao INTEGER NOT NULL DEFAULT 0,
+            criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+            cliente_id INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (empresa_id, cliente_id, licitacao_id));
+          INSERT INTO oportunidades_novo (id, empresa_id, licitacao_id, etapa_id, responsavel_id, prazo_interno, posicao, criado_em, atualizado_em)
+            SELECT id, empresa_id, licitacao_id, etapa_id, responsavel_id, prazo_interno, posicao, criado_em, atualizado_em FROM oportunidades;
+          DROP TABLE oportunidades;
+          ALTER TABLE oportunidades_novo RENAME TO oportunidades;`);
+        }
+        const problemas = conn.prepare('PRAGMA foreign_key_check').all();
+        if (problemas.length) throw new Error(`Migração de empresas: ${problemas.length} vínculo(s) inválido(s)`);
+      });
+    } finally { conn.exec('PRAGMA foreign_keys = ON'); }
+  }
+  conn.exec(`CREATE INDEX IF NOT EXISTS ix_fav_emp ON favoritos(empresa_id, usuario_id);
+    CREATE INDEX IF NOT EXISTS ix_fav_cli ON favoritos(cliente_id);
+    CREATE INDEX IF NOT EXISTS ix_op_cli ON oportunidades(empresa_id, cliente_id);`);
+}
 
 // Insere o catálogo de fontes sem sobrescrever o que o administrador alterou.
 function semearFontes(conn) {

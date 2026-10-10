@@ -3,14 +3,20 @@ export class ErroApi extends Error {
   constructor(msg, status) { super(msg); this.status = status; }
 }
 
+// Empresa assessorada selecionada no topo (vazio = todas). Fica só neste navegador.
+export function clienteSelecionado() { try { return localStorage.getItem('licita.cliente') || ''; } catch { return ''; } }
+export function selecionarCliente(id) { try { if (id) localStorage.setItem('licita.cliente', String(id)); else localStorage.removeItem('licita.cliente'); } catch { /* ignora */ } }
+
 export async function api(caminho, { metodo = 'GET', corpo, bruto = false } = {}) {
   let resp;
+  const multipart = corpo instanceof FormData;
+  const cli = clienteSelecionado();
   try {
     resp = await fetch(`/api${caminho}`, {
       method: metodo,
       credentials: 'same-origin',
-      headers: { 'x-requested-with': 'licita', ...(corpo !== undefined ? { 'content-type': 'application/json' } : {}) },
-      body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
+      headers: { 'x-requested-with': 'licita', ...(cli ? { 'x-cliente': cli } : {}), ...(corpo !== undefined && !multipart ? { 'content-type': 'application/json' } : {}) },
+      body: corpo === undefined ? undefined : multipart ? corpo : JSON.stringify(corpo),
     });
   } catch {
     throw new ErroApi('Sem conexão com o servidor. Verifique sua internet.', 0);
@@ -20,6 +26,7 @@ export async function api(caminho, { metodo = 'GET', corpo, bruto = false } = {}
   }
   if (bruto) return resp;
   const dados = await resp.json().catch(() => ({}));
+  if (resp.status === 404 && cli && /^Empresa selecionada/.test(dados.erro || '')) { selecionarCliente(''); location.reload(); }
   if (!resp.ok) throw new ErroApi(dados.erro || `Erro ${resp.status}`, resp.status);
   return dados;
 }

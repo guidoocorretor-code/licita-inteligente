@@ -1,17 +1,20 @@
 // Calendário de prazos das licitações acompanhadas (favoritos do usuário + Kanban da empresa)
 // e exportação no padrão iCalendar (RFC 5545) para Google Agenda, Outlook e celular.
 import crypto from 'node:crypto';
+import { TIPOS_DOCUMENTO } from './clientes.js';
 
 /** Licitações que o usuário acompanha: favoritas dele e as do Kanban da empresa. */
-export function licitacoesAcompanhadas(db, { empresaId, usuarioId }) {
+export function licitacoesAcompanhadas(db, { empresaId, usuarioId, clienteId = null }) {
+  const cli = clienteId ? ' AND f.cliente_id = ' + Number(clienteId) : '';
+  const cliO = clienteId ? ' AND o.cliente_id = ' + Number(clienteId) : '';
   return db.prepare(`
     SELECT l.id, l.objeto, l.orgao_nome, l.uf, l.municipio, l.status_calculado, l.numero_controle_pncp,
       l.data_abertura_proposta, l.data_encerramento_proposta,
       o.id oportunidade_id, o.prazo_interno, e.nome etapa_nome,
       MAX(f.id IS NOT NULL) favorita
     FROM licitacoes l
-    LEFT JOIN favoritos f ON f.tipo='licitacao' AND f.referencia = CAST(l.id AS TEXT) AND f.usuario_id = ?
-    LEFT JOIN oportunidades o ON o.licitacao_id = l.id AND o.empresa_id = ?
+    LEFT JOIN favoritos f ON f.tipo='licitacao' AND f.referencia = CAST(l.id AS TEXT) AND f.usuario_id = ?${cli}
+    LEFT JOIN oportunidades o ON o.licitacao_id = l.id AND o.empresa_id = ?${cliO}
     LEFT JOIN kanban_etapas e ON e.id = o.etapa_id
     WHERE f.id IS NOT NULL OR o.id IS NOT NULL
     GROUP BY l.id`).all(usuarioId, empresaId);
@@ -21,12 +24,21 @@ const TIPOS = {
   abertura: 'Início das propostas',
   encerramento: 'Fim das propostas',
   prazo_interno: 'Prazo interno',
+  vencimento: 'Vence',
 };
 
 /** Eventos do calendário no intervalo [de, ate] (datas AAAA-MM-DD, inclusive). Horários em Brasília. */
-export function eventosCalendario(db, { empresaId, usuarioId, de, ate }) {
+export function eventosCalendario(db, { empresaId, usuarioId, clienteId = null, de, ate }) {
   const ev = [];
-  for (const l of licitacoesAcompanhadas(db, { empresaId, usuarioId })) {
+  // Validade das certidões das empresas assessoradas
+  const docs = db.prepare(`SELECT d.id, d.tipo, d.validade, c.id cliente_id, COALESCE(c.nome_fantasia, c.razao_social) nome, c.uf, c.municipio
+    FROM cliente_documentos d JOIN clientes c ON c.id = d.cliente_id
+    WHERE c.empresa_id = ? AND c.ativo = 1 AND d.validade IS NOT NULL AND (? IS NULL OR c.id = ?)`).all(empresaId, clienteId, clienteId);
+  for (const d of docs) {
+    ev.push({ tipo: 'vencimento', titulo: `${TIPOS.vencimento}: ${TIPOS_DOCUMENTO[d.tipo] || d.tipo}`, quando: d.validade, dia_inteiro: true,
+      documento_id: d.id, cliente_id: d.cliente_id, objeto: d.nome, uf: d.uf, municipio: d.municipio, licitacao_id: null });
+  }
+  for (const l of licitacoesAcompanhadas(db, { empresaId, usuarioId, clienteId })) {
     const base = { licitacao_id: l.id, objeto: l.objeto, orgao_nome: l.orgao_nome, uf: l.uf, municipio: l.municipio,
       status: l.status_calculado, etapa: l.etapa_nome || null, favorita: !!l.favorita };
     if (l.data_abertura_proposta) ev.push({ ...base, tipo: 'abertura', titulo: TIPOS.abertura, quando: l.data_abertura_proposta, dia_inteiro: false });
@@ -39,6 +51,7 @@ export function eventosCalendario(db, { empresaId, usuarioId, de, ate }) {
 }
 
 // ---------- iCalendar ----------
+const linkEvento = (e) => (e.licitacao_id ? `#/licitacao/${e.licitacao_id}` : `#/empresas/${e.cliente_id}`);
 const escapar = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 // Linhas de no máximo 75 octetos, continuação começando com espaço (RFC 5545, 3.1)
 function dobrar(linha) {
@@ -64,8 +77,8 @@ export function gerarIcs(eventos, { nome = 'Licita Inteligente', urlBase = '', a
   for (const e of eventos) {
     const local = [e.municipio, e.uf].filter(Boolean).join('/');
     const desc = [e.objeto, e.orgao_nome && `Órgão: ${e.orgao_nome}`, local && `Local: ${local}`, e.etapa && `Etapa no Kanban: ${e.etapa}`,
-      urlBase && `Abrir no sistema: ${urlBase}/#/licitacao/${e.licitacao_id}`, 'Confira sempre o edital e o sistema oficial antes de agir.'].filter(Boolean).join('\n');
-    linhas.push('BEGIN:VEVENT', `UID:${e.tipo}-${e.licitacao_id}@licita-inteligente`, `DTSTAMP:${carimbo}`);
+      urlBase && `Abrir no sistema: ${urlBase}/${linkEvento(e)}`, 'Confira sempre o edital e o sistema oficial antes de agir.'].filter(Boolean).join('\n');
+    linhas.push('BEGIN:VEVENT', `UID:${e.tipo}-${e.licitacao_id ?? `doc${e.documento_id}`}@licita-inteligente`, `DTSTAMP:${carimbo}`);
     if (e.dia_inteiro) linhas.push(`DTSTART;VALUE=DATE:${soData(e.quando)}`, `DTEND;VALUE=DATE:${soData(diaSeguinte(e.quando))}`);
     else {
       linhas.push(`DTSTART:${paraUtc(e.quando)}`, 'DURATION:PT30M');
@@ -73,7 +86,7 @@ export function gerarIcs(eventos, { nome = 'Licita Inteligente', urlBase = '', a
     }
     linhas.push(`SUMMARY:${escapar(`${e.titulo}: ${(e.objeto || '').slice(0, 80)}`)}`, `DESCRIPTION:${escapar(desc)}`);
     if (local) linhas.push(`LOCATION:${escapar(local)}`);
-    if (urlBase) linhas.push(`URL:${urlBase}/#/licitacao/${e.licitacao_id}`);
+    if (urlBase) linhas.push(`URL:${urlBase}/${linkEvento(e)}`);
     linhas.push('END:VEVENT');
   }
   linhas.push('END:VCALENDAR');

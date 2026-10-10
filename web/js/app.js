@@ -1,12 +1,14 @@
-import { api } from './api.js';
+import { api, clienteSelecionado, selecionarCliente } from './api.js';
 import { h, toast } from './ui.js';
 import * as P from './paginas.js';
+import * as E from './empresas.js';
 
-export const estado = { usuario: null, empresa: null, meta: null };
+export const estado = { usuario: null, empresa: null, meta: null, clientes: [] };
 
 // Menu completo. Módulos ainda não implementados aparecem com a fase prevista e NÃO simulam funcionamento.
 const MENU = [
   ['Principal'],
+  ['empresas', 'Empresa'],
   ['dashboard', 'Dashboard'],
   ['buscar', 'Buscar licitações'],
   ['jornal', 'Jornal de licitações'],
@@ -16,7 +18,7 @@ const MENU = [
   ['notificacoes', 'Alertas'],
   ['Gestão'],
   ['calendario', 'Calendário'],
-  ['documentos', 'Documentos', 3],
+  ['documentos', 'Vencimentos'],
   ['fornecedores', 'Fornecedores', 3],
   ['precos', 'Preços e contratos'],
   ['propostas', 'Propostas', 4],
@@ -33,13 +35,31 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, oportunidades: P.kanban, calendario: P.calendario, precos: P.precos, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, precos: P.precos, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {
   const [nome, ...resto] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('/');
   const [base, query] = nome.split('?');
   return { nome: base, args: resto, query: new URLSearchParams(location.hash.split('?')[1] || '') , _q: query };
+}
+
+// Empresa assessorada em foco: Kanban, favoritos, alertas, calendário e vencimentos mostram só os dela
+function seletorEmpresa() {
+  const atual = clienteSelecionado();
+  const lista = estado.clientes.filter((c) => c.ativo || String(c.id) === atual);
+  const sel = h('select', { id: 'seletor-empresa', 'aria-label': 'Empresa em foco', title: 'Mostrar só o Kanban, favoritos, alertas e vencimentos desta empresa',
+    onchange: (e) => { selecionarCliente(e.target.value); document.body.classList.toggle('com-empresa', !!e.target.value); navegar(); atualizarSino(); } },
+  h('option', { value: '' }, 'Todas as empresas'),
+  lista.map((c) => h('option', { value: c.id, selected: String(c.id) === atual }, c.nome_fantasia || c.razao_social)));
+  document.body.classList.toggle('com-empresa', !!atual);
+  return sel;
+}
+export async function recarregarEmpresas() {
+  try { estado.clientes = (await api('/clientes')).clientes; } catch { estado.clientes = []; }
+  if (clienteSelecionado() && !estado.clientes.some((c) => String(c.id) === clienteSelecionado())) selecionarCliente('');
+  const velho = document.getElementById('seletor-empresa');
+  if (velho) velho.replaceWith(seletorEmpresa());
 }
 
 function montarLayout() {
@@ -55,6 +75,7 @@ function montarLayout() {
     h('button', { class: 'btn botao-menu', 'aria-label': 'Abrir menu', onclick: () => lateral.classList.toggle('aberta') }, '☰'),
     h('form', { onsubmit: (e) => { e.preventDefault(); location.hash = `#/buscar?q=${encodeURIComponent(busca.value)}`; } }, busca),
     h('div', { class: 'acoes-topo' },
+      seletorEmpresa(),
       h('a', { class: 'btn', href: '#/notificacoes', id: 'sino', title: 'Alertas' }, '🔔'),
       h('span', { class: 'nome-usuario suave pequeno' }, `${estado.usuario.nome} · ${estado.empresa?.nome || ''}`),
       h('button', { class: 'btn', onclick: sair }, 'Sair')));
@@ -124,6 +145,7 @@ async function iniciar() {
     estado.usuario = eu.usuario; estado.empresa = eu.empresa;
     estado.meta = await api('/meta');
   } catch { return telaLogin(); }
+  await recarregarEmpresas();
   montarLayout();
   await navegar();
   atualizarSino();
@@ -132,6 +154,7 @@ async function iniciar() {
 window.addEventListener('hashchange', navegar);
 window.addEventListener('sessao-expirada', () => { if (estado.usuario) { estado.usuario = null; telaLogin('Sua sessão expirou. Entre novamente.'); } });
 window.addEventListener('atualizar-sino', atualizarSino);
+window.addEventListener('empresas-alteradas', recarregarEmpresas);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 iniciar();
 export { toast };

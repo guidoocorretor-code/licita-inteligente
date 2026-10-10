@@ -1,4 +1,4 @@
-import { api, qs } from './api.js';
+import { api, qs, clienteSelecionado } from './api.js';
 import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
   confirmar, modal, barras, rosca, moedaCurta, naoInformado, render,
@@ -6,6 +6,14 @@ import {
 
 const ehAdmin = (e) => ['admin', 'superadmin'].includes(e.usuario.papel);
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
+// Nome da empresa assessorada em foco (null = todas)
+const empresaEmFoco = (est) => est?.clientes?.find((c) => String(c.id) === clienteSelecionado()) || null;
+const nomeEmpresa = (c) => c.nome_fantasia || c.razao_social;
+const avisoEmpresa = (est, oQue) => {
+  const c = empresaEmFoco(est);
+  return h('div', { class: 'faixa-empresa' }, c ? ['🏢 ', h('strong', {}, nomeEmpresa(c)), ` · ${oQue} só desta empresa. `, h('a', { href: '#/empresas' }, 'Trocar')]
+    : est?.clientes?.length ? ['🏢 Todas as empresas · ', oQue, ' de todas. Escolha uma empresa no topo para separar.'] : null);
+};
 const ESF = { F: 'Federal', E: 'Estadual', M: 'Municipal', D: 'Distrital', N: 'Não se aplica' };
 
 function cabecalho(titulo, subtitulo, ...acoes) {
@@ -231,11 +239,14 @@ export async function detalhe(alvo, rota, est) {
       d.favorito = !d.favorito; btnFav.textContent = d.favorito ? '★ Favorita' : '☆ Favoritar';
     } catch (e) { toast(e.message); }
   } }, d.favorito ? '★ Favorita' : '☆ Favoritar');
+  const emFoco = empresaEmFoco(est);
   const btnKanban = d.oportunidade
     ? h('a', { class: 'btn', href: '#/kanban' }, `Kanban: ${d.oportunidade.etapa_nome}`)
     : podeEditar(est) ? h('button', { class: 'btn primario', onclick: async () => {
-      try { await api('/kanban', { metodo: 'POST', corpo: { licitacao_id: l.id } }); toast('Enviada ao Kanban.'); detalhe(alvo, rota, est); } catch (e) { toast(e.message); }
-    } }, '+ Acompanhar no Kanban') : null;
+      try { await api('/kanban', { metodo: 'POST', corpo: { licitacao_id: l.id } }); toast(emFoco ? `Enviada ao Kanban de ${nomeEmpresa(emFoco)}.` : 'Enviada ao Kanban.'); detalhe(alvo, rota, est); } catch (e) { toast(e.message); }
+    } }, emFoco ? `+ Kanban de ${nomeEmpresa(emFoco)}` : '+ Acompanhar no Kanban') : null;
+  const empresasDaLic = d.empresas?.length ? h('div', { class: 'suave pequeno', style: { marginTop: '6px' } }, '🏢 Acompanhada por: ',
+    d.empresas.map((e, i) => [i ? ', ' : '', h('a', { href: `#/empresas/${e.id}` }, e.nome)])) : null;
   const btnAtualizar = podeEditar(est) && l.numero_controle_pncp ? h('button', { class: 'btn', onclick: async (e) => {
     e.target.disabled = true;
     try { const r = await api(`/licitacoes/${l.id}/atualizar`, { metodo: 'POST', corpo: {} }); toast(r.ok ? `Atualizado: ${r.itens} itens, ${r.documentos} documentos.` : r.mensagem); detalhe(alvo, rota, est); }
@@ -252,7 +263,7 @@ export async function detalhe(alvo, rota, est) {
       l.link_origem ? h('a', { class: 'btn', href: l.link_origem, target: '_blank', rel: 'noopener noreferrer' }, 'Sistema de origem ↗') : null),
     h('div', { class: 'aviso azul' }, h('strong', {}, 'Status: '), etiquetaStatus(l.status_calculado, est.meta), ' ', l.status_motivo || '',
       h('div', { class: 'pequeno', style: { marginTop: '4px' } }, `Situação oficial na fonte: ${l.situacao_oficial_nome || 'não informada'}. `,
-        d.oportunidade ? `Etapa interna da empresa: ${d.oportunidade.etapa_nome}.` : 'Ainda não acompanhada no Kanban.')),
+        d.oportunidade ? `Etapa interna${emFoco ? ` (${nomeEmpresa(emFoco)})` : ''}: ${d.oportunidade.etapa_nome}.` : `Ainda não acompanhada no Kanban${emFoco ? ` de ${nomeEmpresa(emFoco)}` : ''}.`), empresasDaLic),
     h('div', { class: 'grade duas' },
       h('div', { class: 'cartao' }, h('h2', {}, 'Dados da contratação'), h('dl', { class: 'detalhes' },
         linha('Objeto', ni(l.objeto)),
@@ -348,19 +359,23 @@ export async function jornal(alvo, rota, est) {
 // ============================ FAVORITOS ============================
 export async function favoritos(alvo, _r, est) {
   render(alvo, carregando());
-  const { favoritos: favs, licitacoes } = await api('/favoritos');
+  const { favoritos: favs, licitacoes: lics } = await api('/favoritos');
   const outros = favs.filter((f) => f.tipo !== 'licitacao');
-  const remover = async (tipo, referencia) => { await api(`/favoritos${qs({ tipo, referencia })}`, { metodo: 'DELETE' }); favoritos(alvo, _r, est); };
+  const porId = new Map(lics.map((l) => [String(l.id), l]));
+  const licitacoes = favs.filter((f) => f.tipo === 'licitacao' && porId.has(f.referencia)).map((f) => ({ ...porId.get(f.referencia), fav: f }));
+  const remover = async (fav) => { await api(`/favoritos${qs({ id: fav.id })}`, { metodo: 'DELETE' }); favoritos(alvo, _r, est); };
   render(alvo, cabecalho('Favoritos', 'Licitações, órgãos e pesquisas que você acompanha.'),
+    avisoEmpresa(est, 'Favoritos'),
     h('h2', {}, `Licitações (${licitacoes.length})`),
     licitacoes.length ? h('div', { class: 'resultado' }, licitacoes.map((l) => h('div', { class: 'cartao item-lic' },
       h('div', {}, h('a', { class: 'objeto', href: `#/licitacao/${l.id}` }, l.objeto || '—'),
-        h('div', { class: 'meta' }, h('span', {}, l.orgao_nome || ''), h('span', {}, [l.municipio, l.uf].filter(Boolean).join('/')), h('span', {}, 'Propostas até: ', dataOuNao(l.data_encerramento_proposta)))),
+        h('div', { class: 'meta' }, h('span', {}, l.orgao_nome || ''), h('span', {}, [l.municipio, l.uf].filter(Boolean).join('/')), h('span', {}, 'Propostas até: ', dataOuNao(l.data_encerramento_proposta)),
+          !clienteSelecionado() ? h('span', { class: 'etiqueta empresa' }, `🏢 ${l.fav.cliente_nome || 'Sem empresa'}`) : null)),
       h('div', { class: 'lado' }, etiquetaStatus(l.status_calculado, est.meta), moeda(l.valor_estimado, l.valor_estimado_situacao),
-        h('button', { class: 'btn pequeno perigo', onclick: () => remover('licitacao', l.id) }, 'Remover')))))
+        h('button', { class: 'btn pequeno perigo', onclick: () => remover(l.fav) }, 'Remover')))))
       : vazio('Nenhuma licitação favorita. Use ☆ na busca.'),
     outros.length ? h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Outros favoritos'),
-      h('ul', {}, outros.map((f) => h('li', {}, `${f.tipo}: ${f.referencia} `, h('button', { class: 'btn pequeno', onclick: () => remover(f.tipo, f.referencia) }, 'Remover'))))) : null);
+      h('ul', {}, outros.map((f) => h('li', {}, `${f.tipo}: ${f.referencia} `, h('button', { class: 'btn pequeno', onclick: () => remover(f) }, 'Remover'))))) : null);
 }
 
 // ============================ KANBAN ============================
@@ -409,6 +424,7 @@ export async function kanban(alvo, _r, est) {
           h('div', { class: 'linha', style: { marginTop: '6px' } }, etiquetaStatus(c.status_calculado, est.meta),
             c.data_encerramento_proposta ? h('span', { class: 'suave' }, `até ${data(c.data_encerramento_proposta)}`) : null),
           c.responsavel_nome ? h('div', { class: 'suave' }, `👤 ${c.responsavel_nome}`) : null,
+          !clienteSelecionado() && est.clientes?.length ? h('div', { class: 'etiqueta empresa', style: { marginTop: '6px' } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`) : null,
           podeEditar(est) ? h('select', { 'aria-label': 'Mover para', onclick: (e) => e.stopPropagation(), onchange: (e) => mover(c.id, e.target.value) },
             k.etapas.map((e2) => h('option', { value: e2.id, selected: e2.id === c.etapa_id }, `Mover: ${e2.nome}`))) : null);
         card.addEventListener('click', () => abrir(c));
@@ -422,16 +438,18 @@ export async function kanban(alvo, _r, est) {
     return col;
   });
   render(alvo, cabecalho('Kanban de oportunidades', 'Etapas internas da sua empresa. A situação oficial da licitação aparece na etiqueta e é independente da etapa.'),
+    avisoEmpresa(est, 'Cards'),
     k.cards.length ? null : h('div', { class: 'aviso azul' }, 'Nenhuma oportunidade ainda. Abra uma licitação e clique em "+ Acompanhar no Kanban".'),
     h('div', { class: 'kanban' }, colunas));
 }
 
 // ============================ CALENDÁRIO (Fase 3) ============================
-const TIPO_CAL = { abertura: ['Início das propostas', 'verde'], encerramento: ['Fim das propostas', 'vermelha'], prazo_interno: ['Prazo interno', 'azul'] };
+const TIPO_CAL = { abertura: ['Início das propostas', 'verde'], encerramento: ['Fim das propostas', 'vermelha'], prazo_interno: ['Prazo interno', 'azul'], vencimento: ['Vencimento de certidão', 'amarela'] };
+const linkCal = (e) => (e.licitacao_id ? `#/licitacao/${e.licitacao_id}` : `#/empresas/${e.cliente_id}`);
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const iso = (d) => d.toISOString().slice(0, 10);
 
-export async function calendario(alvo, rota) {
+export async function calendario(alvo, rota, est) {
   render(alvo, carregando());
   const hojeIso = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
   const mesParam = /^\d{4}-\d{2}$/.test(rota.query.get('mes') || '') ? rota.query.get('mes') : hojeIso.slice(0, 7);
@@ -448,7 +466,7 @@ export async function calendario(alvo, rota) {
   const irMes = (delta) => { const d = new Date(Date.UTC(ano, mes - 1 + delta, 1)); location.hash = `#/calendario?mes=${iso(d).slice(0, 7)}`; };
   const porDia = {};
   for (const e of eventos) (porDia[e.quando.slice(0, 10)] ||= []).push(e);
-  const chip = (e) => h('a', { class: `chip-cal ${TIPO_CAL[e.tipo][1]}`, href: `#/licitacao/${e.licitacao_id}`, title: `${TIPO_CAL[e.tipo][0]}${e.dia_inteiro ? '' : ' às ' + e.quando.slice(11, 16)} · ${e.objeto || ''} · ${e.orgao_nome || ''}` },
+  const chip = (e) => h('a', { class: `chip-cal ${TIPO_CAL[e.tipo][1]}`, href: linkCal(e), title: `${e.tipo === 'vencimento' ? e.titulo : TIPO_CAL[e.tipo][0]}${e.dia_inteiro ? '' : ' às ' + e.quando.slice(11, 16)} · ${e.objeto || ''} · ${e.orgao_nome || ''}` },
     e.dia_inteiro ? '' : h('b', {}, e.quando.slice(11, 16) + ' '), (e.objeto || '—').slice(0, 40));
   const celulas = [];
   for (let d = inicioGrade; d <= fimGrade; d = new Date(d.getTime() + 86400000)) {
@@ -476,10 +494,11 @@ export async function calendario(alvo, rota) {
   };
   const revogar = async () => {
     if (!confirmar('Desativar o link? Agendas que assinam este calendário param de atualizar.')) return;
-    await api('/calendario/link', { metodo: 'DELETE' }); toast('Link desativado.'); calendario(alvo, rota);
+    await api('/calendario/link', { metodo: 'DELETE' }); toast('Link desativado.'); calendario(alvo, rota, est);
   };
   render(alvo,
-    cabecalho('Calendário de prazos', 'Licitações favoritas e do Kanban. Horários de Brasília, conforme a fonte oficial.',
+    avisoEmpresa(est, 'Prazos e vencimentos'),
+    cabecalho('Calendário de prazos', 'Licitações favoritas e do Kanban e vencimento das certidões. Horários de Brasília, conforme a fonte oficial.',
       h('a', { class: 'btn', href: '/api/calendario.ics' }, '⬇ Baixar .ics'),
       h('button', { class: 'btn primario', onclick: assinar }, link.ativo ? 'Gerar novo link de assinatura' : 'Assinar no Google Agenda / celular'),
       link.ativo ? h('button', { class: 'btn', onclick: revogar }, 'Desativar link') : null),
@@ -495,7 +514,7 @@ export async function calendario(alvo, rota) {
       proximos.length ? h('div', { class: 'tabela-wrap' }, h('table', {}, h('tbody', {}, proximos.map((e) => h('tr', {},
         h('td', { style: { whiteSpace: 'nowrap' } }, e.dia_inteiro ? data(e.quando, false) : data(e.quando)),
         h('td', {}, h('span', { class: `etiqueta ${TIPO_CAL[e.tipo][1]}` }, TIPO_CAL[e.tipo][0])),
-        h('td', {}, h('a', { href: `#/licitacao/${e.licitacao_id}` }, e.objeto || '—'), h('div', { class: 'suave pequeno' }, [e.orgao_nome, [e.municipio, e.uf].filter(Boolean).join('/'), e.etapa && `Kanban: ${e.etapa}`].filter(Boolean).join(' · '))))))))
+        h('td', {}, h('a', { href: linkCal(e) }, e.tipo === 'vencimento' ? `${e.titulo} · ${e.objeto}` : e.objeto || '—'), h('div', { class: 'suave pequeno' }, [e.orgao_nome, [e.municipio, e.uf].filter(Boolean).join('/'), e.etapa && `Kanban: ${e.etapa}`].filter(Boolean).join(' · '))))))))
         : vazio('Nenhum prazo nos próximos 30 dias. Favorite licitações (☆) ou coloque-as no Kanban para vê-las aqui.')));
 }
 
@@ -503,14 +522,17 @@ export async function calendario(alvo, rota) {
 export async function notificacoes(alvo, _r, est) {
   render(alvo, carregando());
   const [ns, ps] = await Promise.all([api('/notificacoes'), api('/pesquisas')]);
-  render(alvo, cabecalho('Alertas', 'Prazos, mudanças nos editais acompanhados e novas licitações das pesquisas salvas.',
+  render(alvo, avisoEmpresa(est, 'Alertas e pesquisas salvas'), cabecalho('Alertas', 'Prazos, vencimento de certidões, mudanças nos editais acompanhados e novas licitações das pesquisas salvas.',
     h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); window.dispatchEvent(new Event('atualizar-sino')); notificacoes(alvo, _r, est); } }, 'Marcar todas como lidas')),
   h('div', { class: 'aviso azul' }, 'Você recebe alertas automáticos das licitações favoritas e das que estão no Kanban: 3 dias e 1 dia antes do fim das propostas, prazo interno no dia anterior e quando o edital muda (alteração, documento, situação ou resultado). Envio por e-mail em ',
     h('a', { href: '#/configuracoes' }, 'Configurações'), '. WhatsApp: depende de provedor oficial autorizado (pendente).'),
   h('div', { class: 'grade duas' },
     h('div', { class: 'cartao' }, h('h2', {}, 'Notificações'),
       ns.length ? ns.map((n) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(n.criado_em), n.lida ? '' : h('div', { class: 'etiqueta azul' }, 'nova')),
-        h('div', {}, h('strong', {}, n.titulo), h('div', { class: 'pequeno' }, n.licitacao_id ? h('a', { href: `#/licitacao/${n.licitacao_id}` }, n.mensagem) : n.mensagem))))
+        h('div', {}, h('strong', {}, n.titulo),
+          n.cliente_id && !clienteSelecionado() ? h('span', { class: 'etiqueta empresa', style: { marginLeft: '6px' } }, `🏢 ${n.cliente_nome || ''}`) : null,
+          h('div', { class: 'pequeno' }, n.licitacao_id ? h('a', { href: `#/licitacao/${n.licitacao_id}` }, n.mensagem)
+            : n.tipo === 'vencimento' && n.cliente_id ? h('a', { href: `#/empresas/${n.cliente_id}` }, n.mensagem) : n.mensagem))))
         : vazio('Sem notificações.')),
     h('div', { class: 'cartao' }, h('h2', {}, 'Pesquisas salvas'),
       ps.length ? h('table', {}, h('tbody', {}, ps.map((p) => h('tr', {},

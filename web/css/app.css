@@ -227,3 +227,21 @@ tr.linha-alerta td { background: #fff8f7; }
 .itens-achados { margin-top: 6px; font-size: .85rem; background: var(--fundo); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
 .resultado { grid-template-columns: minmax(0, 1fr); }
 .item-lic { min-width: 0; } .item-lic .objeto, .item-lic .meta { overflow-wrap: anywhere; }
+
+/* Empresas assessoradas */
+.faixa-empresa:empty { display: none; }
+.faixa-empresa { background: var(--info-fundo); border: 1px solid #c6dafc; color: #10408f; border-radius: var(--raio); padding: 8px 12px; margin-bottom: 12px; font-size: .9rem; }
+.etiqueta.empresa { background: #ede9fe; color: #4c1d95; }
+#seletor-empresa { max-width: 220px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--borda); font-weight: 600; }
+body.com-empresa #seletor-empresa { border-color: #7c3aed; background: #f5f3ff; color: #4c1d95; }
+.grade-empresas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.cartao.empresa .objeto { font-weight: 700; font-size: 1.05rem; text-decoration: none; color: var(--texto); overflow-wrap: anywhere; }
+.cartao.empresa.selecionada { border: 2px solid #7c3aed; }
+.cartao.empresa.inativa { opacity: .6; }
+dl.dados { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+dl.dados dt { color: var(--texto-suave); }
+dl.dados dd { margin: 0; overflow-wrap: anywhere; }
+.tabela-form input, .tabela-form select { width: 100%; min-width: 120px; }
+.form-empresa h3 { margin: 6px 0 8px; }
+@media (max-width: 760px) { #seletor-empresa { max-width: 130px; } .topo .nome-usuario { display: none; } }
+.modal:has(.tabela-form), .modal:has(.form-empresa) { max-width: 820px; }
