@@ -81,29 +81,40 @@ export async function dashboard(alvo, _r, est) {
 // ============================ BUSCA ============================
 const FILTROS_PADRAO = { visao: 'abertas', ordenar: 'encerramento_asc' };
 
+// Um campo da ficha: rótulo pequeno em cima, valor legível embaixo
+const campoFicha = (rotulo, valor, extra = {}) => h('div', { class: 'campo-ficha' + (extra.classe ? ' ' + extra.classe : ''), title: extra.title || '' },
+  h('span', { class: 'rotulo' }, rotulo), h('span', { class: 'valor' }, valor));
+
 function linhaLicitacao(l, est, { aoFavoritar } = {}) {
   const prazo = prazoRestante(l.data_encerramento_proposta);
+  const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
+  const urgente = diasRestantes !== null && diasRestantes > 0 && diasRestantes <= 3;
+  const itens = l.itens_encontrados || [];
+  const resumoItem = (i) => h('li', {}, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)');
   return h('div', { class: 'cartao item-lic' },
     h('div', {},
-      h('a', { class: 'objeto', href: `#/licitacao/${l.id}` }, l.objeto || '(objeto não informado)'),
-      h('div', { class: 'meta', style: { marginTop: '6px' } },
-        h('span', {}, '🏛 ', l.orgao_nome || naoInformado()),
-        h('span', {}, '📍 ', [l.municipio, l.uf].filter(Boolean).join(' / ') || naoInformado()),
-        h('span', {}, l.modalidade_nome || ''),
-        l.numero_compra ? h('span', {}, `Nº ${l.numero_compra}/${l.ano ?? ''}`) : null,
-        h('span', {}, 'Publicação: ', dataOuNao(l.data_publicacao, false)),
-        h('span', {}, 'Propostas até: ', dataOuNao(l.data_encerramento_proposta)),
-        h('span', { title: `Fontes: ${l.fontes || ''}` }, 'Origem: ', l.plataforma_origem || naoInformado()),
+      h('a', { class: 'objeto', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
+      h('div', { class: 'orgao-local' },
+        h('span', { class: 'orgao' }, '🏛 ', l.orgao_nome || naoInformado()),
+        h('span', { class: 'local' }, '📍 ', [l.municipio, l.uf].filter(Boolean).join(' / ') || naoInformado())),
+      h('div', { class: 'ficha' },
+        campoFicha('Modalidade', l.modalidade_nome || naoInformado()),
+        campoFicha('Número', l.numero_compra ? `${l.numero_compra}/${l.ano ?? ''}` : naoInformado()),
+        campoFicha('Publicação', dataOuNao(l.data_publicacao, false)),
+        campoFicha('Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : 'destaque' }),
+        campoFicha('Origem', l.plataforma_origem || naoInformado(), { title: `Fontes: ${l.fontes || ''}` })),
+      (l.segmento || l.me_epp_exclusivo === 1) ? h('div', { class: 'linha etiquetas-lic' },
         l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
-        l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null),
-      l.itens_encontrados ? h('div', { class: 'itens-achados' },
-        h('strong', {}, 'Encontrado nos itens: '),
-        l.itens_encontrados.map((i, n) => h('span', {}, n ? ' · ' : '', `item ${i.numero_item}: ${i.descricao || '(sem descrição)'}`)),
-        l.itens_encontrados_total > l.itens_encontrados.length ? h('span', { class: 'suave' }, ` e mais ${l.itens_encontrados_total - l.itens_encontrados.length}`) : null) : null),
+        l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null) : null,
+      itens.length ? h('details', { class: 'itens-achados' },
+        h('summary', {}, h('strong', {}, `🔎 Encontrado em ${l.itens_encontrados_total || itens.length} item(ns)`),
+          h('span', { class: 'previa' }, ` · Item ${itens[0].numero_item}: ${itens[0].descricao || '(sem descrição)'}`)),
+        h('ul', {}, itens.map(resumoItem)),
+        l.itens_encontrados_total > itens.length ? h('div', { class: 'suave pequeno' }, `e mais ${l.itens_encontrados_total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null) : null),
     h('div', { class: 'lado' },
       etiquetaStatus(l.status_calculado, est.meta, l.status_motivo),
       h('span', { class: 'valor-grande', title: l.valor_estimado === 0 ? 'A fonte informou valor estimado zero (comum quando o orçamento é sigiloso).' : '' }, moeda(l.valor_estimado, l.valor_estimado_situacao), l.valor_estimado === 0 ? h('span', { class: 'suave pequeno' }, ' (zero na fonte)') : null),
-      prazo ? h('span', { class: 'etiqueta amarela', title: 'Tempo restante para envio de propostas' }, `⏱ ${prazo}`) : null,
+      prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela'), title: 'Tempo restante para envio de propostas' }, `⏱ faltam ${prazo}`) : null,
       h('div', { class: 'linha' },
         aoFavoritar ? h('button', { class: 'btn pequeno', title: 'Favoritar', onclick: () => aoFavoritar(l) }, '☆') : null,
         l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null,

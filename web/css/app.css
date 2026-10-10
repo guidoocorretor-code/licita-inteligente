@@ -224,9 +224,24 @@ td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
 tr.linha-alerta td { background: #fff8f7; }
 
 /* Busca nos itens: mostra por que a licitação apareceu */
-.itens-achados { margin-top: 6px; font-size: .85rem; background: var(--fundo); border-radius: 6px; padding: 4px 8px; overflow-wrap: anywhere; }
+.item-lic .orgao-local { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: .88rem; color: var(--texto-suave); }
+.item-lic .orgao-local .orgao { font-weight: 600; color: var(--texto); }
+.ficha { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+.campo-ficha { display: flex; flex-direction: column; gap: 2px; background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; min-width: 0; }
+.campo-ficha .rotulo { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-suave); font-weight: 600; }
+.campo-ficha .valor { font-size: .9rem; color: var(--texto); font-weight: 500; overflow-wrap: anywhere; }
+.campo-ficha.destaque { border-left: 3px solid var(--info); }
+.campo-ficha.urgente { border-left: 3px solid var(--perigo); background: var(--perigo-fundo); }
+.campo-ficha.urgente .valor { color: var(--perigo); font-weight: 700; }
+.etiquetas-lic { margin-top: 8px; }
+.itens-achados { margin-top: 8px; font-size: .85rem; background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; overflow-wrap: anywhere; }
+.itens-achados summary { cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.itens-achados[open] summary .previa { display: none; }
+.itens-achados summary .previa { color: var(--texto-suave); }
+.itens-achados ul { margin: 6px 0 2px; padding-left: 18px; display: grid; gap: 4px; }
 .resultado { grid-template-columns: minmax(0, 1fr); }
 .item-lic { min-width: 0; } .item-lic .objeto, .item-lic .meta { overflow-wrap: anywhere; }
+.item-lic .objeto { font-size: 1.02rem; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* Empresas assessoradas */
 .faixa-empresa:empty { display: none; }
