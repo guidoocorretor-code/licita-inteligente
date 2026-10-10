@@ -13,6 +13,7 @@ export function abrirBanco(caminho = config.dbPath) {
   const schema = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   conn.exec(schema);
   migrarClientes(conn);
+  migrarSistemas(conn);
   semearFontes(conn);
   return conn;
 }
@@ -23,6 +24,13 @@ export function getDb() {
 }
 
 export function setDb(conn) { db = conn; }
+
+// Sistema eletrônico de disputa (Comprasnet, Licitações-e, BLL...): coluna nova em bancos antigos;
+// o preenchimento das licitações antigas roda em segundo plano (services/sistemas.js).
+function migrarSistemas(conn) {
+  if (!colunas(conn, 'licitacoes').includes('sistema_eletronico')) conn.exec('ALTER TABLE licitacoes ADD COLUMN sistema_eletronico TEXT');
+  conn.exec('CREATE INDEX IF NOT EXISTS ix_lic_sistema ON licitacoes(sistema_eletronico)');
+}
 
 const colunas = (conn, t) => conn.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
 

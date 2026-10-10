@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS orgaos (
 
 CREATE TABLE IF NOT EXISTS licitacoes (
   id INTEGER PRIMARY KEY,
+  sistema_eletronico TEXT,                      -- sistema de disputa identificado (services/sistemas.js)
   chave_canonica TEXT NOT NULL UNIQUE,          -- base da deduplicação
   numero_controle_pncp TEXT UNIQUE,
   numero_compra TEXT,

@@ -4,6 +4,7 @@ import { CAMPOS_MONITORADOS, hashConteudo } from './normalizacao.js';
 import { classificarStatus, agoraBrasilia } from './status.js';
 import crypto from 'node:crypto';
 import { classificarSegmento } from './segmentos.js';
+import { sistemaDe } from './sistemas.js';
 
 // Prioridade de confiança: menor número = fonte mais autoritativa
 export const PRIORIDADE_FONTE = { pncp: 1, comprasgov_14133: 2, comprasgov_legado: 3 };
@@ -63,8 +64,8 @@ export function salvarLicitacao(db, c, fonteCodigo, payload, agora = agoraBrasil
     let acao; let id;
     if (!atual) {
       const st = classificarStatus(c, null, agora);
-      const cols = [...COLUNAS, 'chave_canonica', 'orgao_id', 'status_calculado', 'status_motivo', 'hash_conteudo', 'fonte_principal', 'segmento'];
-      const vals = [...COLUNAS.map((k) => c[k] ?? null), c.chave_canonica, orgaoId, st.status, st.motivo, hashConteudo(c), fonteCodigo, classificarSegmento(c.objeto)];
+      const cols = [...COLUNAS, 'chave_canonica', 'orgao_id', 'status_calculado', 'status_motivo', 'hash_conteudo', 'fonte_principal', 'segmento', 'sistema_eletronico'];
+      const vals = [...COLUNAS.map((k) => c[k] ?? null), c.chave_canonica, orgaoId, st.status, st.motivo, hashConteudo(c), fonteCodigo, classificarSegmento(c.objeto), sistemaDe(c.plataforma_origem, c.link_origem)];
       const r = db.prepare(`INSERT INTO licitacoes (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals);
       id = Number(r.lastInsertRowid);
       acao = 'inserido';
@@ -88,6 +89,9 @@ export function salvarLicitacao(db, c, fonteCodigo, payload, agora = agoraBrasil
           evento(db, id, tipo, `${ROTULOS[k] || k} alterado(a)`, { campo: k, anterior: String(atual[k]), novo: String(novos[k]), fonte: fonteCodigo, ocorrido: c.data_atualizacao_fonte });
         }
         if (novos.objeto) novos.segmento = classificarSegmento(novos.objeto);
+        if (novos.plataforma_origem || novos.link_origem) {
+          novos.sistema_eletronico = sistemaDe(novos.plataforma_origem ?? atual.plataforma_origem, novos.link_origem ?? atual.link_origem);
+        }
         const mesclado = { ...atual, ...novos };
         const sets = Object.keys(novos).map((k) => `${k}=?`).join(',');
         db.prepare(`UPDATE licitacoes SET ${sets}, hash_conteudo=?, orgao_id=COALESCE(?, orgao_id), ultima_verificacao=datetime('now'),

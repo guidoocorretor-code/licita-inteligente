@@ -19,6 +19,7 @@ import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendar
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
 import { consultarCnpj } from '../services/cnpj.js';
 import { lerSicafPdf } from '../services/sicaf.js';
+import { catalogoSistemas } from '../services/sistemas.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -96,7 +97,7 @@ const doCliente = (req, col = 'cliente_id') => (req.clienteId ? { sql: ` AND ${c
 r.get('/meta', (req, res) => {
   const plataformas = db().prepare('SELECT DISTINCT plataforma_origem p FROM licitacoes WHERE plataforma_origem IS NOT NULL ORDER BY p').all().map((x) => x.p);
   const regimes = db().prepare('SELECT DISTINCT regime_legal p FROM licitacoes WHERE regime_legal IS NOT NULL ORDER BY p').all().map((x) => x.p);
-  res.json({ status: STATUS, visoes: VISOES, esferas: ESFERAS, modalidades: MODALIDADES_PNCP, segmentos: SEGMENTOS, plataformas, regimes,
+  res.json({ status: STATUS, visoes: VISOES, esferas: ESFERAS, modalidades: MODALIDADES_PNCP, segmentos: SEGMENTOS, plataformas, regimes, sistemas: catalogoSistemas(),
     ufs: ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'] });
 });
 

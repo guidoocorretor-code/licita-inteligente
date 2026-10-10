@@ -81,6 +81,26 @@ export async function dashboard(alvo, _r, est) {
 // ============================ BUSCA ============================
 const FILTROS_PADRAO = { visao: 'abertas', ordenar: 'encerramento_asc' };
 
+// Sistema eletrônico de disputa: nome, custo para o fornecedor e link de cadastro (catálogo em server/services/sistemas.js)
+const sistemaInfo = (l, meta) => (l.sistema_eletronico && meta.sistemas ? meta.sistemas[l.sistema_eletronico] : null);
+function nomeSistema(l, meta) {
+  const s = sistemaInfo(l, meta);
+  if (!s) return l.plataforma_origem || naoInformado();
+  if (l.sistema_eletronico === 'outro') return l.plataforma_origem || s.nome;
+  return h('span', {}, s.nome, ' ', s.custo === 'pago' ? h('span', { class: 'etiqueta vermelha pequena' }, '💲 pago')
+    : s.custo === 'gratuito' ? h('span', { class: 'etiqueta verde pequena' }, 'gratuito') : null);
+}
+const classeSistema = (l, meta) => (sistemaInfo(l, meta)?.custo === 'pago' ? 'pago' : '');
+function avisoSistema(l, meta, completo = false) {
+  const s = sistemaInfo(l, meta);
+  if (!s || (!completo && s.custo !== 'pago')) return null;
+  return h('div', { class: `aviso-sistema ${s.custo}` },
+    s.custo === 'pago' ? h('strong', {}, `💲 ${s.nome} cobra do fornecedor. `) : h('strong', {}, `${s.nome}: `),
+    s.resumo, ' ',
+    s.cadastro ? h('a', { href: s.cadastro, target: '_blank', rel: 'noopener noreferrer' }, s.custo === 'pago' ? 'Ver planos e cadastro ↗' : 'Cadastro ↗') : null,
+    s.fonte ? h('span', {}, ' · ', h('a', { href: s.fonte, target: '_blank', rel: 'noopener noreferrer', class: 'suave' }, 'fonte')) : null);
+}
+
 // Um campo da ficha: rótulo pequeno em cima, valor legível embaixo
 const campoFicha = (rotulo, valor, extra = {}) => h('div', { class: 'campo-ficha' + (extra.classe ? ' ' + extra.classe : ''), title: extra.title || '' },
   h('span', { class: 'rotulo' }, rotulo), h('span', { class: 'valor' }, valor));
@@ -102,7 +122,8 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
         campoFicha('Número', l.numero_compra ? `${l.numero_compra}/${l.ano ?? ''}` : naoInformado()),
         campoFicha('Publicação', dataOuNao(l.data_publicacao, false)),
         campoFicha('Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : 'destaque' }),
-        campoFicha('Origem', l.plataforma_origem || naoInformado(), { title: `Fontes: ${l.fontes || ''}` })),
+        campoFicha('Sistema eletrônico', nomeSistema(l, est.meta), { classe: classeSistema(l, est.meta), title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` })),
+      avisoSistema(l, est.meta),
       (l.segmento || l.me_epp_exclusivo === 1) ? h('div', { class: 'linha etiquetas-lic' },
         l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
         l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null) : null,
@@ -156,7 +177,9 @@ export async function buscar(alvo, rota, est) {
       campo('Esfera', sel('esfera', Object.entries(ESF))),
       campo('Modalidade', sel('modalidade', Object.entries(meta.modalidades), 'Todas')),
       campo('Segmento (estimado)', sel('segmento', meta.segmentos.map((s) => [s, s]))),
-      campo('Plataforma de origem', sel('plataforma', meta.plataformas.map((p) => [p, p]), 'Todas')),
+      campo('Sistema eletrônico', sel('sistema', Object.entries(meta.sistemas || {}).map(([k, x]) => [k, `${x.nome}${x.custo === 'pago' ? ' · pago' : x.custo === 'gratuito' ? ' · gratuito' : ''}`]), 'Todos')),
+      campo('Custo do sistema', sel('sistema_custo', [['gratuito', 'Só gratuitos'], ['pago', 'Só pagos'], ['nao_verificado', 'Não verificados']], 'Indiferente')),
+      campo('Plataforma de origem (PNCP)', sel('plataforma', meta.plataformas.map((p) => [p, p]), 'Todas')),
       campo('Regime legal', sel('regime_legal', meta.regimes.map((p) => [p, p]))),
       campo('Valor mínimo (R$)', inp('valor_min', { type: 'number', min: 0, step: '0.01' })),
       campo('Valor máximo (R$)', inp('valor_max', { type: 'number', min: 0, step: '0.01' })),
@@ -303,7 +326,8 @@ export async function detalhe(alvo, rota, est) {
         linha('Sessão de disputa', l.data_sessao ? data(l.data_sessao) : naoInformado('Não informada pela fonte')),
         linha('Valor estimado', valorEst),
         linha('Valor homologado', l.valor_homologado == null ? naoInformado() : moeda(l.valor_homologado)),
-        linha('Plataforma de origem', ni(l.plataforma_origem)),
+        linha('Sistema eletrônico', h('div', {}, nomeSistema(l, est.meta), avisoSistema(l, est.meta, true))),
+        linha('Publicado no PNCP por', ni(l.plataforma_origem)),
         linha('Fontes', d.fontes.map((f) => `${f.fonte_codigo} (desde ${dataUtc(f.primeira_vez)})`).join('; ')),
         linha('Última verificação', dataUtc(l.ultima_verificacao)),
         linha('Itens/documentos sincronizados', l.detalhes_sincronizados_em ? dataUtc(l.detalhes_sincronizados_em) : naoInformado('Ainda não'))))),
