@@ -71,10 +71,10 @@ export async function dashboard(alvo, _r, est) {
       h('div', { class: 'cartao', title: 'Sistema que publicou no PNCP (campo usuarioNome).' }, h('h2', {}, 'Por plataforma de origem'),
         rosca(d.por_plataforma, { aoClicar: (f) => ir({ visao: '', plataforma: f.rotulo }) }))),
     h('div', { class: 'grade pares', style: { marginTop: '14px' } },
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por estado (top 10)'), barras(d.por_uf)),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por município (top 10)'), barras(d.por_municipio)),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por órgão (top 10)'), barras(d.por_orgao)),
-      h('div', { class: 'cartao', title: 'Classificação automática por palavras-chave do objeto (estimativa).' }, h('h2', {}, 'Por segmento (top 10)'), barras(d.por_segmento)),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por estado'), barras(d.por_uf)),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por município'), barras(d.por_municipio)),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por órgão'), barras(d.por_orgao)),
+      h('div', { class: 'cartao', title: 'Classificação automática por palavras-chave do objeto (estimativa).' }, h('h2', {}, 'Por segmento'), barras(d.por_segmento)),
     ));
 }
 
