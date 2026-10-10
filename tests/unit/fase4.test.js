@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { bancoMemoria, fixture, clonar, fetchFalso } from '../helpers.js';
 import { sincronizarFonte } from '../../server/services/sync.js';
 import { buscarContratos, contratosDaLicitacao } from '../../server/services/contratos.js';
-import { sincronizarCatalogo, buscarCatalogo, consultarPrecos, analisarPrecos, estatisticas, validarConsulta } from '../../server/services/precos.js';
+import { sincronizarCatalogo, buscarCatalogo, consultarPrecos, analisarPrecos, estatisticas, validarConsulta, filtrarPorEspecificacao } from '../../server/services/precos.js';
 import { normalizarPncp, normalizarPrecoCompras } from '../../server/services/normalizacao.js';
 import { salvarLicitacao } from '../../server/services/repositorio.js';
 import { _reiniciarLimitador } from '../../server/lib/http.js';
@@ -214,4 +214,22 @@ test('API: pesquisa de preços (cache), exportação CSV, contratos e contratos 
     assert.match(await (await get('/contratos/exportar?uf=BA')).text(), /MARIA FEITOZA DOS SANTOS/);
     assert.equal((await fetch(`${base}/api/contratos`)).status, 401);                       // exige login
   } finally { servidor.close(); }
+});
+
+test('filtro por especificação e aviso de média distorcida (valor total lançado como unitário)', () => {
+  const base = normalizarPrecoCompras(fixture('compras-preco-material-real'));
+  const reg = (descricao_detalhada, preco_unitario, marca = 'X') => ({ ...base, descricao: 'NOTEBOOK', descricao_detalhada, preco_unitario, marca });
+  const regs = [reg('Processador Intel Core Ultra 7, memória 32 GB, SSD 1 TB', 12500), reg('Core Ultra 7 155H, 32GB RAM', 11800, 'Dell'),
+    reg('Processador Core Ultra 5, memória 16 GB', 6100), reg('Processador Intel Core i5, 8 GB', 4200), reg('Notebook i5 8gb', 89750000)];
+  assert.equal(filtrarPorEspecificacao(regs, 'ultra 7 32gb').length, 2);           // "32 GB" e "32GB" são iguais
+  assert.equal(filtrarPorEspecificacao(regs, 'ULTRA 7 32 gb').length, 2);
+  assert.equal(filtrarPorEspecificacao(regs, 'dell').length, 1);                   // marca também conta
+  assert.equal(filtrarPorEspecificacao(regs, '').length, 5);
+  const a = analisarPrecos(regs, { filtro: 'ultra 7' });
+  assert.equal(a.estatisticas.n, 2);
+  assert.equal(a.estatisticas.mediana, 12150);
+  const tudo = analisarPrecos([...regs, reg('i5', 4300), reg('i5', 4400)], {});
+  assert.equal(tudo.estatisticas.media_distorcida, true);
+  assert.ok(tudo.registros.find((r) => r.preco_unitario === 89750000).fora_da_curva);
+  assert.equal(estatisticas([10, 11, 12, 13]).media_distorcida, false);
 });

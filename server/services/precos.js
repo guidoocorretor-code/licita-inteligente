@@ -84,6 +84,8 @@ export function estatisticas(precos) {
     n: v.length, menor: v[0], q1: arred(q1), mediana: arred(quantil(v, 0.5)), media: arred(media(v)), q3: arred(q3), maior: v[v.length - 1],
     limite_inferior: arred(Math.max(0, lim.inferior)), limite_superior: arred(lim.superior),
     fora_da_curva: v.length - dentro.length, media_sem_fora_da_curva: dentro.length ? arred(media(dentro)) : null,
+    // Média puxada por valores extremos (ex.: valor total lançado como unitário): não serve como referência
+    media_distorcida: v.length >= 4 && media(v) > 1.5 * quantil(v, 0.5),
   };
 }
 export const foraDaCurva = (preco, est) => est?.n >= 4 && preco != null && (preco < est.limite_inferior || preco > est.limite_superior);
@@ -130,7 +132,22 @@ export async function consultarPrecos(db, consulta, { fetchImpl, agora = new Dat
  * Análise: agrupa por unidade de fornecimento (preços de unidades diferentes não se comparam),
  * aplica os filtros de item do catálogo e de unidade, e marca os preços fora da curva.
  */
-export function analisarPrecos(registros, { item, unidade } = {}) {
+// Texto sem acento, minúsculo e com "32 gb" = "32gb", para comparar especificações
+const normalizarTexto = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/(\d)\s+(gb|tb|mb|ghz|pol|polegadas|w|v|ml|l|kg|g|mm|cm|m)\b/g, '$1$2');
+
+/** Mantém só os registros cuja descrição (ou marca) contém TODOS os termos do filtro. */
+export function filtrarPorEspecificacao(registros, filtro) {
+  const termos = normalizarTexto(filtro).split(/\s+/).filter(Boolean);
+  if (!termos.length) return registros;
+  return registros.filter((r) => {
+    const alvo = normalizarTexto(`${r.descricao || ''} ${r.descricao_detalhada || ''} ${r.marca || ''}`);
+    return termos.every((t) => alvo.includes(t));
+  });
+}
+
+export function analisarPrecos(registros, { item, unidade, filtro } = {}) {
+  registros = filtrarPorEspecificacao(registros, filtro);
   const porItem = new Map();
   for (const r of registros) {
     const k = r.codigo_item ?? 'sem código';
