@@ -8,16 +8,27 @@ import { avaliarAlertasAcompanhadas } from './alertas.js';
 import { enviarAlertasPendentes } from './email.js';
 import { agoraBrasilia } from './status.js';
 import { precisaAtualizarCatalogo, sincronizarCatalogo } from './precos.js';
+import { espacoEmDisco } from '../lib/disco.js';
 
 export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   let ultimoEmail = 0;
   let ultimaVerificacaoCatalogo = 0;
+  let ultimoAvisoDisco = 0;
   const tick = async () => {
     // Alertas de prazo/mudança e e-mail rodam antes das sincronizações, que podem demorar
     try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
     if (Date.now() - ultimoEmail >= 10 * 60_000) {
       ultimoEmail = Date.now();
       enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));
+    }
+    // Disco quase cheio: para de baixar dados novos (alertas e o site continuam) até alguém liberar espaço
+    const disco = espacoEmDisco();
+    if (disco?.baixo) {
+      if (Date.now() - ultimoAvisoDisco >= 3600_000) {
+        ultimoAvisoDisco = Date.now();
+        console.error(`[disco] só ${disco.livre_mb} MB livres de ${disco.total_mb} MB (${disco.livre_pct}%): sincronizações pausadas.`);
+      }
+      return;
     }
     // Catálogo do Compras.gov.br (para a pesquisa de preços): baixa se vazio ou com mais de 30 dias
     if (Date.now() - ultimaVerificacaoCatalogo >= 6 * 3600_000) {

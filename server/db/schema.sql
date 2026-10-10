@@ -233,14 +233,20 @@ CREATE TABLE IF NOT EXISTS licitacao_itens (
 CREATE VIRTUAL TABLE IF NOT EXISTS itens_fts USING fts5(
   descricao, content='licitacao_itens', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
 );
+-- Itens antigos entram no índice aos poucos, depois que o servidor já está no ar (db/index.js: indexarItensPendentes).
+-- Por isso apagar/alterar só mexe no índice quando o item já está nele (apagar o que não está corrompe o FTS5).
+DROP TRIGGER IF EXISTS trg_itens_ad;
+DROP TRIGGER IF EXISTS trg_itens_au;
 CREATE TRIGGER IF NOT EXISTS trg_itens_ai AFTER INSERT ON licitacao_itens BEGIN
   INSERT INTO itens_fts(rowid, descricao) VALUES (new.id, new.descricao);
 END;
-CREATE TRIGGER IF NOT EXISTS trg_itens_ad AFTER DELETE ON licitacao_itens BEGIN
+CREATE TRIGGER IF NOT EXISTS trg_itens_ad2 AFTER DELETE ON licitacao_itens
+  WHEN EXISTS (SELECT 1 FROM itens_fts_docsize WHERE id = old.id) BEGIN
   INSERT INTO itens_fts(itens_fts, rowid, descricao) VALUES ('delete', old.id, old.descricao);
 END;
-CREATE TRIGGER IF NOT EXISTS trg_itens_au AFTER UPDATE OF descricao ON licitacao_itens BEGIN
-  INSERT INTO itens_fts(itens_fts, rowid, descricao) VALUES ('delete', old.id, old.descricao);
+CREATE TRIGGER IF NOT EXISTS trg_itens_au2 AFTER UPDATE OF descricao ON licitacao_itens BEGIN
+  INSERT INTO itens_fts(itens_fts, rowid, descricao) SELECT 'delete', old.id, old.descricao
+    WHERE EXISTS (SELECT 1 FROM itens_fts_docsize WHERE id = old.id);
   INSERT INTO itens_fts(rowid, descricao) VALUES (new.id, new.descricao);
 END;
 

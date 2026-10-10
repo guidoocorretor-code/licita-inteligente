@@ -12,9 +12,6 @@ export function abrirBanco(caminho = config.dbPath) {
   conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const schema = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   conn.exec(schema);
-  // Bancos criados antes da busca nos itens: indexa os itens que já estavam baixados (uma vez só)
-  const semIndice = conn.prepare('SELECT 1 FROM itens_fts_docsize LIMIT 1').get() == null;
-  if (semIndice && conn.prepare('SELECT 1 FROM licitacao_itens LIMIT 1').get()) conn.exec("INSERT INTO itens_fts(itens_fts) VALUES ('rebuild')");
   semearFontes(conn);
   return conn;
 }
@@ -51,4 +48,34 @@ export function transacao(conn, fn) {
   conn.exec('BEGIN');
   try { const r = fn(); conn.exec('COMMIT'); return r; }
   catch (e) { conn.exec('ROLLBACK'); throw e; }
+}
+
+/**
+ * Coloca no índice de busca os itens baixados antes da busca nos itens existir, em lotes pequenos.
+ * Não roda na abertura do banco: com muitos itens, indexar tudo de uma vez passava dos 60 s
+ * de verificação de saúde do Railway e o site não subia. Retorna quantos itens indexou neste lote.
+ */
+export function indexarItensPendentes(conn, { aposId = 0, lote = 2000 } = {}) {
+  const ids = conn.prepare('SELECT id FROM licitacao_itens WHERE id > ? ORDER BY id LIMIT ?').all(aposId, lote);
+  if (!ids.length) return { indexados: 0, ultimoId: aposId, fim: true };
+  const ultimoId = ids[ids.length - 1].id;
+  const out = conn.prepare(`INSERT INTO itens_fts(rowid, descricao) SELECT id, descricao FROM licitacao_itens i
+    WHERE id > ? AND id <= ? AND NOT EXISTS (SELECT 1 FROM itens_fts_docsize d WHERE d.id = i.id)`).run(aposId, ultimoId);
+  return { indexados: Number(out.changes), ultimoId, fim: ids.length < lote };
+}
+
+/** Roda indexarItensPendentes em segundo plano, um lote por vez, sem travar as requisições. */
+export function indexarItensEmSegundoPlano(conn, { lote = 2000, log = console.log } = {}) {
+  let aposId = 0; let total = 0;
+  return new Promise((resolve) => {
+    const passo = () => {
+      try {
+        const r = indexarItensPendentes(conn, { aposId, lote });
+        total += r.indexados; aposId = r.ultimoId;
+        if (r.fim) { if (total) log(`[itens] índice de busca completo: ${total} itens antigos indexados.`); return resolve(total); }
+        setTimeout(passo, 20);
+      } catch (e) { log(`[itens] falha ao indexar: ${e.message}`); resolve(total); }
+    };
+    setTimeout(passo, 0);
+  });
 }
