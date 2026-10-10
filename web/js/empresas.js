@@ -36,10 +36,52 @@ function formEmpresa(est, c = {}, aoSalvar) {
   campos.porte = h('select', { id: 'e-porte' }, h('option', { value: '' }, 'Não informado'),
     ['MEI', 'ME', 'EPP', 'Demais'].map((p) => h('option', { value: p, selected: c.porte === p }, p)));
   campos.observacoes = h('textarea', { id: 'e-observacoes', rows: 2 }, c.observacoes || '');
+  const statusReceita = h('div', { class: 'status-receita' });
+  const seletorSocio = h('div', {});
+  let ultimaConsulta = '';
+  // Preenche a partir da base pública da Receita; num cadastro novo só preenche campos vazios,
+  // na edição (botão clicado) atualiza os dados da empresa e mantém o que foi digitado do responsável.
+  const consultarReceita = async (forcar = false) => {
+    const cnpj = campos.cnpj.value.replace(/\D/g, '');
+    if (cnpj.length !== 14 || (!forcar && cnpj === ultimaConsulta)) return;
+    ultimaConsulta = cnpj;
+    statusReceita.className = 'status-receita aviso azul';
+    render(statusReceita, 'Consultando a base pública da Receita Federal...');
+    try {
+      const d = await api(`/cnpj/${cnpj}/consulta`);
+      const por = (k, v, sempre) => { if (v && (sempre || !campos[k].value.trim())) campos[k].value = v; };
+      const sempre = forcar && !!c.id;
+      por('razao_social', d.razao_social, sempre); por('nome_fantasia', d.nome_fantasia, sempre);
+      por('uf', d.uf, sempre); por('municipio', d.municipio, sempre);
+      por('email', d.email, sempre); por('telefone', d.telefone, sempre);
+      if (d.porte && (sempre || !campos.porte.value)) campos.porte.value = d.porte;
+      const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
+      escolherSocio(d.responsavel);
+      render(seletorSocio, d.socios.length > 1 ? h('div', { class: 'campo' }, h('label', { for: 'e-socio' }, `Sócios na Receita (${d.socios.length}): escolha quem é o responsável`),
+        h('select', { id: 'e-socio', onchange: (ev) => { forcar = true; escolherSocio(d.socios[ev.target.value]); } },
+          d.socios.map((s, i) => h('option', { value: i, selected: s === d.responsavel || (d.responsavel && s.nome === d.responsavel.nome) }, `${s.nome}${s.qualificacao ? ` (${s.qualificacao})` : ''}`)))) : null);
+      const inativa = d.situacao && !/ATIVA/i.test(d.situacao);
+      statusReceita.className = `status-receita aviso ${inativa ? 'vermelho' : 'verde'}`;
+      render(statusReceita,
+        h('strong', {}, inativa ? `Atenção: situação cadastral ${d.situacao}. ` : `Dados preenchidos pela Receita (situação: ${d.situacao || 'não informada'}). `),
+        d.atividade ? h('span', {}, `Atividade principal: ${d.atividade}. `) : null,
+        h('div', { class: 'pequeno', style: { marginTop: '4px' } },
+          `Fonte: ${d.fonte}, base aberta do CNPJ da Receita Federal (pode ter algumas semanas de atraso). `,
+          'E-mail e telefone pessoais do responsável não são públicos: preencha com os dados que a empresa passar. Confira tudo antes de salvar.'));
+    } catch (e) {
+      statusReceita.className = 'status-receita aviso amarelo';
+      render(statusReceita, e.message);
+    }
+  };
   const conteudo = h('form', { class: 'form-empresa' },
     h('h3', {}, 'Empresa'),
     h('div', { class: 'filtros' },
-      inp('cnpj', 'CNPJ *', { required: true, inputmode: 'numeric', placeholder: '00.000.000/0000-00', value: c.cnpj ? fmtCnpj(c.cnpj) : '' }),
+      h('div', { class: 'largo' }, h('label', { for: 'e-cnpj' }, 'CNPJ *'),
+        h('div', { class: 'linha cnpj-linha' },
+          campos.cnpj = h('input', { id: 'e-cnpj', required: true, inputmode: 'numeric', placeholder: '00.000.000/0000-00', value: c.cnpj ? fmtCnpj(c.cnpj) : '',
+            oninput: (ev) => { if (!c.id && ev.target.value.replace(/\D/g, '').length === 14) consultarReceita(); },
+            onblur: () => { if (!c.id) consultarReceita(); } }),
+          h('button', { type: 'button', class: 'btn pequeno', title: 'Buscar dados públicos da Receita Federal', onclick: () => consultarReceita(true) }, '🔎 Receita'))),
       inp('razao_social', 'Razão social *', { required: true }, true),
       inp('nome_fantasia', 'Nome fantasia'),
       h('div', {}, h('label', { for: 'e-porte' }, 'Porte'), campos.porte),
@@ -47,7 +89,9 @@ function formEmpresa(est, c = {}, aoSalvar) {
       inp('municipio', 'Município', { placeholder: 'Vila Velha' }),
       inp('email', 'E-mail da empresa', { type: 'email' }),
       inp('telefone', 'Telefone da empresa', { type: 'tel' })),
+    statusReceita,
     h('h3', {}, 'Responsável legal'),
+    seletorSocio,
     h('div', { class: 'filtros' },
       inp('resp_nome', 'Nome', {}, true), inp('resp_cargo', 'Cargo', { placeholder: 'Sócio-administrador' }),
       inp('resp_email', 'E-mail', { type: 'email' }), inp('resp_telefone', 'Telefone / WhatsApp', { type: 'tel' })),

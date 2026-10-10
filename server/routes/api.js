@@ -17,6 +17,7 @@ import { agoraBrasilia } from '../services/status.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
+import { consultarCnpj } from '../services/cnpj.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -357,6 +358,11 @@ r.delete('/clientes/:id', exigirPapel('gestor'), (req, res) => {
   auditar(req, 'cliente_excluir', 'cliente', req.params.id); res.json({ ok: true });
 });
 r.get('/cnpj/validar', (req, res) => res.json({ valido: !!validarCnpj(req.query.cnpj) }));
+// Dados públicos do CNPJ (base aberta da Receita, via BrasilAPI / CNPJ.ws) para preencher o cadastro
+r.get('/cnpj/:cnpj/consulta', async (req, res) => {
+  try { res.json(await consultarCnpj(req.params.cnpj)); }
+  catch (e) { erro(res, e.status || 502, e.message); }
+});
 // Documentos: multipart com "arquivo" (PDF opcional) e "dados" (JSON: { itens: [...], substitui: [ids] })
 r.post('/clientes/:id/documentos', exigirPapel('analista'), receberPdf, (req, res) => {
   const c = clienteDaConta(req);
