@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria, fixture, clonar } from '../helpers.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
-import { salvarLicitacao } from '../../server/services/repositorio.js';
+import { normalizarItemPncp } from '../../server/services/normalizacao.js';
+import { salvarLicitacao, salvarItens, salvarDocumentos } from '../../server/services/repositorio.js';
 import { buscar } from '../../server/services/busca.js';
 import { paraCsv, paraXlsx } from '../../server/services/exportacao.js';
 
@@ -32,6 +33,36 @@ test('busca textual sem acento, palavras obrigatórias e excluídas', () => {
   assert.equal(buscar(db, { q: 'aquisicao', excluir: 'notebooks' }).total, 1);
   assert.equal(buscar(db, { excluir: 'aquisicao' }).total, 3);
   assert.equal(buscar(db, { obrigatorias: 'reforma saude' }).total, 1);
+});
+
+test('palavra no singular acha o plural e termos em -ção acham -ções', () => {
+  const db = bancoMemoria(); popular(db);
+  assert.equal(buscar(db, { q: 'medicamento' }).total, 1);           // objeto diz "medicamentos"
+  assert.equal(buscar(db, { q: 'computador' }).total, 1);
+  assert.equal(buscar(db, { q: 'conservações' }).total, 1);          // objeto diz "conservação"
+  assert.equal(buscar(db, { excluir: 'aquisições' }).total, 3);
+});
+
+test('filtros por itens, documentos, regime legal, ME/EPP e datas de abertura', () => {
+  const db = bancoMemoria(); popular(db);
+  const ids = db.prepare('SELECT id FROM licitacoes ORDER BY id').all().map((r) => r.id);
+  const item = { ...normalizarItemPncp(fixture('pncp-item-real')), catalogo_codigo: '12345' };
+  salvarItens(db, ids[0], [item], 'pncp', '2026-10-10T12:00:00');                       // item de serviço
+  salvarItens(db, ids[1], [{ ...item, material_servico: 'Material', catalogo_codigo: '999' }], 'pncp', '2026-10-10T12:00:00');
+  salvarDocumentos(db, ids[2], [{ sequencial: 1, url: 'https://x/1', tipo: 'Edital' }]);
+  db.prepare('UPDATE licitacoes SET me_epp_exclusivo = 1 WHERE id = ?').run(ids[3]);
+  assert.equal(buscar(db, { tipo_item: 'Serviço' }).total, 1);
+  assert.equal(buscar(db, { tipo_item: 'Material' }).total, 1);
+  assert.equal(buscar(db, { catalogo: '12345' }).total, 1);
+  assert.equal(buscar(db, { com_documentos: '1' }).total, 1);
+  assert.equal(buscar(db, { me_epp: '1' }).total, 1);
+  assert.equal(buscar(db, { regime_legal: 'Lei 14.133/2021' }).total, 5);
+  assert.equal(buscar(db, { regime_legal: 'Lei 8.666/1993' }).total, 0);
+  assert.equal(buscar(db, { abertura_ate: '2026-09-30' }).total, 0);
+  assert.equal(buscar(db, { abertura_de: '2026-10-01', abertura_ate: '2026-10-01' }).total, 5);
+  const agora = '2026-10-10T12:00:00';
+  assert.equal(buscar(db, { prazo_min_dias: 9 }, { agora }).total, 2);   // encerram em 20/10 e 30/10
+  assert.equal(buscar(db, { sessao_proxima: '1' }, { agora }).total, 2); // encerram em 12/10 e 15/10
 });
 
 test('filtros combinados, visões, ordenação e paginação', () => {

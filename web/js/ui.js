@@ -100,3 +100,66 @@ export function barras(itens, { max = 10, rotulo = (i) => i.rotulo } = {}) {
 }
 
 export const render = (el, ...n) => el.replaceChildren(...n.flat().filter((x) => x != null && x !== false));
+
+// Valor monetário curto para blocos de indicador (o valor completo vai no title / linha de apoio)
+export function moedaCurta(v) {
+  if (v == null) return null;
+  const abs = Math.abs(v);
+  const f = (n, s) => `R$ ${n.toLocaleString('pt-BR', { maximumFractionDigits: n < 10 ? 2 : 1 })} ${s}`;
+  if (abs >= 1e9) return f(v / 1e9, 'bi');
+  if (abs >= 1e6) return f(v / 1e6, 'mi');
+  if (abs >= 1e3) return f(v / 1e3, 'mil');
+  return BRL.format(v);
+}
+
+// Paleta categórica validada (daltonismo e contraste entre vizinhos); "Outros" sempre em cinza.
+const CORES_CAT = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'];
+const COR_OUTROS = '#a8acb3';
+const SVG = 'http://www.w3.org/2000/svg';
+const s = (tag, attrs = {}) => { const el = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
+
+/**
+ * Gráfico de rosca com legenda (nome, quantidade e %). Mostra no máximo `max` fatias;
+ * o restante é somado em "Outros". Usado só para partes de um todo com poucas categorias.
+ */
+export function rosca(itens, { max = 5, rotulo = (i) => i.rotulo, aoClicar } = {}) {
+  const validos = itens.filter((i) => i.n > 0);
+  if (!validos.length) return vazio('Sem dados ainda.');
+  const ordenados = [...validos].sort((a, b) => b.n - a.n);
+  const fatias = ordenados.slice(0, max).map((i, k) => ({ ...i, nome: rotulo(i), cor: CORES_CAT[k] }));
+  const resto = ordenados.slice(max).reduce((t, i) => t + i.n, 0);
+  if (resto) fatias.push({ nome: `Outros (${ordenados.length - max})`, n: resto, cor: COR_OUTROS, outros: true });
+  const total = fatias.reduce((t, f) => t + f.n, 0);
+  const pct = (n) => `${((n / total) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+
+  const R = 60; const r = 38; const C = 70;
+  const svg = s('svg', { viewBox: '0 0 140 140', class: 'rosca-svg', role: 'img', 'aria-label': fatias.map((f) => `${f.nome}: ${f.n}`).join('; ') });
+  let ang = -Math.PI / 2;
+  const ponto = (raio, a) => `${C + raio * Math.cos(a)} ${C + raio * Math.sin(a)}`;
+  for (const f of fatias) {
+    const frac = f.n / total;
+    let el;
+    if (frac >= 0.9999) {
+      el = s('circle', { cx: C, cy: C, r: (R + r) / 2, fill: 'none', stroke: f.cor, 'stroke-width': R - r });
+    } else {
+      const a2 = ang + frac * 2 * Math.PI; const grande = frac > 0.5 ? 1 : 0;
+      el = s('path', { d: `M ${ponto(R, ang)} A ${R} ${R} 0 ${grande} 1 ${ponto(R, a2)} L ${ponto(r, a2)} A ${r} ${r} 0 ${grande} 0 ${ponto(r, ang)} Z`,
+        fill: f.cor, stroke: 'var(--superficie)', 'stroke-width': 2 });
+      ang = a2;
+    }
+    const t = s('title'); t.textContent = `${f.nome}: ${NUM.format(f.n)} (${pct(f.n)})`; el.append(t);
+    if (aoClicar && !f.outros) { el.style.cursor = 'pointer'; el.addEventListener('click', () => aoClicar(f)); }
+    svg.append(el);
+  }
+  const tTotal = s('text', { x: C, y: C - 2, 'text-anchor': 'middle', class: 'rosca-total' }); tTotal.textContent = NUM.format(total);
+  const tRot = s('text', { x: C, y: C + 14, 'text-anchor': 'middle', class: 'rosca-rotulo' }); tRot.textContent = 'total';
+  svg.append(tTotal, tRot);
+
+  const legenda = h('ul', { class: 'rosca-legenda' }, fatias.map((f) => h('li', { title: `${f.nome}: ${NUM.format(f.n)} (${pct(f.n)})`,
+    class: aoClicar && !f.outros ? 'clicavel' : null, onclick: aoClicar && !f.outros ? () => aoClicar(f) : null },
+    h('span', { class: 'amostra', style: { background: f.cor } }),
+    h('span', { class: 'nome' }, f.nome),
+    h('span', { class: 'n' }, NUM.format(f.n)),
+    h('span', { class: 'pct' }, pct(f.n)))));
+  return h('div', { class: 'rosca' }, svg, legenda);
+}
