@@ -123,3 +123,11 @@ test('exportação via API e dashboard calculado do banco', async () => {
   assert.equal(d.total, db.prepare('SELECT COUNT(*) n FROM licitacoes').get().n);
   assert.ok(Array.isArray(d.por_uf));
 });
+
+test('código da tela é sempre revalidado, para publicação nova aparecer sem limpar cache', async () => {
+  for (const caminho of ['/', '/js/paginas.js', '/css/app.css', '/sw.js', '/dashboard']) {
+    const r = await fetch(`${base}${caminho}`);
+    assert.equal(r.status, 200, caminho);
+    assert.equal(r.headers.get('cache-control'), 'no-cache', caminho);
+  }
+});
