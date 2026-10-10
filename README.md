@@ -39,3 +39,6 @@ Serviços como Render, Railway ou Fly.io aceitam este Dockerfile. Use **um volum
 - Nome: variável `APP_NAME` e `web/manifest.webmanifest`.
 - Cores: variáveis CSS no topo de `web/css/app.css` (`--cor-primaria`, `--cor-destaque`).
 - Ícone: `web/icons/`.
+
+## Publicação no Railway
+Passo a passo em [docs/DEPLOY-RAILWAY.md](docs/DEPLOY-RAILWAY.md). Variáveis de configuração inicial: `ADMIN_EMAIL`, `ADMIN_SENHA`, `ADMIN_NOME`, `EMPRESA_NOME` e `PNCP_UFS` (usadas só em banco novo).

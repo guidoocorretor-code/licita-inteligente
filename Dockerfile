@@ -6,9 +6,9 @@ RUN npm ci --omit=dev
 COPY server ./server
 COPY web ./web
 COPY scripts ./scripts
-RUN mkdir -p storage && chown -R node:node /app
-USER node
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p storage && chown -R node:node /app
 EXPOSE 3000
-VOLUME ["/app/storage"]
-HEALTHCHECK CMD wget -qO- http://localhost:3000/saude || exit 1
-CMD ["node", "--disable-warning=ExperimentalWarning", "server/index.js"]
+# Volume persistente deve ser montado em /app/storage (Railway: Volumes; Docker: -v dados:/app/storage)
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["node", "--disable-warning=ExperimentalWarning", "scripts/iniciar-producao.js"]

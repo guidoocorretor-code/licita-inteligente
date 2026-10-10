@@ -9,13 +9,15 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   const tick = async () => {
     try {
       recalcularStatusTemporais(db);
-      const fontes = db.prepare(`SELECT codigo, frequencia_minutos, ultima_sincronizacao FROM fontes
+      const fontes = db.prepare(`SELECT codigo, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok FROM fontes
         WHERE habilitada=1 AND frequencia_minutos > 0`).all();
       for (const f of fontes) {
         if (!CONECTORES[f.codigo]) continue;
         const ultima = f.ultima_sincronizacao ? Date.parse(f.ultima_sincronizacao.replace(' ', 'T') + 'Z') : 0;
         if (Date.now() - ultima >= f.frequencia_minutos * 60_000) {
-          const r = await sincronizarFonte(db, f.codigo);
+          // Primeira carga: traz todas as contratações com propostas abertas; depois, só o incremental.
+          const modo = f.ultima_sincronizacao_ok ? 'incremental' : 'abertas';
+          const r = await sincronizarFonte(db, f.codigo, { modo });
           console.log(`[agendador] ${f.codigo}: ${r.status ?? ''} ${r.mensagem ?? ''}`);
         }
       }
