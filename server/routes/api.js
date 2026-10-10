@@ -7,7 +7,7 @@ import { STATUS, VISOES } from '../services/status.js';
 import { ESFERAS, MODALIDADES_PNCP, normalizarPncp, normalizarCompras14133 } from '../services/normalizacao.js';
 import { SEGMENTOS } from '../services/segmentos.js';
 import { salvarLicitacao } from '../services/repositorio.js';
-import { sincronizarFonte, testarFonte, reprocessarFalhas, sincronizarDetalhesDe } from '../services/sync.js';
+import { sincronizarFonte, testarFonte, reprocessarFalhas, sincronizarDetalhesDe, sincronizacaoEmAndamento } from '../services/sync.js';
 import { paraCsv, paraXlsx } from '../services/exportacao.js';
 import { CONECTORES } from '../connectors/registro.js';
 
@@ -286,7 +286,15 @@ r.post('/fontes/:codigo/testar', exigirPapel('admin'), async (req, res) => {
 r.post('/fontes/:codigo/sincronizar', exigirPapel('admin'), async (req, res) => {
   try {
     auditar(req, 'fonte_sincronizar', 'fonte', req.params.codigo, { modo: req.body?.modo });
-    res.json(await sincronizarFonte(db(), req.params.codigo, { modo: req.body?.modo === 'abertas' ? 'abertas' : 'incremental' }));
+    const modo = req.body?.modo === 'abertas' ? 'abertas' : 'incremental';
+    if (sincronizacaoEmAndamento(req.params.codigo)) return res.json({ ignorado: true, mensagem: 'Sincronização já em andamento para esta fonte. Acompanhe em "Execuções".' });
+    // Carga completa pode levar dezenas de minutos: roda em segundo plano para a página não ficar presa nem cair por tempo.
+    if (modo === 'abertas') {
+      sincronizarFonte(db(), req.params.codigo, { modo }).then((r) => console.log(`[sync] ${req.params.codigo} abertas: ${r.mensagem ?? r.status ?? ''}`))
+        .catch((e) => console.error(`[sync] ${req.params.codigo}:`, e.message));
+      return res.status(202).json({ iniciado: true, mensagem: 'Carga das licitações abertas iniciada em segundo plano. Pode fechar a página; acompanhe em "Execuções".' });
+    }
+    res.json(await sincronizarFonte(db(), req.params.codigo, { modo }));
   } catch (e) { erro(res, 400, e.message); }
 });
 r.post('/fontes/:codigo/reprocessar', exigirPapel('admin'), async (req, res) => {

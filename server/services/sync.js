@@ -6,6 +6,7 @@ import { agoraBrasilia } from './status.js';
 import { avaliarAlertasPesquisas } from './alertas.js';
 
 const emExecucao = new Set();
+export const sincronizacaoEmAndamento = (codigo) => emExecucao.has(codigo);
 
 export function carregarFonte(db, codigo) {
   const f = db.prepare('SELECT * FROM fontes WHERE codigo=?').get(codigo);
@@ -83,6 +84,10 @@ export async function sincronizarFonte(db, codigo, opts = {}) {
     // inclui licitações já existentes aguardando resultado, para detectar homologação/deserção
     const pendentes = db.prepare(`SELECT id FROM licitacoes WHERE fonte_principal=? AND status_calculado IN ('prazo_encerrado','em_disputa','resultado_parcial')
       AND (detalhes_sincronizados_em IS NULL OR detalhes_sincronizados_em < datetime('now','-1 day')) LIMIT ?`).all(codigo, limite);
+    // ...e abertas que ainda não têm itens/documentos (cargas grandes são completadas aos poucos, prazo mais próximo primeiro)
+    const semDetalhe = db.prepare(`SELECT id FROM licitacoes WHERE fonte_principal=? AND status_calculado IN ('aguardando_propostas','aberta')
+      AND detalhes_sincronizados_em IS NULL ORDER BY data_encerramento_proposta LIMIT ?`).all(codigo, limite);
+    for (const p of semDetalhe) paraDetalhar.add(p.id);
     for (const p of pendentes) paraDetalhar.add(p.id);
     let n = 0;
     for (const id of paraDetalhar) {
