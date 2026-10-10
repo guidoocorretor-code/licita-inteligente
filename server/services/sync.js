@@ -172,3 +172,39 @@ export async function sincronizarDetalhesDe(db, licId, opts = {}) {
   salvarDocumentos(db, licId, d.documentos, 'pncp');
   return { ok: true, itens: d.itens.length, documentos: d.documentos.length };
 }
+
+// Baixa aos poucos os itens (e documentos) das licitações abertas que ainda não têm, prazo mais próximo primeiro.
+// Sem isso, a busca por "mouse" não acha o pregão de "materiais de informática" que tem mouse entre os itens.
+// Roda em segundo plano, fora da sincronização, respeitando o limite de 1 requisição/s por host (lib/http.js).
+const falhasRecentes = new Map(); // id -> momento da falha: não insiste na mesma licitação por 6 h
+let completandoItens = false;
+export const completandoItensEmAndamento = () => completandoItens;
+
+export async function completarItensAbertas(db, { limite = 40, fetchImpl, agora = Date.now() } = {}) {
+  if (completandoItens || emExecucao.has('pncp')) return { pulado: true };
+  completandoItens = true;
+  const r = { baixadas: 0, falhas: 0 };
+  try {
+    for (const [id, t] of falhasRecentes) if (agora - t > 6 * 3600_000) falhasRecentes.delete(id);
+    const candidatas = db.prepare(`SELECT * FROM licitacoes WHERE fonte_principal='pncp' AND status_calculado IN ('aguardando_propostas','aberta')
+      AND detalhes_sincronizados_em IS NULL ORDER BY data_encerramento_proposta LIMIT ?`).all(limite + falhasRecentes.size);
+    for (const lic of candidatas) {
+      if (r.baixadas + r.falhas >= limite) break;
+      if (falhasRecentes.has(lic.id)) continue;
+      try {
+        const d = await CONECTORES.pncp.detalhes(lic, { fetchImpl });
+        if (!d) { falhasRecentes.set(lic.id, agora); continue; }
+        salvarItens(db, lic.id, d.itens, 'pncp');
+        salvarDocumentos(db, lic.id, d.documentos, 'pncp');
+        r.baixadas++;
+      } catch (e) {
+        r.falhas++; falhasRecentes.set(lic.id, agora);
+        if (e.tipo === 'bloqueada_rede') break;
+      }
+    }
+    const pend = db.prepare(`SELECT COUNT(*) n FROM licitacoes WHERE fonte_principal='pncp' AND status_calculado IN ('aguardando_propostas','aberta')
+      AND detalhes_sincronizados_em IS NULL`).get().n;
+    r.pendentes = pend;
+    return r;
+  } finally { completandoItens = false; }
+}

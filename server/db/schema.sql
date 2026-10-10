@@ -229,6 +229,21 @@ CREATE TABLE IF NOT EXISTS licitacao_itens (
   UNIQUE (licitacao_id, numero_item)
 );
 
+-- Busca também na descrição dos itens (como a busca do portal PNCP): "mouse" acha o pregão de "materiais de informática"
+CREATE VIRTUAL TABLE IF NOT EXISTS itens_fts USING fts5(
+  descricao, content='licitacao_itens', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS trg_itens_ai AFTER INSERT ON licitacao_itens BEGIN
+  INSERT INTO itens_fts(rowid, descricao) VALUES (new.id, new.descricao);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_itens_ad AFTER DELETE ON licitacao_itens BEGIN
+  INSERT INTO itens_fts(itens_fts, rowid, descricao) VALUES ('delete', old.id, old.descricao);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_itens_au AFTER UPDATE OF descricao ON licitacao_itens BEGIN
+  INSERT INTO itens_fts(itens_fts, rowid, descricao) VALUES ('delete', old.id, old.descricao);
+  INSERT INTO itens_fts(rowid, descricao) VALUES (new.id, new.descricao);
+END;
+
 CREATE TABLE IF NOT EXISTS licitacao_documentos (
   id INTEGER PRIMARY KEY,
   licitacao_id INTEGER NOT NULL REFERENCES licitacoes(id) ON DELETE CASCADE,

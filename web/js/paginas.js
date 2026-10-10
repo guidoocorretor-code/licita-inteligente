@@ -83,7 +83,11 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
         h('span', {}, 'Propostas até: ', dataOuNao(l.data_encerramento_proposta)),
         h('span', { title: `Fontes: ${l.fontes || ''}` }, 'Origem: ', l.plataforma_origem || naoInformado()),
         l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
-        l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null)),
+        l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null),
+      l.itens_encontrados ? h('div', { class: 'itens-achados' },
+        h('strong', {}, 'Encontrado nos itens: '),
+        l.itens_encontrados.map((i, n) => h('span', {}, n ? ' · ' : '', `item ${i.numero_item}: ${i.descricao || '(sem descrição)'}`)),
+        l.itens_encontrados_total > l.itens_encontrados.length ? h('span', { class: 'suave' }, ` e mais ${l.itens_encontrados_total - l.itens_encontrados.length}`) : null) : null),
     h('div', { class: 'lado' },
       etiquetaStatus(l.status_calculado, est.meta, l.status_motivo),
       h('span', { class: 'valor-grande', title: l.valor_estimado === 0 ? 'A fonte informou valor estimado zero (comum quando o orçamento é sigiloso).' : '' }, moeda(l.valor_estimado, l.valor_estimado_situacao), l.valor_estimado === 0 ? h('span', { class: 'suave pequeno' }, ' (zero na fonte)') : null),
@@ -92,6 +96,19 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
         aoFavoritar ? h('button', { class: 'btn pequeno', title: 'Favoritar', onclick: () => aoFavoritar(l) }, '☆') : null,
         l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null,
         l.link_origem ? h('a', { class: 'btn pequeno', href: l.link_origem, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no sistema de origem' }, 'Edital ↗') : null)));
+}
+
+// A busca nos itens só alcança licitações cujos itens já foram baixados do PNCP: dizer isso, sem esconder
+function avisoCoberturaItens(c, filtros) {
+  if (!c || filtros.nos_itens === '0') return null;
+  const pncp = h('a', { href: `https://pncp.gov.br/app/editais?q=${encodeURIComponent(filtros.q || filtros.obrigatorias || '')}`, target: '_blank', rel: 'noopener noreferrer' }, 'Procurar também direto no PNCP ↗');
+  if (!c.total || c.com_itens >= c.total) {
+    return h('div', { class: 'suave pequeno', style: { margin: '6px 0' } }, 'A busca olha o objeto e a descrição de cada item. ', pncp);
+  }
+  const pct = Math.floor((c.com_itens / c.total) * 100);
+  return h('div', { class: 'aviso azul', style: { margin: '6px 0' } },
+    h('strong', {}, `Itens baixados para ${numero(c.com_itens)} de ${numero(c.total)} licitações deste filtro (${pct}%). `),
+    'A busca olha o objeto de todas e a descrição dos itens só dessas. O sistema baixa o restante sozinho, prazo mais próximo primeiro. ', pncp);
 }
 
 export async function buscar(alvo, rota, est) {
@@ -106,7 +123,8 @@ export async function buscar(alvo, rota, est) {
 
   const form = h('form', { class: 'cartao', onsubmit: (e) => { e.preventDefault(); aplicar({ pagina: 1 }); } },
     h('div', { class: 'filtros' },
-      campo('Palavras-chave no objeto', inp('q', { type: 'search', placeholder: 'ex.: material hospitalar' }), true),
+      campo('Palavras-chave (objeto e itens)', inp('q', { type: 'search', placeholder: 'ex.: mouse, material hospitalar' }), true),
+      campo('Procurar em', sel('nos_itens', [['0', 'Só no objeto']], 'Objeto e itens')),
       campo('Palavras obrigatórias', inp('obrigatorias', { placeholder: 'todas devem aparecer' })),
       campo('Excluir palavras', inp('excluir', { placeholder: 'ex.: locação' })),
       campo('Estado (UF)', sel('uf', meta.ufs.map((u) => [u, u]))),
@@ -181,8 +199,9 @@ export async function buscar(alvo, rota, est) {
   };
   try {
     const res = await api(`/licitacoes${qs({ ...filtros, tamanho: 20 })}`);
-    if (!res.total) { render(lista, vazio('Nenhuma licitação encontrada com esses filtros.')); return; }
-    render(lista, 
+    const aviso = avisoCoberturaItens(res.cobertura_itens, filtros);
+    if (!res.total) { render(lista, aviso, vazio('Nenhuma licitação encontrada com esses filtros.')); return; }
+    render(lista, aviso,
       h('div', { class: 'suave pequeno' }, `${numero(res.total)} licitação(ões) encontrada(s).`),
       ...res.dados.map((l) => linhaLicitacao(l, est, { aoFavoritar: favoritar })),
       h('div', { class: 'paginacao' },

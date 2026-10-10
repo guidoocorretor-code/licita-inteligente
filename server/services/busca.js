@@ -33,9 +33,16 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   // Texto: palavras gerais (todas), obrigatórias (todas), excluídas (nenhuma)
   const gerais = termos(f.q); const obrig = termos(f.obrigatorias); const excl = termos(f.excluir);
   if (gerais.length || obrig.length) {
-    let expr = [...gerais, ...obrig].map(fts).join(' AND ');
-    if (excl.length) expr += ' ' + excl.map((t) => `NOT ${fts(t)}`).join(' ');
-    w.push('l.id IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)'); p.push(expr);
+    const pos = [...gerais, ...obrig].map(fts).join(' AND ');
+    if (f.nos_itens === '0' || f.nos_itens === false) {
+      w.push('l.id IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)'); p.push(pos);
+    } else {
+      // Todas as palavras no objeto/órgão OU todas na descrição de um mesmo item (igual à busca do portal PNCP)
+      w.push(`(l.id IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)
+        OR l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?)))`);
+      p.push(pos, pos);
+    }
+    if (excl.length) { w.push('l.id NOT IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)'); p.push(excl.map(fts).join(' OR ')); }
   } else if (excl.length) {
     w.push(`l.id NOT IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)`); p.push(excl.map(fts).join(' OR '));
   }
@@ -113,7 +120,36 @@ export function buscar(db, f = {}, { agora } = {}) {
   const total = db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n;
   const dados = db.prepare(`SELECT ${COLUNAS_LISTA} FROM licitacoes l ${where} ORDER BY ${ordem} LIMIT ? OFFSET ?`)
     .all(...params, tam, (pagina - 1) * tam);
-  return { total, pagina, tamanho: tam, paginas: Math.ceil(total / tam), dados };
+  const r = { total, pagina, tamanho: tam, paginas: Math.ceil(total / tam), dados };
+  if (termos(f.q).length || termos(f.obrigatorias).length) {
+    marcarItensEncontrados(db, f, dados);
+    r.cobertura_itens = coberturaItens(db, f, agora);
+  }
+  return r;
+}
+
+/** Para cada licitação da página, os itens cuja descrição tem as palavras buscadas (até 3). */
+export function marcarItensEncontrados(db, f, dados) {
+  if (!dados.length || f.nos_itens === '0') return;
+  const pos = [...termos(f.q), ...termos(f.obrigatorias)].map(fts).join(' AND ');
+  const ids = dados.map((d) => d.id);
+  const linhas = db.prepare(`SELECT licitacao_id, numero_item, descricao FROM licitacao_itens
+    WHERE licitacao_id IN (${ids.map(() => '?').join(',')}) AND id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?)
+    ORDER BY licitacao_id, numero_item`).all(...ids, pos);
+  const por = new Map();
+  for (const l of linhas) { const a = por.get(l.licitacao_id) || []; a.push({ numero_item: l.numero_item, descricao: l.descricao }); por.set(l.licitacao_id, a); }
+  for (const d of dados) {
+    const a = por.get(d.id);
+    if (a) { d.itens_encontrados = a.slice(0, 3); d.itens_encontrados_total = a.length; }
+  }
+}
+
+/** Quantas licitações do filtro (sem o texto) já têm os itens baixados. A busca nos itens só alcança essas. */
+export function coberturaItens(db, f, agora) {
+  const { where, params } = montarFiltro({ ...f, q: '', obrigatorias: '', excluir: '' }, agora);
+  const r = db.prepare(`SELECT COUNT(*) total, SUM(CASE WHEN l.detalhes_sincronizados_em IS NOT NULL THEN 1 ELSE 0 END) com_itens
+    FROM licitacoes l ${where}`).get(...params);
+  return { total: r.total, com_itens: r.com_itens || 0 };
 }
 
 export function buscarTodos(db, f = {}, limite = 10000) {

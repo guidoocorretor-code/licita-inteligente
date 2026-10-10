@@ -1,7 +1,7 @@
 // Agendador simples em processo: dispara cada fonte habilitada conforme frequência.
 // Em produção com várias instâncias, rode apenas UMA instância com SCHEDULER=on
 // (ou use o script `npm run sync` em um cron do sistema).
-import { sincronizarFonte } from './sync.js';
+import { sincronizarFonte, completarItensAbertas } from './sync.js';
 import { recalcularStatusTemporais } from './repositorio.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { avaliarAlertasAcompanhadas } from './alertas.js';
@@ -28,6 +28,9 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
         }
       } catch (e) { console.error('[catalogo]', e.message); }
     }
+    // Itens das licitações abertas (para a busca achar "mouse" dentro de "materiais de informática"): sem esperar o tick
+    completarItensAbertas(db).then((r) => { if (r.baixadas || r.falhas) console.log('[itens]', JSON.stringify(r)); })
+      .catch((e) => console.error('[itens]', e.message));
     try {
       recalcularStatusTemporais(db);
       const fontes = db.prepare(`SELECT codigo, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok FROM fontes
