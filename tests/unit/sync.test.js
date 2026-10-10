@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria, fixture, clonar, fetchFalso } from '../helpers.js';
 import { sincronizarFonte, reprocessarFalhas, testarFonte } from '../../server/services/sync.js';
-import { getJson } from '../../server/lib/http.js';
+import { _reiniciarLimitador, getJson } from '../../server/lib/http.js';
 
 process.env.HTTP_MIN_INTERVAL_MS = '0';
 process.env.HTTP_BASE_ESPERA_MS = '1';
+process.env.HTTP_PENALIDADE_429_MS = '0';
 
 // Simula a API do PNCP com o formato real de resposta (2 páginas + itens + arquivos)
 function simuladorPncp({ falharDetalhe = false } = {}) {
@@ -85,4 +86,20 @@ test('cliente HTTP: repete em 5xx/429 com espera e não repete em 4xx', async ()
   assert.equal(f2.chamadas.length, 1);
   const f3 = fetchFalso(() => ({ status: 204 }));
   assert.equal((await getJson('https://exemplo.gov.br/c', { fetchImpl: f3 })).vazio, true);
+});
+
+test('cliente HTTP: HTTP 429 espera mais e tenta além do limite de falhas comuns', async () => {
+  _reiniciarLimitador();
+  let n = 0;
+  const f = fetchFalso(() => (++n <= 4 ? { status: 429, body: 'Too Many Requests' } : { status: 200, body: { ok: 1 } }));
+  const inicio = Date.now();
+  const r = await getJson('https://limite.gov.br/a', { fetchImpl: f, baseEsperaMs: 1, espera429Ms: 20 });
+  assert.deepEqual(r.dados, { ok: 1 });
+  assert.equal(f.chamadas.length, 5, '4 respostas 429 não esgotam as tentativas');
+  assert.ok(Date.now() - inicio >= 20 + 40 + 80 + 160, 'espera progressiva no 429');
+  _reiniciarLimitador();
+  const sempre = fetchFalso(() => ({ status: 429, body: 'x' }));
+  await assert.rejects(getJson('https://limite.gov.br/b', { fetchImpl: sempre, espera429Ms: 1, tentativas429: 3 }), /HTTP 429/);
+  assert.equal(sempre.chamadas.length, 3);
+  _reiniciarLimitador();
 });
