@@ -103,3 +103,26 @@ test('cliente HTTP: HTTP 429 espera mais e tenta além do limite de falhas comun
   assert.equal(sempre.chamadas.length, 3);
   _reiniciarLimitador();
 });
+
+test('consulta cortada pelo limite de páginas não avança o cursor (nada fica para trás)', async () => {
+  const db = bancoMemoria();
+  db.prepare("UPDATE fontes SET config_json=? WHERE codigo='pncp'").run(JSON.stringify({ modalidades: [6], diasRetroativos: 1, maxPaginasPorConsulta: 1, sincronizarDetalhes: false }));
+  const r = await sincronizarFonte(db, 'pncp', { fetchImpl: simuladorPncp(), agora: new Date('2026-10-10T15:00:00Z') });
+  assert.equal(r.lidos, 50);
+  assert.deepEqual(JSON.parse(db.prepare("SELECT cursor_json FROM fontes WHERE codigo='pncp'").get().cursor_json || '{}'), {});
+});
+
+test('banco antigo com limite de 20 páginas no PNCP passa para 2000 ao reabrir', async () => {
+  const { abrirBanco } = await import('../../server/db/index.js');
+  const os = await import('node:os'); const path = await import('node:path'); const fs = await import('node:fs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'licita-'));
+  const arq = path.join(dir, 'b.db');
+  const a = abrirBanco(arq);
+  a.prepare("UPDATE fontes SET config_json=? WHERE codigo='pncp'").run(JSON.stringify({ ufs: ['ES'], maxPaginasPorConsulta: 20 }));
+  a.close();
+  const b = abrirBanco(arq);
+  const cfg = JSON.parse(b.prepare("SELECT config_json FROM fontes WHERE codigo='pncp'").get().config_json);
+  b.close(); fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(cfg.maxPaginasPorConsulta, 2000);
+  assert.deepEqual(cfg.ufs, ['ES']);   // o resto da configuração do administrador é mantido
+});

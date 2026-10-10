@@ -35,6 +35,12 @@ function semearFontes(conn) {
     ins.run(f.codigo, f.nome, f.url, f.tipo, f.status, f.habilitada ? 1 : 0, f.credenciais ? 1 : 0,
       f.frequencia ?? 60, f.observacoes, JSON.stringify(f.config || {}));
   }
+  // O limite antigo de 20 páginas (1.000 registros por modalidade) cortava a carga nacional do PNCP.
+  const pncp = conn.prepare("SELECT config_json FROM fontes WHERE codigo='pncp'").get();
+  const cfg = pncp ? JSON.parse(pncp.config_json || '{}') : null;
+  if (cfg && cfg.maxPaginasPorConsulta === 20) {
+    conn.prepare("UPDATE fontes SET config_json=? WHERE codigo='pncp'").run(JSON.stringify({ ...cfg, maxPaginasPorConsulta: 2000 }));
+  }
 }
 
 // Transação simples para node:sqlite

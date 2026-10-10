@@ -8,7 +8,7 @@ export const FONTES_PADRAO = [
     url: 'https://pncp.gov.br/api/consulta/swagger-ui/index.html', tipo: 'api_rest', status: 'funcional',
     habilitada: true, credenciais: false, frequencia: 60,
     observacoes: 'API pública de consultas v1 (sem autenticação). Endpoints: /v1/contratacoes/publicacao, /v1/contratacoes/proposta, /v1/contratacoes/atualizacao; detalhes em /api/pncp/v1/orgaos/{cnpj}/compras/{ano}/{seq}/itens e /arquivos. tamanhoPagina máx. 50.',
-    config: { ufs: [], modalidades: [6, 8, 4, 9, 7, 5, 12], diasRetroativos: 3, maxPaginasPorConsulta: 20, sincronizarDetalhes: true },
+    config: { ufs: [], modalidades: [6, 8, 4, 9, 7, 5, 12], diasRetroativos: 3, maxPaginasPorConsulta: 2000, sincronizarDetalhes: true },
   },
   {
     codigo: 'comprasgov_14133', nome: 'Compras.gov.br — Dados Abertos (Contratações Lei 14.133)',

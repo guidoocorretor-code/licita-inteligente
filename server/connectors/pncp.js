@@ -16,7 +16,9 @@ function qs(params) {
 }
 
 /** Itera páginas de um endpoint de contratações. */
-export async function* paginarContratacoes(endpoint, params, { maxPaginas = 20, fetchImpl } = {}) {
+// Percorre todas as páginas. Se o limite de segurança cortar a consulta, avisa com { truncado: true }
+// para o cursor incremental não avançar e nada ficar para trás.
+export async function* paginarContratacoes(endpoint, params, { maxPaginas = 2000, fetchImpl } = {}) {
   for (let pagina = 1; pagina <= maxPaginas; pagina++) {
     const url = `${BASE_CONSULTA}/v1/contratacoes/${endpoint}?${qs({ ...params, pagina, tamanhoPagina: TAM_PAGINA })}`;
     const { vazio, dados } = await getJson(url, { fetchImpl });
@@ -24,6 +26,7 @@ export async function* paginarContratacoes(endpoint, params, { maxPaginas = 20, 
     yield { pagina, url, registros: dados.data, totalPaginas: dados.totalPaginas, totalRegistros: dados.totalRegistros };
     if (!dados.paginasRestantes || pagina >= dados.totalPaginas) return;
   }
+  yield { truncado: true };
 }
 
 export async function buscarItens(cnpj, ano, seq, { fetchImpl } = {}) {
@@ -65,13 +68,13 @@ export const conectorPncp = {
     const cursor = fonte.cursor;
     const ufs = cfg.ufs?.length ? cfg.ufs : [null];
     const modalidades = cfg.modalidades?.length ? cfg.modalidades : [6];
-    const maxPaginas = cfg.maxPaginasPorConsulta || 20;
+    const maxPaginas = cfg.maxPaginasPorConsulta || 2000;
 
     if (modo === 'abertas') {
       const dataFinal = yyyymmdd(new Date(agora.getTime() + 90 * 86400000));
       for (const uf of ufs) for (const mod of modalidades) {
         for await (const p of paginarContratacoes('proposta', { dataFinal, codigoModalidadeContratacao: mod, uf }, { maxPaginas, fetchImpl })) {
-          yield { ...p, itens: p.registros.map((r) => ({ bruto: r, canonico: normalizarPncp(r) })) };
+          if (!p.truncado) yield { ...p, itens: p.registros.map((r) => ({ bruto: r, canonico: normalizarPncp(r) })) };
         }
       }
       return;
@@ -81,10 +84,12 @@ export const conectorPncp = {
     for (const uf of ufs) for (const mod of modalidades) {
       const chave = `${uf || 'BR'}:${mod}`;
       const desde = cursor[chave] || yyyymmdd(new Date(agora.getTime() - (cfg.diasRetroativos ?? 3) * 86400000));
+      let truncado = false;
       for await (const p of paginarContratacoes('atualizacao', { dataInicial: desde, dataFinal: fim, codigoModalidadeContratacao: mod, uf }, { maxPaginas, fetchImpl })) {
+        if (p.truncado) { truncado = true; continue; }
         yield { ...p, itens: p.registros.map((r) => ({ bruto: r, canonico: normalizarPncp(r) })) };
       }
-      yield { cursor: { [chave]: fim } };
+      if (!truncado) yield { cursor: { [chave]: fim } };
     }
   },
 

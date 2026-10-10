@@ -56,10 +56,15 @@ h3 { font-size: 1rem; margin: 0 0 8px; }
 /* Componentes */
 .cartao { background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); padding: 16px; }
 .grade { display: grid; gap: 14px; }
-.grade.kpis { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.grade.kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.grade.tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grade.pares { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1280px) { .grade.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .grade.tres { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .grade.kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grade.tres, .grade.pares { grid-template-columns: 1fr; } }
 .grade.duas { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 .kpi .valor { font-size: 1.6rem; font-weight: 700; margin-top: 4px; }
-.kpi .rotulo { color: var(--texto-suave); font-size: .85rem; }
+.kpi .rotulo { color: var(--texto-suave); font-size: .85rem; min-height: 2.6em; } /* 2 linhas: valores alinhados */
 .kpi a { text-decoration: none; color: inherit; }
 .cabecalho-pagina { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: flex-end; margin-bottom: 16px; }
 
@@ -115,8 +120,6 @@ tr.clicavel:hover td { background: #f8fafc; }
 .barra .preench { background: var(--cor-primaria); height: 100%; border-radius: 4px; }
 .barra .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .barra .n { text-align: right; font-variant-numeric: tabular-nums; }
-.colunas-grafico { display: flex; align-items: flex-end; gap: 3px; height: 140px; padding-top: 6px; }
-.colunas-grafico div { flex: 1; background: var(--cor-primaria); border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
 
 .aviso { border-radius: var(--raio); padding: 10px 14px; font-size: .9rem; margin-bottom: 14px; }
 .aviso.amarelo { background: var(--alerta-fundo); color: #6b4300; border: 1px solid #f3d9a6; }

@@ -32,7 +32,6 @@ export async function dashboard(alvo, _r, est) {
     avisos.push(h('div', { class: 'aviso vermelho' }, `Conector com falha: ${f.nome} (${f.situacao_conexao === 'bloqueada_rede' ? 'acesso de rede bloqueado' : 'erro'}). `,
       h('span', { class: 'pequeno' }, f.ultimo_erro || '')));
   }
-  const maxEv = Math.max(1, ...d.evolucao.map((e) => e.n));
   render(alvo, 
     cabecalho('Dashboard', `Indicadores calculados a partir do banco · atualizado em ${data(d.atualizado_em)} · última sincronização bem-sucedida: ${d.ultima_sincronizacao ? dataUtc(d.ultima_sincronizacao) : 'nenhuma'}`),
     ...avisos,
@@ -49,24 +48,21 @@ export async function dashboard(alvo, _r, est) {
         d.valor_homologado.v ? moeda(d.valor_homologado.v) : null),
       kpi('Publicadas nas últimas 24h', numero(d.novas_24h), '#/jornal'),
       kpi('Publicadas nos últimos 7 dias', numero(d.novas_7d), '#/jornal'),
+      kpi('Publicadas nos últimos 30 dias', numero(d.novas_30d), '#/jornal'),
       kpi('Alertas não lidos', numero(d.alertas_pendentes), '#/notificacoes')),
-    h('div', { class: 'grade duas', style: { marginTop: '14px' } },
+    h('div', { class: 'grade tres', style: { marginTop: '14px' } },
       h('div', { class: 'cartao' }, h('h2', {}, 'Por situação'),
         rosca([['abertas', 'Abertas'], ['em_disputa', 'Em disputa / aguardando'], ['encerradas', 'Encerradas'], ['desertas_fracassadas', 'Desertas ou fracassadas'], ['outras', 'Suspensas, revogadas e outras']]
           .map(([v, rotulo]) => ({ v, rotulo, n: d.por_visao[v] || 0 })), { aoClicar: (f) => ir({ visao: f.v }) })),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por modalidade'),
         rosca(d.por_modalidade, { aoClicar: (f) => (f.id ? ir({ visao: '', modalidade: f.id }) : null) })),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por plataforma de origem'), h('p', { class: 'suave pequeno' }, 'Sistema que publicou no PNCP (campo usuarioNome).'),
-        rosca(d.por_plataforma, { aoClicar: (f) => ir({ visao: '', plataforma: f.rotulo }) })),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Publicações nos últimos 30 dias'),
-        d.evolucao.length ? h('div', {},
-          h('div', { class: 'colunas-grafico' }, d.evolucao.map((e) => h('div', { style: { height: `${(e.n / maxEv) * 100}%` }, title: `${data(e.dia, false)}: ${e.n}` }))),
-          h('div', { class: 'linha suave pequeno', style: { justifyContent: 'space-between' } }, h('span', {}, data(d.evolucao[0].dia, false)), h('span', {}, data(d.evolucao.at(-1).dia, false))))
-          : vazio('Sem publicações no período.')),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por estado'), barras(d.por_uf, { max: 27 })),
+      h('div', { class: 'cartao', title: 'Sistema que publicou no PNCP (campo usuarioNome).' }, h('h2', {}, 'Por plataforma de origem'),
+        rosca(d.por_plataforma, { aoClicar: (f) => ir({ visao: '', plataforma: f.rotulo }) }))),
+    h('div', { class: 'grade pares', style: { marginTop: '14px' } },
+      h('div', { class: 'cartao' }, h('h2', {}, 'Por estado (top 10)'), barras(d.por_uf)),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por município (top 10)'), barras(d.por_municipio)),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por órgão (top 10)'), barras(d.por_orgao)),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Por segmento'), h('p', { class: 'suave pequeno' }, 'Classificação automática por palavras-chave do objeto (estimativa).'), barras(d.por_segmento, { max: 15 })),
+      h('div', { class: 'cartao', title: 'Classificação automática por palavras-chave do objeto (estimativa).' }, h('h2', {}, 'Por segmento (top 10)'), barras(d.por_segmento)),
     ));
 }
 
