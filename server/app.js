@@ -19,7 +19,13 @@ export function criarApp() {
   app.get('/saude', (req, res) => res.json({ ok: true, app: config.appName }));
   const jsonPadrao = express.json({ limit: '1mb' });
   app.use('/api', (req, res, next) => (req.path === '/fontes/importar-json' ? next() : jsonPadrao(req, res, next)), exigirCabecalhoAjax, api);
-  app.use(express.static(path.join(config.raiz, 'web'), { maxAge: config.producao ? '1h' : 0 }));
-  app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(config.raiz, 'web', 'index.html')));
+  // Código da tela (HTML/JS/CSS) é sempre revalidado pelo ETag, para uma publicação nova aparecer no
+  // próximo carregamento; só ícones e imagens podem ficar 1h no cache do navegador.
+  const revalidar = /\.(html|js|css|webmanifest)$/;
+  app.use(express.static(path.join(config.raiz, 'web'), {
+    maxAge: config.producao ? '1h' : 0,
+    setHeaders: (res, arquivo) => { if (revalidar.test(arquivo)) res.setHeader('Cache-Control', 'no-cache'); },
+  }));
+  app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(config.raiz, 'web', 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }));
   return app;
 }
