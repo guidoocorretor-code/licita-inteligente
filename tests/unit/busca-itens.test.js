@@ -9,7 +9,7 @@ import { normalizarPncp, normalizarItemPncp } from '../../server/services/normal
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
 import { buscar } from '../../server/services/busca.js';
 import { completarItensAbertas } from '../../server/services/sync.js';
-import { abrirBanco } from '../../server/db/index.js';
+import { abrirBanco, indexarItensPendentes, indexarItensEmSegundoPlano } from '../../server/db/index.js';
 
 process.env.HTTP_MIN_INTERVAL_MS = '0';
 process.env.HTTP_BASE_ESPERA_MS = '1';
@@ -53,16 +53,28 @@ test('busca acha a palavra na descrição dos itens e diz em qual item', () => {
   assert.equal(buscar(db, { q: 'mouse' }).total, 1);
 });
 
-test('banco antigo: itens já baixados entram no índice ao iniciar', () => {
+test('banco antigo: itens já baixados entram no índice em segundo plano, sem atrasar o início', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'licita-'));
   const arq = path.join(dir, 'b.db');
   const db1 = abrirBanco(arq);
   const a = lic(db1, 1, 'Aquisição de materiais de informática');
   salvarItens(db1, a, [item(1, 'MOUSE ÓPTICO USB')]);
-  db1.exec("DROP TABLE itens_fts; DROP TRIGGER trg_itens_ai; DROP TRIGGER trg_itens_ad; DROP TRIGGER trg_itens_au;"); // simula a versão anterior
+  // Estado do banco em produção após o deploy que não subiu: tabela e gatilhos antigos criados, índice vazio
+  db1.exec(`DROP TRIGGER trg_itens_ad2; DROP TRIGGER trg_itens_au2; INSERT INTO itens_fts(itens_fts) VALUES('delete-all');
+    CREATE TRIGGER trg_itens_ad AFTER DELETE ON licitacao_itens BEGIN
+      INSERT INTO itens_fts(itens_fts, rowid, descricao) VALUES ('delete', old.id, old.descricao); END;
+    CREATE TRIGGER trg_itens_au AFTER UPDATE OF descricao ON licitacao_itens BEGIN
+      INSERT INTO itens_fts(itens_fts, rowid, descricao) VALUES ('delete', old.id, old.descricao);
+      INSERT INTO itens_fts(rowid, descricao) VALUES (new.id, new.descricao); END;`);
   db1.close();
   const db2 = abrirBanco(arq);
+  assert.equal(buscar(db2, { q: 'mouse' }).total, 0); // a abertura não indexa (não pode atrasar o início do site)
+  // Antes de o lote passar, o item é atualizado pela sincronização: não pode corromper nem duplicar
+  salvarItens(db2, a, [item(1, 'MOUSE ÓPTICO USB'), item(2, 'TECLADO')]);
+  assert.equal(await indexarItensEmSegundoPlano(db2, { lote: 1, log: () => {} }), 0);
   assert.equal(buscar(db2, { q: 'mouse' }).total, 1);
+  assert.equal(db2.prepare('SELECT COUNT(*) n FROM itens_fts_docsize').get().n, 2);
+  db2.exec("INSERT INTO itens_fts(itens_fts) VALUES('integrity-check')");
   db2.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -87,4 +99,18 @@ test('baixa os itens das licitações abertas em segundo plano, prazo mais próx
   assert.equal(r2.pendentes, 1);
   assert.equal(buscar(db, { q: 'mouse' }).total, 2);
   assert.ok([tarde, cedo].every((id) => db.prepare('SELECT detalhes_sincronizados_em d FROM licitacoes WHERE id=?').get(id).d));
+});
+
+test('indexação em lotes: só os itens que faltam, sem duplicar', () => {
+  const db = bancoMemoria();
+  const a = lic(db, 1, 'Materiais diversos');
+  db.exec('DROP TRIGGER trg_itens_ai');
+  salvarItens(db, a, [item(1, 'MOUSE'), item(2, 'TECLADO'), item(3, 'MONITOR')]);
+  db.exec("INSERT INTO itens_fts(rowid, descricao) SELECT id, descricao FROM licitacao_itens WHERE numero_item = 2");
+  const r1 = indexarItensPendentes(db, { lote: 2 });
+  assert.deepEqual([r1.indexados, r1.fim], [1, false]);
+  const r2 = indexarItensPendentes(db, { aposId: r1.ultimoId, lote: 2 });
+  assert.deepEqual([r2.indexados, r2.fim], [1, true]);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM itens_fts_docsize').get().n, 3);
+  db.exec("INSERT INTO itens_fts(itens_fts) VALUES('integrity-check')");
 });
