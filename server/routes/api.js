@@ -18,6 +18,7 @@ import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
 import { consultarCnpj } from '../services/cnpj.js';
+import { lerSicafPdf } from '../services/sicaf.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -362,6 +363,16 @@ r.get('/cnpj/validar', (req, res) => res.json({ valido: !!validarCnpj(req.query.
 r.get('/cnpj/:cnpj/consulta', async (req, res) => {
   try { res.json(await consultarCnpj(req.params.cnpj)); }
   catch (e) { erro(res, e.status || 502, e.message); }
+});
+// Lê as validades do PDF do SICAF para pré-preencher o formulário (não grava nada; o usuário confere e salva)
+r.post('/clientes/:id/sicaf/ler', exigirPapel('analista'), receberPdf, async (req, res) => {
+  const c = clienteDaConta(req);
+  if (!c) return erro(res, 404, 'Empresa não encontrada.');
+  if (!req.file?.buffer?.subarray(0, 5).equals(Buffer.from('%PDF-'))) return erro(res, 400, 'Envie o arquivo PDF do SICAF.');
+  try {
+    const r = await lerSicafPdf(req.file.buffer);
+    res.json({ ...r, cnpj_confere: r.cnpj ? r.cnpj === c.cnpj : null });
+  } catch (e) { erro(res, e.status || 400, e.message); }
 });
 // Documentos: multipart com "arquivo" (PDF opcional) e "dados" (JSON: { itens: [...], substitui: [ids] })
 r.post('/clientes/:id/documentos', exigirPapel('analista'), receberPdf, (req, res) => {
