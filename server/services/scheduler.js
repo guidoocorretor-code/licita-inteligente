@@ -4,9 +4,19 @@
 import { sincronizarFonte } from './sync.js';
 import { recalcularStatusTemporais } from './repositorio.js';
 import { CONECTORES } from '../connectors/registro.js';
+import { avaliarAlertasAcompanhadas } from './alertas.js';
+import { enviarAlertasPendentes } from './email.js';
+import { agoraBrasilia } from './status.js';
 
 export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
+  let ultimoEmail = 0;
   const tick = async () => {
+    // Alertas de prazo/mudança e e-mail rodam antes das sincronizações, que podem demorar
+    try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
+    if (Date.now() - ultimoEmail >= 10 * 60_000) {
+      ultimoEmail = Date.now();
+      enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));
+    }
     try {
       recalcularStatusTemporais(db);
       const fontes = db.prepare(`SELECT codigo, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok FROM fontes

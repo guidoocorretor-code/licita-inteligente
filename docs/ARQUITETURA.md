@@ -85,5 +85,5 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 ## Limitações conhecidas (v0.2)
 - PNCP não informa a data/hora da sessão de disputa separadamente: o campo fica "Não informado" (não é estimado).
 - Segmento é estimado por palavras-chave (sinalizado na interface).
-- E-mail e WhatsApp de alertas não implementados (dependem de SMTP/provedor).
+- Alertas por e-mail implementados (Fase 3), ativos quando `SMTP_URL` está configurado. WhatsApp não implementado (depende de provedor oficial).
 - Módulos das Fases 3 a 6 aparecem no menu marcados com a fase e não exibem dados simulados.

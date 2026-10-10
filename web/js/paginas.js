@@ -332,6 +332,7 @@ export async function favoritos(alvo, _r, est) {
 }
 
 // ============================ KANBAN ============================
+const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno' };
 export async function kanban(alvo, _r, est) {
   render(alvo, carregando());
   const k = await api('/kanban');
@@ -350,7 +351,7 @@ export async function kanban(alvo, _r, est) {
       h('div', { class: 'campo' }, h('label', {}, 'Prazo interno'), prazo),
       h('div', { class: 'campo' }, h('label', {}, 'Novo comentário'), txt),
       h('h3', {}, 'Histórico'),
-      h('div', { class: 'pequeno' }, hist.map((x) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(x.criado_em)), h('div', {}, h('strong', {}, x.usuario_nome || ''), ` · ${x.tipo}: ${x.texto || ''}`))))),
+      h('div', { class: 'pequeno' }, hist.map((x) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(x.criado_em)), h('div', {}, h('strong', {}, x.usuario_nome || ''), ` · ${TIPO_HIST[x.tipo] || x.tipo}: ${x.texto || ''}`))))),
     podeEditar(est) ? [
       { texto: 'Salvar', classe: 'primario', acao: async () => {
         try {
@@ -393,13 +394,87 @@ export async function kanban(alvo, _r, est) {
     h('div', { class: 'kanban' }, colunas));
 }
 
+// ============================ CALENDÁRIO (Fase 3) ============================
+const TIPO_CAL = { abertura: ['Início das propostas', 'verde'], encerramento: ['Fim das propostas', 'vermelha'], prazo_interno: ['Prazo interno', 'azul'] };
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const iso = (d) => d.toISOString().slice(0, 10);
+
+export async function calendario(alvo, rota) {
+  render(alvo, carregando());
+  const hojeIso = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  const mesParam = /^\d{4}-\d{2}$/.test(rota.query.get('mes') || '') ? rota.query.get('mes') : hojeIso.slice(0, 7);
+  const [ano, mes] = mesParam.split('-').map(Number);
+  const primeiro = new Date(Date.UTC(ano, mes - 1, 1));
+  const ultimo = new Date(Date.UTC(ano, mes, 0));
+  const inicioGrade = new Date(primeiro.getTime() - primeiro.getUTCDay() * 86400000);
+  const fimGrade = new Date(ultimo.getTime() + (6 - ultimo.getUTCDay()) * 86400000);
+  const [eventos, proximos, link] = await Promise.all([
+    api(`/calendario${qs({ de: iso(inicioGrade), ate: iso(fimGrade) })}`),
+    api(`/calendario${qs({ de: hojeIso, ate: iso(new Date(Date.parse(hojeIso) + 30 * 86400000)) })}`),
+    api('/calendario/link'),
+  ]);
+  const irMes = (delta) => { const d = new Date(Date.UTC(ano, mes - 1 + delta, 1)); location.hash = `#/calendario?mes=${iso(d).slice(0, 7)}`; };
+  const porDia = {};
+  for (const e of eventos) (porDia[e.quando.slice(0, 10)] ||= []).push(e);
+  const chip = (e) => h('a', { class: `chip-cal ${TIPO_CAL[e.tipo][1]}`, href: `#/licitacao/${e.licitacao_id}`, title: `${TIPO_CAL[e.tipo][0]}${e.dia_inteiro ? '' : ' às ' + e.quando.slice(11, 16)} · ${e.objeto || ''} · ${e.orgao_nome || ''}` },
+    e.dia_inteiro ? '' : h('b', {}, e.quando.slice(11, 16) + ' '), (e.objeto || '—').slice(0, 40));
+  const celulas = [];
+  for (let d = inicioGrade; d <= fimGrade; d = new Date(d.getTime() + 86400000)) {
+    const k = iso(d); const evs = porDia[k] || [];
+    celulas.push(h('div', { class: `dia-cal${d.getUTCMonth() !== mes - 1 ? ' fora' : ''}${k === hojeIso ? ' hoje' : ''}` },
+      h('div', { class: 'num' }, String(d.getUTCDate())),
+      evs.slice(0, 3).map(chip),
+      evs.length > 3 ? h('div', { class: 'suave pequeno' }, `+${evs.length - 3}`) : null));
+  }
+  const assinar = async () => {
+    if (link.ativo && !confirmar('Gerar um novo link desativa o link anterior. Continuar?')) return;
+    try {
+      const r = await api('/calendario/link', { metodo: 'POST', corpo: {} });
+      const campo = h('input', { type: 'text', value: r.url, readonly: true, onclick: (e) => e.target.select() });
+      modal('Assinar o calendário', h('div', {},
+        h('p', {}, 'Copie o link abaixo. Ele aparece só agora; se perder, gere outro.'), campo,
+        h('ol', { class: 'pequeno' },
+          h('li', {}, 'Google Agenda (no computador): "Outras agendas" → "+" → "Do URL" → cole o link → "Adicionar agenda".'),
+          h('li', {}, 'iPhone: Ajustes → Calendário → Contas → Adicionar conta → Outra → Adicionar calendário assinado.'),
+          h('li', {}, 'O Google atualiza agendas assinadas por conta própria, normalmente em algumas horas.')),
+        h('p', { class: 'suave pequeno' }, 'Quem tiver o link vê os seus prazos. Não compartilhe; se vazar, gere um novo.')),
+      [{ texto: 'Copiar link', classe: 'primario', acao: async () => { try { await navigator.clipboard.writeText(r.url); toast('Link copiado.'); } catch { campo.select(); return false; } } }, { texto: 'Fechar' }]);
+      link.ativo = true;
+    } catch (e) { toast(e.message); }
+  };
+  const revogar = async () => {
+    if (!confirmar('Desativar o link? Agendas que assinam este calendário param de atualizar.')) return;
+    await api('/calendario/link', { metodo: 'DELETE' }); toast('Link desativado.'); calendario(alvo, rota);
+  };
+  render(alvo,
+    cabecalho('Calendário de prazos', 'Licitações favoritas e do Kanban. Horários de Brasília, conforme a fonte oficial.',
+      h('a', { class: 'btn', href: '/api/calendario.ics' }, '⬇ Baixar .ics'),
+      h('button', { class: 'btn primario', onclick: assinar }, link.ativo ? 'Gerar novo link de assinatura' : 'Assinar no Google Agenda / celular'),
+      link.ativo ? h('button', { class: 'btn', onclick: revogar }, 'Desativar link') : null),
+    h('div', { class: 'cartao' },
+      h('div', { class: 'linha', style: { justifyContent: 'space-between', marginBottom: '10px' } },
+        h('div', { class: 'linha' }, h('button', { class: 'btn', 'aria-label': 'Mês anterior', onclick: () => irMes(-1) }, '←'),
+          h('h2', { style: { margin: 0, minWidth: '170px', textAlign: 'center' } }, `${MESES[mes - 1]} de ${ano}`),
+          h('button', { class: 'btn', 'aria-label': 'Próximo mês', onclick: () => irMes(1) }, '→'),
+          h('button', { class: 'btn', onclick: () => { location.hash = '#/calendario'; } }, 'Hoje')),
+        h('div', { class: 'linha pequeno' }, Object.values(TIPO_CAL).map(([t, c]) => h('span', { class: `etiqueta ${c}` }, t)))),
+      h('div', { class: 'grade-cal' }, ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d) => h('div', { class: 'cab-cal' }, d)), celulas)),
+    h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Próximos 30 dias'),
+      proximos.length ? h('div', { class: 'tabela-wrap' }, h('table', {}, h('tbody', {}, proximos.map((e) => h('tr', {},
+        h('td', { style: { whiteSpace: 'nowrap' } }, e.dia_inteiro ? data(e.quando, false) : data(e.quando)),
+        h('td', {}, h('span', { class: `etiqueta ${TIPO_CAL[e.tipo][1]}` }, TIPO_CAL[e.tipo][0])),
+        h('td', {}, h('a', { href: `#/licitacao/${e.licitacao_id}` }, e.objeto || '—'), h('div', { class: 'suave pequeno' }, [e.orgao_nome, [e.municipio, e.uf].filter(Boolean).join('/'), e.etapa && `Kanban: ${e.etapa}`].filter(Boolean).join(' · '))))))))
+        : vazio('Nenhum prazo nos próximos 30 dias. Favorite licitações (☆) ou coloque-as no Kanban para vê-las aqui.')));
+}
+
 // ============================ NOTIFICAÇÕES E PESQUISAS ============================
 export async function notificacoes(alvo, _r, est) {
   render(alvo, carregando());
   const [ns, ps] = await Promise.all([api('/notificacoes'), api('/pesquisas')]);
-  render(alvo, cabecalho('Alertas', 'Notificações no sistema geradas pelas pesquisas salvas com alerta ativo.',
+  render(alvo, cabecalho('Alertas', 'Prazos, mudanças nos editais acompanhados e novas licitações das pesquisas salvas.',
     h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); window.dispatchEvent(new Event('atualizar-sino')); notificacoes(alvo, _r, est); } }, 'Marcar todas como lidas')),
-  h('div', { class: 'aviso amarelo' }, 'E-mail: requer servidor SMTP configurado (SMTP_URL) — pendente. WhatsApp: requer provedor oficial autorizado (ex.: WhatsApp Business API) — pendente. Alertas de prazo, sessão e mudança de situação: Fase 3.'),
+  h('div', { class: 'aviso azul' }, 'Você recebe alertas automáticos das licitações favoritas e das que estão no Kanban: 3 dias e 1 dia antes do fim das propostas, prazo interno no dia anterior e quando o edital muda (alteração, documento, situação ou resultado). Envio por e-mail em ',
+    h('a', { href: '#/configuracoes' }, 'Configurações'), '. WhatsApp: depende de provedor oficial autorizado (pendente).'),
   h('div', { class: 'grade duas' },
     h('div', { class: 'cartao' }, h('h2', {}, 'Notificações'),
       ns.length ? ns.map((n) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(n.criado_em), n.lida ? '' : h('div', { class: 'etiqueta azul' }, 'nova')),
@@ -522,6 +597,21 @@ export async function configuracoes(alvo, _r, est) {
             catch (e) { toast(e.message); }
           } }, 'Alterar senha'),
           h('button', { class: 'btn', onclick: async () => { await api('/auth/sair-de-todos', { metodo: 'POST', corpo: {} }); location.reload(); } }, 'Sair de todos os dispositivos'))))];
+  const pref = await api('/preferencias');
+  const destino = h('input', { type: 'email', value: pref.email_alertas, placeholder: pref.email_login });
+  const ativo = h('input', { type: 'checkbox', checked: pref.alertas_email });
+  blocos.push(h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Alertas por e-mail'),
+    pref.email ? null : h('div', { class: 'aviso amarelo' }, 'O envio de e-mail ainda não está ativado no servidor (variável SMTP_URL). Os alertas continuam aparecendo no sistema.'),
+    h('label', { class: 'linha' }, ativo, 'Receber resumo dos alertas por e-mail'),
+    h('div', { class: 'campo', style: { marginTop: '10px' } }, h('label', {}, 'Enviar alertas para (vazio = e-mail de login)'), destino),
+    h('div', { class: 'linha' },
+      h('button', { class: 'btn primario', onclick: async () => {
+        try { await api('/preferencias', { metodo: 'PATCH', corpo: { alertas_email: ativo.checked, email_alertas: destino.value } }); toast('Preferências salvas.'); }
+        catch (e) { toast(e.message); }
+      } }, 'Salvar'),
+      h('button', { class: 'btn', disabled: !pref.email, onclick: async () => {
+        try { const r = await api('/email/teste', { metodo: 'POST', corpo: {} }); toast(r.mensagem, 6000); } catch (e) { toast(e.message, 8000); }
+      } }, 'Enviar e-mail de teste'))));
   if (ehAdmin(est)) {
     const [us, aud] = await Promise.all([api('/usuarios'), api('/auditoria')]);
     const nome = h('input', { type: 'text' }); const email = h('input', { type: 'email' }); const senha = h('input', { type: 'password', autocomplete: 'new-password' });

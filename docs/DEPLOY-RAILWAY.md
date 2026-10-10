@@ -40,3 +40,15 @@ Serviço → **Settings → Networking → Generate Domain**. O Railway cria um 
 - *Fontes de dados*: em alguns minutos o PNCP deve mostrar "Última sincronização OK" e registros importados.
 - Aba **Deployments → View logs** no Railway: mostra linhas `[agendador] pncp: ...` a cada sincronização.
 - Atualizações de código entram no ar sozinhas a cada mudança aprovada no GitHub (branch `main`).
+
+## 7. Alertas por e-mail (Fase 3)
+Os alertas aparecem sempre dentro do sistema. Para recebê-los também por e-mail:
+1. Na conta Google que vai enviar (ex.: `guidolicitacoes@gmail.com`), ative a **verificação em duas etapas**.
+2. Crie uma **senha de app** em https://myaccount.google.com/apppasswords (o Google mostra 16 letras; copie sem os espaços).
+   Ajuda oficial: https://support.google.com/accounts/answer/185833
+3. No Railway, em **Variables**, crie:
+   - `SMTP_URL` = `smtps://guidolicitacoes%40gmail.com:SENHA_DE_APP@smtp.gmail.com:465` (o `@` do e-mail vira `%40`)
+   - `APP_URL` = o endereço público do sistema (ex.: `https://licita-inteligente-production.up.railway.app`)
+4. Depois do deploy, em *Configurações → Alertas por e-mail*, informe o e-mail que recebe os alertas e clique em **Enviar e-mail de teste**.
+
+A senha de app fica só nas variáveis do Railway: nunca no código, no log ou na tela. Para revogar, apague-a na conta Google.

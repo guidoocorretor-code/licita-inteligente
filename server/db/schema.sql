@@ -326,3 +326,25 @@ CREATE TABLE IF NOT EXISTS oportunidade_historico (
   texto TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Fase 3: link de assinatura do calendário (só o hash do token é guardado)
+CREATE TABLE IF NOT EXISTS calendario_tokens (
+  usuario_id INTEGER PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Fase 3: controle de alertas já gerados (evita repetir o mesmo aviso)
+CREATE TABLE IF NOT EXISTS alertas_gerados (
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  chave TEXT NOT NULL,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (usuario_id, chave)
+);
+
+-- Fase 3: preferências de alerta por usuário
+CREATE TABLE IF NOT EXISTS usuario_preferencias (
+  usuario_id INTEGER PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+  alertas_email INTEGER NOT NULL DEFAULT 1,
+  email_alertas TEXT            -- destino dos alertas; vazio = e-mail de login
+);

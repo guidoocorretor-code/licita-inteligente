@@ -15,7 +15,7 @@ const MENU = [
   ['kanban', 'Kanban'],
   ['notificacoes', 'Alertas'],
   ['Gestão'],
-  ['calendario', 'Calendário', 3],
+  ['calendario', 'Calendário'],
   ['documentos', 'Documentos', 3],
   ['fornecedores', 'Fornecedores', 3],
   ['precos', 'Preços e contratos', 4],
@@ -33,7 +33,7 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, oportunidades: P.kanban, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, oportunidades: P.kanban, calendario: P.calendario, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {
