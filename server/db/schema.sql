@@ -348,3 +348,95 @@ CREATE TABLE IF NOT EXISTS usuario_preferencias (
   alertas_email INTEGER NOT NULL DEFAULT 1,
   email_alertas TEXT            -- destino dos alertas; vazio = e-mail de login
 );
+
+-- ============ Fase 4: preços e contratos (dados públicos) ============
+-- Contratos publicados no PNCP (/v1/contratos). Valores como informados pela fonte; NULL = não informado.
+CREATE TABLE IF NOT EXISTS contratos (
+  id INTEGER PRIMARY KEY,
+  numero_controle_pncp TEXT NOT NULL UNIQUE,
+  numero_controle_compra TEXT,                  -- liga o contrato à contratação (licitação) de origem
+  licitacao_id INTEGER REFERENCES licitacoes(id) ON DELETE SET NULL,
+  ano INTEGER,
+  sequencial INTEGER,
+  numero_contrato TEXT,
+  processo TEXT,
+  tipo_contrato TEXT,
+  categoria TEXT,
+  orgao_cnpj TEXT,
+  orgao_nome TEXT,
+  unidade_nome TEXT,
+  esfera TEXT,
+  uf TEXT,
+  municipio TEXT,
+  codigo_ibge TEXT,
+  fornecedor_ni TEXT,
+  fornecedor_nome TEXT,
+  tipo_pessoa TEXT,
+  objeto TEXT,
+  valor_inicial REAL,
+  valor_global REAL,
+  valor_acumulado REAL,
+  numero_parcelas INTEGER,
+  data_assinatura TEXT,
+  vigencia_inicio TEXT,
+  vigencia_fim TEXT,
+  data_publicacao TEXT,
+  data_atualizacao TEXT,
+  plataforma_origem TEXT,
+  link_pncp TEXT,
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_ctr_compra ON contratos(numero_controle_compra);
+CREATE INDEX IF NOT EXISTS ix_ctr_lic ON contratos(licitacao_id);
+CREATE INDEX IF NOT EXISTS ix_ctr_uf ON contratos(uf, municipio);
+CREATE INDEX IF NOT EXISTS ix_ctr_forn ON contratos(fornecedor_ni);
+CREATE INDEX IF NOT EXISTS ix_ctr_assin ON contratos(data_assinatura);
+CREATE INDEX IF NOT EXISTS ix_ctr_valor ON contratos(valor_global);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS contratos_fts USING fts5(
+  objeto, fornecedor_nome, orgao_nome, municipio,
+  content='contratos', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS trg_ctr_ai AFTER INSERT ON contratos BEGIN
+  INSERT INTO contratos_fts(rowid, objeto, fornecedor_nome, orgao_nome, municipio) VALUES (new.id, new.objeto, new.fornecedor_nome, new.orgao_nome, new.municipio);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_ctr_ad AFTER DELETE ON contratos BEGIN
+  INSERT INTO contratos_fts(contratos_fts, rowid, objeto, fornecedor_nome, orgao_nome, municipio) VALUES ('delete', old.id, old.objeto, old.fornecedor_nome, old.orgao_nome, old.municipio);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_ctr_au AFTER UPDATE OF objeto, fornecedor_nome, orgao_nome, municipio ON contratos BEGIN
+  INSERT INTO contratos_fts(contratos_fts, rowid, objeto, fornecedor_nome, orgao_nome, municipio) VALUES ('delete', old.id, old.objeto, old.fornecedor_nome, old.orgao_nome, old.municipio);
+  INSERT INTO contratos_fts(rowid, objeto, fornecedor_nome, orgao_nome, municipio) VALUES (new.id, new.objeto, new.fornecedor_nome, new.orgao_nome, new.municipio);
+END;
+
+-- Catálogo oficial do Compras.gov.br (PDM de materiais e itens de serviço), para achar o código pela descrição
+CREATE TABLE IF NOT EXISTS catalogo_compras (
+  tipo TEXT NOT NULL CHECK (tipo IN ('material','servico')),
+  codigo INTEGER NOT NULL,
+  nome TEXT NOT NULL,
+  classe TEXT,
+  grupo TEXT,
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (tipo, codigo)
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS catalogo_fts USING fts5(
+  nome, classe, content='catalogo_compras', tokenize='unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS trg_cat_ai AFTER INSERT ON catalogo_compras BEGIN
+  INSERT INTO catalogo_fts(rowid, nome, classe) VALUES (new.rowid, new.nome, new.classe);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_cat_ad AFTER DELETE ON catalogo_compras BEGIN
+  INSERT INTO catalogo_fts(catalogo_fts, rowid, nome, classe) VALUES ('delete', old.rowid, old.nome, old.classe);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_cat_au AFTER UPDATE OF nome, classe ON catalogo_compras BEGIN
+  INSERT INTO catalogo_fts(catalogo_fts, rowid, nome, classe) VALUES ('delete', old.rowid, old.nome, old.classe);
+  INSERT INTO catalogo_fts(rowid, nome, classe) VALUES (new.rowid, new.nome, new.classe);
+END;
+
+-- Cache das consultas de preço ao Compras.gov.br (evita repetir a mesma consulta no mesmo dia)
+CREATE TABLE IF NOT EXISTS precos_consultas (
+  chave TEXT PRIMARY KEY,
+  registros_json TEXT NOT NULL,
+  total_fonte INTEGER,
+  truncado INTEGER NOT NULL DEFAULT 0,
+  consultado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);

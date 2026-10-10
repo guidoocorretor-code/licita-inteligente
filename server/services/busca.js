@@ -5,7 +5,14 @@ const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String
 const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
 // Busca por prefixo para pegar plural e variações: "serviço" acha "serviços"; termos em -ção/-são
 // e -ções viram o radical ("locação"/"locações" -> "locac*") e acham as duas formas.
-const radical = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/([cs])(ao|oes)$/, '$1').replace(/"/g, '');
+// Plural digitado também acha o singular: "transportes" -> "transporte*", "escolares" -> "escolar*",
+// "itens" -> "item*" (só em palavras com 5+ letras, para não cortar "mês", "gás" etc.).
+export const radical = (t) => {
+  let r = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/"/g, '').toLowerCase();
+  if (/(cao|coes|sao|soes)$/.test(r)) return r.replace(/([cs])(ao|oes)$/, '$1');
+  if (r.length >= 5) r = r.replace(/([aeiou])ns$/, '$1m').replace(/([rz])es$/, '$1').replace(/([aeiou])s$/, '$1');
+  return r;
+};
 const fts = (t) => `"${radical(t)}"*`;
 const dataOk = (v) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? String(v).slice(0, 10) : null);
 const numOk = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Number(v));

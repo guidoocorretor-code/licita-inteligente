@@ -1,0 +1,5 @@
+{
+  "_origem": "Registros REAIS de GET https://dadosabertos.compras.gov.br/modulo-material/3_consultarPdmMaterial?statusPdm=true e /modulo-servico/6_consultarItemServico?statusServico=true em 10/10/2026.",
+  "pdm": { "codigoGrupo": 75, "nomeGrupo": "UTENSÍLIOS DE ESCRITÓRIO E MATERIAL DE EXPEDIENTE", "codigoClasse": 7520, "nomeClasse": "ACESSÓRIOS E DISPOSITIVOS PARA ESCRITÓRIO", "codigoPdm": 281, "nomePdm": "CARTUCHO CANETA TINTEIRO", "statusPdm": true, "dataHoraAtualizacao": "2021-10-16T09:21:41.961529" },
+  "servico": { "codigoSecao": 9, "nomeSecao": "SERVIÇOS DA COMUNIDADE, PESSOAIS E SOCIAIS E OUTROS SERVIÇOS", "codigoDivisao": 93, "nomeDivisao": "SERVIÇO SOCIAL E DE SAÚDE", "codigoGrupo": 931, "nomeGrupo": "SERVIÇOS DE SAÚDE HUMANA", "codigoClasse": 9311, "nomeClasse": "SERVIÇOS HOSPITALARES", "codigoSubclasse": null, "nomeSubclasse": null, "codigoServico": 7250, "nomeServico": "ENDOSCOPIA DIGESTIVA CIRURGICA - DRENAGEM CAVITARIA POR LAPAROSCOPIA", "codigoCpc": 9311, "exclusivoCentralCompras": false, "statusServico": true, "dataHoraAtualizacao": "2021-10-16T09:09:59.689615" }
+}

@@ -25,10 +25,17 @@ export const FONTES_PADRAO = [
     config: { diasRetroativos: 2, maxPaginas: 10 },
   },
   {
+    codigo: 'pncp_contratos', nome: 'PNCP — Contratos publicados',
+    url: 'https://pncp.gov.br/api/consulta/swagger-ui/index.html', tipo: 'api_rest', status: 'funcional',
+    habilitada: true, credenciais: false, frequencia: 360,
+    observacoes: 'API pública de consultas /v1/contratos, por data de publicação no PNCP (todo o Brasil; o endpoint não filtra por UF). Traz fornecedor contratado, valores e vigência. Liga o contrato à licitação pelo numeroControlePncpCompra. Carga inicial: últimos 30 dias.',
+    config: { diasRetroativos: 30, tamanhoPagina: 500, maxPaginasPorDia: 400, ufs: [] },
+  },
+  {
     codigo: 'comprasgov_precos', nome: 'Compras.gov.br — Pesquisa de Preços',
-    url: 'https://dadosabertos.compras.gov.br/swagger-ui/index.html', tipo: 'dados_abertos', status: 'parcial',
-    habilitada: false, credenciais: false, frequencia: 1440,
-    observacoes: 'Módulo 03 (1_consultarMaterial / 3_consultarServico) por código CATMAT/CATSER. Planejado para a Fase 4 (Histórico de Preços).',
+    url: 'https://dadosabertos.compras.gov.br/swagger-ui/index.html', tipo: 'dados_abertos', status: 'funcional',
+    habilitada: false, credenciais: false, frequencia: 0,
+    observacoes: 'Consulta sob demanda na tela Preços e contratos (módulo 03: 1_consultarMaterial por PDM/CATMAT e 3_consultarServico por CATSER). O catálogo (PDM de materiais e itens de serviço) é baixado uma vez e atualizado a cada 30 dias. Cobre compras registradas no Compras.gov.br (SIASG), não todas as do país.',
   },
   {
     codigo: 'portal_compras_publicas', nome: 'Portal de Compras Públicas',

@@ -272,6 +272,15 @@ export async function detalhe(alvo, rota, est) {
           h('td', {}, i.orcamento_sigiloso ? 'Sigiloso' : moeda(i.valor_total_estimado)),
           h('td', {}, i.tipo_beneficio_nome || '—'), h('td', {}, i.situacao_item_nome || '—'))))))
         : vazio(l.detalhes_sincronizados_em ? 'A fonte não retornou itens.' : 'Itens ainda não sincronizados.')),
+    d.contratos?.length ? h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Contratos assinados (${d.contratos.length})`),
+      h('div', { class: 'tabela-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, ['Fornecedor', 'Valor global', 'Assinatura', 'Vigência', ''].map((t) => h('th', {}, t)))),
+        h('tbody', {}, d.contratos.map((c) => h('tr', {},
+          h('td', {}, c.fornecedor_nome || naoInformado(), c.fornecedor_ni ? h('div', { class: 'suave pequeno' }, fmtDoc(c.fornecedor_ni)) : null),
+          h('td', {}, c.valor_global == null ? naoInformado() : moeda(c.valor_global)),
+          h('td', {}, dataOuNao(c.data_assinatura, false)),
+          h('td', {}, `${data(c.vigencia_inicio, false) || '?'} a ${data(c.vigencia_fim, false) || '?'}`),
+          h('td', {}, c.link_pncp ? h('a', { href: c.link_pncp, target: '_blank', rel: 'noopener noreferrer' }, 'PNCP ↗') : null))))))) : null,
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Documentos e anexos (${d.documentos.length})`),
       d.documentos.length ? h('ul', {}, d.documentos.map((doc) => h('li', {},
         h('a', { href: doc.url, target: '_blank', rel: 'noopener noreferrer' }, `${doc.tipo || 'Documento'} — ${doc.titulo || doc.sequencial}`),
@@ -516,8 +525,9 @@ export async function fontes(alvo, _r, est) {
     const freq = h('input', { type: 'number', min: 15, value: f.frequencia_minutos });
     modal(`Configurar ${f.nome}`, h('div', {},
       h('div', { class: 'campo' }, h('label', {}, 'UFs (separadas por vírgula)'), ufs),
-      h('div', { class: 'campo' }, h('label', {}, 'Códigos de modalidade'), mods,
-        h('div', { class: 'suave pequeno' }, f.codigo === 'pncp' ? Object.entries(est.meta.modalidades).map(([k, v]) => `${k}=${v}`).join(' · ') : 'Códigos próprios do Compras.gov.br')),
+      f.codigo === 'pncp_contratos' ? h('div', { class: 'suave pequeno' }, 'Contratos: o PNCP não filtra por UF; as UFs acima só limitam o que é guardado.')
+        : h('div', { class: 'campo' }, h('label', {}, 'Códigos de modalidade'), mods,
+          h('div', { class: 'suave pequeno' }, f.codigo === 'pncp' ? Object.entries(est.meta.modalidades).map(([k, v]) => `${k}=${v}`).join(' · ') : 'Códigos próprios do Compras.gov.br')),
       h('div', { class: 'campo' }, h('label', {}, 'Dias retroativos na primeira carga'), dias),
       h('div', { class: 'campo' }, h('label', {}, 'Frequência de atualização (minutos)'), freq)),
     [{ texto: 'Salvar', classe: 'primario', acao: async () => {
@@ -635,6 +645,246 @@ export async function configuracoes(alvo, _r, est) {
       h('div', { class: 'tabela-wrap' }, h('table', {}, h('tbody', {}, aud.map((a) => h('tr', {}, h('td', {}, dataUtc(a.criado_em)), h('td', {}, a.usuario_nome || '—'), h('td', {}, a.acao), h('td', { class: 'pequeno suave' }, `${a.entidade || ''} ${a.entidade_id || ''}`))))))));
   }
   render(alvo, ...blocos);
+}
+
+// ============================ PREÇOS E CONTRATOS (Fase 4) ============================
+const fmtDoc = (d) => {
+  const x = String(d || '').replace(/\D/g, '');
+  if (x.length === 14) return x.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  if (x.length === 11) return `***.${x.slice(3, 6)}.${x.slice(6, 9)}-**`; // CPF mascarado (LGPD)
+  return x || null;
+};
+// Preço unitário: centavos de centavo aparecem em itens baratos (ex.: R$ 0,0450 por folha)
+const brl = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 }).format(v);
+const moedaUnit = (v) => (v == null ? naoInformado() : brl(v));
+const TIPO_CAT = { material_pdm: 'Material (PDM)', material_item: 'Material (código CATMAT)', servico: 'Serviço (código CATSER)' };
+const LEI_14133 = 'https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14133.htm';
+const IN_65 = 'https://www.gov.br/compras/pt-br/acesso-a-informacao/legislacao/instrucoes-normativas/instrucao-normativa-seges-me-no-65-de-7-de-julho-de-2021';
+
+export async function precos(alvo, rota, est) {
+  const aba = (rota.args[0] || '').split('?')[0] === 'contratos' ? 'contratos' : 'precos';
+  const abas = h('div', { class: 'abas', role: 'tablist' },
+    h('a', { class: aba === 'precos' ? 'ativo' : '', role: 'tab', href: '#/precos' }, 'Pesquisa de preços'),
+    h('a', { class: aba === 'contratos' ? 'ativo' : '', role: 'tab', href: '#/precos/contratos' }, 'Contratos assinados'));
+  const corpo = h('div', {}, carregando());
+  render(alvo, cabecalho('Preços e contratos', aba === 'precos'
+    ? 'Quanto o governo já pagou por um item, com dados oficiais do Compras.gov.br.'
+    : 'Quem ganhou, por quanto e até quando: contratos publicados no PNCP.'), abas, corpo);
+  if (aba === 'contratos') return contratosAba(corpo, rota, est);
+  return precosAba(corpo, rota, est);
+}
+
+async function precosAba(alvo, rota, est) {
+  const q = Object.fromEntries(rota.query.entries());
+  const ir = (extra) => { location.hash = `#/precos${qs({ ...q, ...extra })}`; };
+  const busca = h('input', { type: 'search', id: 'p-q', value: q.q || '', placeholder: 'ex.: papel A4, cadeira, limpeza predial, transporte escolar' });
+  const uf = h('select', { id: 'p-uf' }, h('option', { value: '' }, 'Brasil inteiro'), est.meta.ufs.map((u) => h('option', { value: u, selected: q.uf === u }, u)));
+  const meses = h('select', { id: 'p-meses' }, [[3, '3 meses'], [6, '6 meses'], [12, '12 meses (recomendado)'], [24, '24 meses']]
+    .map(([v, t]) => h('option', { value: v, selected: String(q.meses || 12) === String(v) }, t)));
+  const form = h('form', { class: 'cartao', onsubmit: (e) => { e.preventDefault(); ir({ q: busca.value.trim(), uf: uf.value, meses: meses.value, tipo: '', codigo: '', item: '', unidade: '' }); } },
+    h('div', { class: 'filtros' },
+      h('div', { class: 'largo' }, h('label', { for: 'p-q' }, 'O que você quer cotar? (descrição ou código CATMAT/CATSER)'), busca),
+      h('div', {}, h('label', { for: 'p-uf' }, 'Estado'), uf),
+      h('div', {}, h('label', { for: 'p-meses' }, 'Período'), meses)),
+    h('div', { class: 'linha', style: { marginTop: '10px' } }, h('button', { class: 'btn primario', type: 'submit' }, 'Buscar no catálogo')));
+  const resultado = h('div', {});
+  render(alvo, form, resultado);
+
+  if (q.tipo && q.codigo) return mostrarPrecos(resultado, q, ir);
+  if (!q.q) {
+    const st = (await api('/precos/catalogo').catch(() => null))?.status;
+    render(resultado, avisoCatalogo(st, est), h('div', { class: 'cartao' }, h('h2', {}, 'Como funciona'),
+      h('ol', {},
+        h('li', {}, 'Digite o que você vende ou quer cotar e escolha o item certo do catálogo oficial do governo.'),
+        h('li', {}, 'O sistema busca no Compras.gov.br os preços pagos nas compras do período, com órgão, fornecedor, marca e quantidade.'),
+        h('li', {}, 'Você vê menor preço, mediana e média, e os preços muito fora do padrão ficam marcados para sua análise.')),
+      h('p', { class: 'suave pequeno' }, 'É o mesmo tipo de pesquisa que o órgão faz para estimar o preço (',
+        h('a', { href: LEI_14133, target: '_blank', rel: 'noopener noreferrer' }, 'Lei 14.133, art. 23'), ' e ',
+        h('a', { href: IN_65, target: '_blank', rel: 'noopener noreferrer' }, 'IN SEGES/ME 65/2021, arts. 5º e 6º'),
+        '). Cobertura: compras registradas no Compras.gov.br (órgãos federais e os estados e municípios que usam o sistema).')));
+    return;
+  }
+  render(resultado, carregando('Procurando no catálogo…'));
+  try {
+    const r = await api(`/precos/catalogo${qs({ q: q.q })}`);
+    const lista = r.resultados;
+    const codigoDigitado = /^\d+$/.test(q.q.trim());
+    const direto = codigoDigitado ? h('div', { class: 'linha', style: { marginTop: '8px' } },
+      h('span', { class: 'suave pequeno' }, `Consultar o código ${q.q.trim()} direto como:`),
+      ['material_item', 'servico'].map((t) => h('button', { class: 'btn pequeno', onclick: () => ir({ tipo: t, codigo: q.q.trim() }) }, TIPO_CAT[t]))) : null;
+    if (!lista.length) {
+      render(resultado, avisoCatalogo(r.status, est), h('div', { class: 'cartao' },
+        vazio(r.status.n ? 'Nada encontrado no catálogo com essas palavras. Tente uma palavra mais genérica (ex.: "cadeira" em vez de "cadeira giratória preta").' : 'O catálogo ainda não foi baixado.'), direto));
+      return;
+    }
+    render(resultado, h('div', { class: 'cartao' },
+      h('h2', {}, `Escolha o item do catálogo (${lista.length}${lista.length >= 30 ? '+' : ''})`),
+      h('p', { class: 'suave pequeno' }, 'Material aparece pelo PDM (o "tipo" do produto, que reúne as variações). Serviço aparece pelo código CATSER.'),
+      h('div', { class: 'lista-cat' }, lista.map((c) => h('button', { class: 'item-cat', onclick: () => ir({ tipo: c.tipo === 'servico' ? 'servico' : 'material_pdm', codigo: c.codigo, item: '', unidade: '' }) },
+        h('span', { class: `etiqueta ${c.tipo === 'servico' ? 'azul' : 'verde'}` }, c.tipo === 'servico' ? 'Serviço' : 'Material'),
+        h('strong', {}, c.nome), h('span', { class: 'suave pequeno' }, `${c.classe || ''} · código ${c.codigo}`)))),
+      direto));
+  } catch (e) { render(resultado, erroBox(e)); }
+}
+
+function avisoCatalogo(st, est) {
+  if (!st || st.n > 0) return null;
+  return h('div', { class: 'aviso amarelo' }, st.em_andamento ? 'O catálogo oficial está sendo baixado agora. Volte em alguns minutos.'
+    : 'O catálogo oficial do Compras.gov.br ainda não foi baixado. O sistema baixa sozinho; ',
+  !st.em_andamento && ehAdmin(est) ? h('button', { class: 'btn pequeno', onclick: async (e) => {
+    e.target.disabled = true;
+    try { toast((await api('/precos/catalogo/atualizar', { metodo: 'POST', corpo: {} })).mensagem); } catch (er) { toast(er.message); e.target.disabled = false; }
+  } }, 'Baixar agora') : null);
+}
+
+async function mostrarPrecos(alvo, q, ir) {
+  render(alvo, carregando('Consultando o Compras.gov.br… (a primeira consulta do dia pode levar alguns segundos)'));
+  let d;
+  try { d = await api(`/precos${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade, atualizar: q.atualizar })}`); }
+  catch (e) { render(alvo, erroBox(e)); return; }
+  if (q.atualizar) { delete q.atualizar; history.replaceState(null, '', `#/precos${qs(q)}`); }
+  const e = d.estatisticas;
+  const titulo = d.consulta.nome || `Código ${d.consulta.codigo}`;
+  const filtroItem = d.itens_catalogo.length > 1 ? h('div', {}, h('label', { for: 'p-item' }, 'Item específico'),
+    h('select', { id: 'p-item', onchange: (ev) => ir({ item: ev.target.value, unidade: '' }) }, h('option', { value: '' }, `Todos (${d.itens_catalogo.reduce((t, i) => t + i.n, 0)})`),
+      d.itens_catalogo.map((i) => h('option', { value: i.codigo ?? '', selected: String(q.item || '') === String(i.codigo) }, `${i.codigo ?? 's/ código'} · ${(i.descricao || '').slice(0, 70)} (${i.n})`)))) : null;
+  const filtroUnid = d.unidades.length ? h('div', {}, h('label', { for: 'p-unid' }, 'Unidade de fornecimento'),
+    h('select', { id: 'p-unid', onchange: (ev) => ir({ unidade: ev.target.value }) },
+      d.unidades.map((u) => h('option', { value: u.unidade, selected: u.unidade === d.unidade }, `${u.unidade} (${u.n})`)))) : null;
+  const kpi = (rot, val, dica) => h('div', { class: 'cartao kpi', title: dica || '' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val));
+
+  const ordens = { data: (a, b) => String(b.data_compra).localeCompare(String(a.data_compra)), menor: (a, b) => (a.preco_unitario ?? 1e18) - (b.preco_unitario ?? 1e18), maior: (a, b) => (b.preco_unitario ?? -1) - (a.preco_unitario ?? -1) };
+  let ordem = 'data'; let mostrar = 50;
+  const tabela = h('div', {});
+  const desenharTabela = () => {
+    const regs = [...d.registros].sort(ordens[ordem]);
+    render(tabela, h('div', { class: 'tabela-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, ['Data', 'Item', 'Unid.', 'Qtd.', 'Preço unitário', 'Fornecedor / marca', 'Órgão comprador', 'Local'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, regs.slice(0, mostrar).map((r) => h('tr', { class: r.fora_da_curva ? 'linha-alerta' : '' },
+        h('td', {}, data(r.data_compra, false) || '—'),
+        h('td', { title: r.descricao_detalhada || '' }, r.descricao || '—', r.descricao_detalhada ? h('div', { class: 'suave pequeno' }, r.descricao_detalhada.slice(0, 120)) : null),
+        h('td', {}, r.unidade || '—'), h('td', {}, numero(r.quantidade)),
+        h('td', { class: 'num' }, moedaUnit(r.preco_unitario), r.fora_da_curva ? h('div', {}, h('span', { class: 'etiqueta vermelha', title: 'Fora da faixa usual (critério estatístico). Confira se é outro produto, outra unidade ou erro de digitação.' }, 'fora da curva')) : null),
+        h('td', {}, r.fornecedor_nome || naoInformado(), r.marca ? h('div', { class: 'suave pequeno' }, `Marca: ${r.marca}`) : null),
+        h('td', {}, r.orgao_nome || r.uasg_nome || '—', r.uasg ? h('div', { class: 'suave pequeno' }, `UASG ${r.uasg}`) : null),
+        h('td', {}, [r.municipio, r.uf].filter(Boolean).join(' / ') || '—')))))),
+    regs.length > mostrar ? h('div', { class: 'paginacao' }, h('button', { class: 'btn', onclick: () => { mostrar += 100; desenharTabela(); } }, `Mostrar mais (${regs.length - mostrar} restantes)`)) : null);
+  };
+  desenharTabela();
+
+  render(alvo,
+    h('div', { class: 'cartao' },
+      h('div', { class: 'cabecalho-pagina', style: { marginBottom: '6px' } },
+        h('div', {}, h('h2', { style: { margin: 0 } }, titulo),
+          h('div', { class: 'suave pequeno' }, `${TIPO_CAT[d.consulta.tipo]} ${d.consulta.codigo}${d.consulta.classe ? ` · ${d.consulta.classe}` : ''} · ${d.consulta.uf || 'Brasil'} · compras de ${data(d.desde, false)} a ${data(d.ate, false)}`)),
+        h('div', { class: 'linha' },
+          h('a', { class: 'btn', href: `#/precos${qs({ q: q.q, uf: q.uf, meses: q.meses })}` }, '← Outro item'),
+          h('button', { class: 'btn', onclick: () => ir({ atualizar: '1' }) }, '↻ Consultar de novo'),
+          h('a', { class: 'btn', href: `/api/precos/exportar${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade })}` }, '⬇ CSV'),
+          h('a', { class: 'btn', href: `#/precos/contratos${qs({ q: titulo.split(/[,(]/)[0].trim().toLowerCase() })}` }, 'Contratos parecidos'))),
+      h('div', { class: 'suave pequeno' }, `Fonte: Compras.gov.br, Dados Abertos (Pesquisa de Preços). Consultado em ${dataUtc(d.consultado_em)}${d.cache ? ' (guardado por 24h)' : ''}.`),
+      d.truncado ? h('div', { class: 'aviso amarelo', style: { marginTop: '8px' } }, `A fonte tem ${numero(d.total_fonte)} preços nesse período; trouxemos ${numero(d.baixados)}. Escolha um estado ou um período menor para ver tudo.`) : null,
+      h('div', { class: 'filtros', style: { marginTop: '10px' } }, filtroItem, filtroUnid)),
+    e.n ? h('div', { class: 'grade kpis', style: { marginTop: '14px' } },
+      kpi('Preços encontrados', numero(e.n), `Na unidade ${d.unidade}. Preços de unidades diferentes não são comparados.`),
+      kpi('Menor preço', moedaUnit(e.menor)),
+      kpi('Mediana', moedaUnit(e.mediana), 'Metade dos preços está abaixo e metade acima. É a referência mais segura quando há valores muito diferentes.'),
+      kpi('Média', moedaUnit(e.media)),
+      kpi('Média sem fora da curva', moedaUnit(e.media_sem_fora_da_curva), e.n >= 4 ? `Desconsidera ${e.fora_da_curva} preço(s) fora da faixa de ${brl(e.limite_inferior)} a ${brl(e.limite_superior)}.` : 'Com menos de 4 preços não dá para apontar valores fora da curva.'),
+      kpi('Maior preço', moedaUnit(e.maior))) : h('div', { class: 'cartao', style: { marginTop: '14px' } }, vazio('Nenhum preço registrado para este item no período. Tente 24 meses ou o Brasil inteiro.')),
+    e.n ? h('div', { class: 'aviso azul', style: { marginTop: '14px' } },
+      e.n < 3 ? h('strong', {}, 'Atenção: menos de 3 preços. A IN 65/2021 pede pelo menos 3 para calcular média ou mediana. ') : null,
+      e.fora_da_curva ? `${e.fora_da_curva} preço(s) ficaram fora da faixa usual de ${brl(e.limite_inferior)} a ${brl(e.limite_superior)} e estão marcados em vermelho. `
+        : 'Nenhum preço muito fora do padrão. ',
+      'Antes de usar na sua proposta, confira se a descrição e a unidade batem com o edital. Nada é descartado automaticamente (',
+      h('a', { href: IN_65, target: '_blank', rel: 'noopener noreferrer' }, 'IN 65/2021, art. 6º, §§ 3º e 4º'), ').') : null,
+    e.n ? h('div', { class: 'cartao', style: { marginTop: '14px' } },
+      h('div', { class: 'cabecalho-pagina', style: { marginBottom: '8px' } }, h('h2', { style: { margin: 0 } }, `Preços (${numero(d.registros.length)})`),
+        h('div', { class: 'linha' }, h('label', { for: 'p-ordem', class: 'suave pequeno' }, 'Ordenar'),
+          h('select', { id: 'p-ordem', onchange: (ev) => { ordem = ev.target.value; mostrar = 50; desenharTabela(); } },
+            h('option', { value: 'data' }, 'Mais recentes'), h('option', { value: 'menor' }, 'Menor preço'), h('option', { value: 'maior' }, 'Maior preço')))),
+      tabela) : null);
+}
+
+async function contratosAba(alvo, rota, est) {
+  const f = Object.fromEntries(rota.query.entries());
+  const campos = {};
+  const inp = (nome, attrs = {}) => (campos[nome] = h('input', { type: 'text', value: f[nome] || '', id: `c-${nome}`, ...attrs }));
+  const sel = (nome, opcoes, vazioTxt = 'Todos') => (campos[nome] = h('select', { id: `c-${nome}` }, h('option', { value: '' }, vazioTxt),
+    opcoes.map(([v, t]) => h('option', { value: v, selected: String(f[nome] ?? '') === String(v) }, t))));
+  const campo = (rot, el, largo) => h('div', { class: largo ? 'largo' : '' }, h('label', { for: el.id }, rot), el);
+  const ler = () => { const o = {}; for (const [k, el] of Object.entries(campos)) if (el.value !== '') o[k] = el.value.trim(); return o; };
+  const ir = (extra = {}) => { location.hash = `#/precos/contratos${qs({ ...ler(), ...extra })}`; };
+  const form = h('form', { class: 'cartao', onsubmit: (e) => { e.preventDefault(); ir({ pagina: 1 }); } },
+    h('div', { class: 'filtros' },
+      campo('Objeto, fornecedor ou órgão', inp('q', { type: 'search', placeholder: 'ex.: limpeza, transporte escolar, nome da empresa' }), true),
+      campo('Estado (UF)', sel('uf', est.meta.ufs.map((u) => [u, u]))),
+      campo('Município', inp('municipio', { placeholder: 'ex.: Vila Velha' })),
+      campo('CNPJ do fornecedor', inp('fornecedor', { placeholder: '00.000.000/0000-00' })),
+      campo('CNPJ do órgão', inp('orgao')),
+      campo('Esfera', sel('esfera', Object.entries(ESF))),
+      campo('Assinatura de', inp('assinatura_de', { type: 'date' })),
+      campo('Assinatura até', inp('assinatura_ate', { type: 'date' })),
+      campo('Valor mínimo (R$)', inp('valor_min', { type: 'number', min: 0, step: '0.01' })),
+      campo('Valor máximo (R$)', inp('valor_max', { type: 'number', min: 0, step: '0.01' })),
+      campo('Situação', sel('vigentes', [['1', 'Só vigentes']], 'Todos')),
+      campo('Ordenar por', sel('ordenar', [['assinatura_desc', 'Assinatura mais recente'], ['valor_desc', 'Maior valor'], ['valor_asc', 'Menor valor'], ['vigencia_asc', 'Vigência terminando antes'], ['publicacao_desc', 'Publicação mais recente']], 'Padrão'))),
+    h('div', { class: 'linha', style: { marginTop: '10px' } },
+      h('button', { class: 'btn primario', type: 'submit' }, 'Buscar'),
+      h('a', { class: 'btn', href: '#/precos/contratos' }, 'Limpar'),
+      h('button', { class: 'btn', type: 'button', onclick: () => { window.location.href = `/api/contratos/exportar${qs(ler())}`; } }, '⬇ CSV')));
+  const lista = h('div', {}, carregando());
+  render(alvo, form, lista);
+  try {
+    const r = await api(`/contratos${qs(f)}`);
+    if (!r.total) {
+      const semFiltro = !Object.keys(ler()).length;
+      render(lista, semFiltro ? h('div', { class: 'aviso amarelo' }, 'Ainda não há contratos no banco. A primeira carga (últimos 30 dias, todo o Brasil) roda sozinha; acompanhe em ',
+        h('a', { href: '#/fontes' }, 'Fontes de dados > PNCP — Contratos publicados'), '.') : vazio('Nenhum contrato encontrado com esses filtros.'));
+      return;
+    }
+    const hoje = new Date().toISOString().slice(0, 10);
+    const totalPag = Math.max(1, Math.ceil(r.total / r.por_pagina));
+    render(lista,
+      h('div', { class: 'grade pares', style: { marginTop: '14px' } },
+        h('div', { class: 'cartao' }, h('h2', {}, 'Resumo'),
+          h('dl', { class: 'detalhes' },
+            h('dt', {}, 'Contratos'), h('dd', {}, numero(r.total)),
+            h('dt', {}, 'Soma do valor global'), h('dd', {}, r.soma_valor_global == null ? naoInformado() : moeda(r.soma_valor_global),
+              r.com_valor < r.total ? h('div', { class: 'suave pequeno' }, `${numero(r.total - r.com_valor)} sem valor informado não entram na soma.`) : null)),
+          h('p', { class: 'suave pequeno' }, 'Fonte: PNCP, contratos publicados (consulta pública). Clique num fornecedor para ver só os contratos dele.')),
+        h('div', { class: 'cartao' }, h('h2', {}, 'Maiores fornecedores neste resultado'),
+          r.fornecedores.length ? h('div', { class: 'tabela-wrap' }, h('table', {},
+            h('thead', {}, h('tr', {}, ['Fornecedor', 'Contratos', 'Soma'].map((t) => h('th', {}, t)))),
+            h('tbody', {}, r.fornecedores.map((x) => h('tr', {},
+              h('td', {}, h('a', { href: `#/precos/contratos${qs({ ...ler(), fornecedor: x.ni, pagina: 1 })}` }, x.nome || fmtDoc(x.ni)), h('div', { class: 'suave pequeno' }, fmtDoc(x.ni))),
+              h('td', {}, numero(x.n)), h('td', { class: 'num' }, x.soma == null ? '—' : moedaCurta(x.soma))))))) : vazio('Sem fornecedores identificados.'))),
+      h('div', { class: 'suave pequeno', style: { margin: '14px 0 6px' } }, `${numero(r.total)} contrato(s).`),
+      r.linhas.map((c) => {
+        const vigente = c.vigencia_fim && c.vigencia_fim >= hoje;
+        return h('div', { class: 'cartao item-lic' },
+          h('div', {},
+            h('div', { class: 'objeto' }, c.objeto ? (c.objeto.length > 220 ? `${c.objeto.slice(0, 220)}…` : c.objeto) : '(objeto não informado)'),
+            h('div', { class: 'meta', style: { marginTop: '6px' } },
+              h('span', {}, '🏢 ', c.fornecedor_nome || naoInformado(), c.fornecedor_ni ? ` (${fmtDoc(c.fornecedor_ni)})` : ''),
+              h('span', {}, '🏛 ', c.orgao_nome || naoInformado()),
+              h('span', {}, '📍 ', [c.municipio, c.uf].filter(Boolean).join(' / ') || naoInformado()),
+              h('span', {}, c.tipo_contrato || ''), c.categoria ? h('span', {}, c.categoria) : null),
+            h('div', { class: 'meta', style: { marginTop: '4px' } },
+              h('span', {}, `Assinado em ${data(c.data_assinatura, false) || 'data não informada'}`),
+              h('span', {}, `Vigência ${data(c.vigencia_inicio, false) || '?'} a ${data(c.vigencia_fim, false) || '?'}`),
+              c.vigencia_fim ? h('span', { class: `etiqueta ${vigente ? 'verde' : ''}` }, vigente ? 'Vigente' : 'Vigência encerrada') : null)),
+          h('div', { class: 'lado' },
+            h('div', { class: 'valor-grande' }, c.valor_global == null ? naoInformado() : moeda(c.valor_global)),
+            h('div', { class: 'linha', style: { justifyContent: 'flex-end', marginTop: '6px' } },
+              c.licitacao_id ? h('a', { class: 'btn pequeno', href: `#/licitacao/${c.licitacao_id}` }, 'Licitação') : null,
+              c.link_pncp ? h('a', { class: 'btn pequeno', href: c.link_pncp, target: '_blank', rel: 'noopener noreferrer' }, 'PNCP ↗') : null)));
+      }),
+      h('div', { class: 'paginacao' },
+        h('button', { class: 'btn', disabled: r.pagina <= 1, onclick: () => ir({ pagina: r.pagina - 1 }) }, '← Anterior'),
+        h('span', { class: 'suave' }, `Página ${r.pagina} de ${totalPag}`),
+        h('button', { class: 'btn', disabled: r.pagina >= totalPag, onclick: () => ir({ pagina: r.pagina + 1 }) }, 'Próxima →')));
+  } catch (e) { render(lista, erroBox(e)); }
 }
 
 // ============================ MÓDULOS FUTUROS ============================

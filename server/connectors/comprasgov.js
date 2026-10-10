@@ -61,9 +61,38 @@ export const conectorComprasLegado = {
   },
 };
 
-// Pesquisa de preços (Fase 4): consulta sob demanda por código CATMAT/CATSER
-export async function consultarPrecosMaterial(codigoItemCatalogo, { pagina = 1, fetchImpl } = {}) {
-  const url = `${BASE_COMPRAS}/modulo-pesquisa-preco/1_consultarMaterial?${qs({ pagina, tamanhoPagina: 100, codigoItemCatalogo })}`;
-  const { dados } = await getJson(url, { fetchImpl });
-  return dados;
+// ---------- Pesquisa de preços (Fase 4) ----------
+// Módulo 03: materiais por PDM ou código CATMAT (tipo + codigo); serviços por código CATSER (codigoItemCatalogo).
+// Verificado em 10/10/2026: tamanhoPagina vai de 10 a 500; os resultados vêm dos mais antigos para os mais novos,
+// por isso a consulta sempre usa um período (dataCompraInicio/dataCompraFim).
+export function urlPrecos({ tipo, codigo, uf, desde, ate, pagina = 1, tamanhoPagina = 500 }) {
+  const comum = { pagina, tamanhoPagina, estado: uf, dataCompraInicio: desde, dataCompraFim: ate };
+  if (tipo === 'servico') return `${BASE_COMPRAS}/modulo-pesquisa-preco/3_consultarServico?${qs({ ...comum, codigoItemCatalogo: codigo })}`;
+  const t = tipo === 'material_item' ? 'codigoItemCatalogo' : 'codigoPdm';
+  return `${BASE_COMPRAS}/modulo-pesquisa-preco/1_consultarMaterial?${qs({ tipo: t, codigo, ...comum })}`;
+}
+
+export async function* paginarPrecos(params, { maxPaginas = 4, fetchImpl } = {}) {
+  for (let pagina = 1; pagina <= maxPaginas; pagina++) {
+    const url = urlPrecos({ ...params, pagina });
+    const { vazio, dados } = await getJson(url, { fetchImpl });
+    const lista = dados?.resultado;
+    if (vazio || !Array.isArray(lista) || lista.length === 0) return;
+    yield { pagina, registros: lista, totalRegistros: dados.totalRegistros, paginasRestantes: dados.paginasRestantes ?? 0 };
+    if (!dados.paginasRestantes) return;
+  }
+}
+
+// Catálogo: PDM de materiais (módulo 01, item 3) e itens de serviço (módulo 02, item 6)
+export async function* paginarCatalogo(tipo, { maxPaginas = 400, fetchImpl } = {}) {
+  const caminho = tipo === 'servico' ? '/modulo-servico/6_consultarItemServico' : '/modulo-material/3_consultarPdmMaterial';
+  const filtro = tipo === 'servico' ? { statusServico: true } : { statusPdm: true };
+  for (let pagina = 1; pagina <= maxPaginas; pagina++) {
+    const url = `${BASE_COMPRAS}${caminho}?${qs({ ...filtro, pagina, tamanhoPagina: 500 })}`;
+    const { vazio, dados } = await getJson(url, { fetchImpl });
+    const lista = dados?.resultado;
+    if (vazio || !Array.isArray(lista) || lista.length === 0) return;
+    yield lista;
+    if (dados.paginasRestantes === 0 || lista.length < 500) return;
+  }
 }

@@ -4,6 +4,7 @@ import { CONECTORES } from '../connectors/registro.js';
 import { salvarLicitacao, salvarItens, salvarDocumentos, recalcularStatusTemporais } from './repositorio.js';
 import { agoraBrasilia } from './status.js';
 import { avaliarAlertasPesquisas } from './alertas.js';
+import { vincularContratos } from './contratos.js';
 
 const emExecucao = new Set();
 export const sincronizacaoEmAndamento = (codigo) => emExecucao.has(codigo);
@@ -62,17 +63,23 @@ export async function sincronizarFonte(db, codigo, opts = {}) {
   try {
     for await (const lote of conector.coletar(fonte, { modo, fetchImpl: opts.fetchImpl, agora: opts.agora })) {
       if (lote.cursor) { novoCursor = { ...novoCursor, ...lote.cursor }; continue; }
+      // Gravação própria (contratos): uma transação por página, milhares de registros por dia
+      if (conector.salvar) db.exec('BEGIN');
+      try {
       for (const { bruto, canonico } of lote.itens) {
         cont.lidos++;
         try {
-          const r = salvarLicitacao(db, canonico, codigo, bruto, agoraLocal);
+          // Conectores de outros dados (ex.: contratos) gravam pela própria função
+          const r = conector.salvar ? conector.salvar(db, canonico, fonte) : salvarLicitacao(db, canonico, codigo, bruto, agoraLocal);
+          if (r.acao === 'ignorado') continue;
           cont[{ inserido: 'inseridos', atualizado: 'atualizados', inalterado: 'inalterados' }[r.acao]]++;
-          if (r.acao !== 'inalterado') paraDetalhar.add(r.id);
+          if (r.acao !== 'inalterado' && !conector.salvar) paraDetalhar.add(r.id);
         } catch (e) {
           cont.falhas++;
-          registrarFalha(db, fonte.id, execId, canonico?.id_externo, 'persistencia', e, bruto);
+          registrarFalha(db, fonte.id, execId, canonico?.id_externo || canonico?.numero_controle_pncp, 'persistencia', e, bruto);
         }
       }
+      } finally { if (conector.salvar) db.exec('COMMIT'); }
     }
   } catch (e) {
     erroFatal = e;
@@ -108,16 +115,21 @@ export async function sincronizarFonte(db, codigo, opts = {}) {
   const msg = erroFatal ? erroFatal.message : `Lidos ${cont.lidos}; novos ${cont.inseridos}; atualizados ${cont.atualizados}; falhas ${cont.falhas}.`;
   db.prepare(`UPDATE sync_execucoes SET finalizado_em=datetime('now'), status=?, registros_lidos=?, inseridos=?, atualizados=?, inalterados=?, falhas=?, mensagem=? WHERE id=?`)
     .run(status, cont.lidos, cont.inseridos, cont.atualizados, cont.inalterados, cont.falhas, msg, execId);
-  const total = db.prepare('SELECT COUNT(DISTINCT licitacao_id) n FROM licitacao_fontes WHERE fonte_codigo=?').get(codigo).n;
+  const total = conector.contar ? conector.contar(db)
+    : db.prepare('SELECT COUNT(DISTINCT licitacao_id) n FROM licitacao_fontes WHERE fonte_codigo=?').get(codigo).n;
+  // Cursor: só avança em sucesso, exceto conectores que marcam cada etapa concluída (cursorParcial)
+  const cursorFinal = erroFatal && !conector.cursorParcial ? fonte.cursor : novoCursor;
   const situacao = erroFatal ? (erroFatal.tipo === 'bloqueada_rede' ? 'bloqueada_rede' : 'erro') : 'ok';
   db.prepare(`UPDATE fontes SET ultima_sincronizacao=datetime('now'),
       ultima_sincronizacao_ok = CASE WHEN ? THEN datetime('now') ELSE ultima_sincronizacao_ok END,
       situacao_conexao=?, ultimo_erro=?, registros_importados=?, cursor_json=? WHERE id=?`)
     .run(erroFatal ? 0 : 1, situacao, erroFatal ? erroFatal.message : null, total,
-      JSON.stringify(erroFatal ? fonte.cursor : novoCursor), fonte.id); // cursor só avança em sucesso
+      JSON.stringify(cursorFinal), fonte.id);
   emExecucao.delete(codigo);
 
-  if (cont.inseridos > 0) {
+  if (conector.salvar) {
+    try { vincularContratos(db); } catch (e) { console.error('[contratos]', e.message); }
+  } else if (cont.inseridos > 0) {
     try { avaliarAlertasPesquisas(db); } catch (e) { console.error('[alertas]', e.message); }
   }
   return { execucaoId: execId, status, ...cont, mensagem: msg };
@@ -133,7 +145,9 @@ export async function reprocessarFalhas(db, codigo, opts = {}) {
   for (const f of falhas) {
     try {
       const payload = f.payload_json ? JSON.parse(f.payload_json) : null;
-      if (f.etapa === 'persistencia' && payload && norm) {
+      if (f.etapa === 'persistencia' && payload && conector?.salvar) {
+        conector.salvar(db, conector.normalizar(payload), fonte);
+      } else if (f.etapa === 'persistencia' && payload && norm) {
         salvarLicitacao(db, norm(payload), codigo, payload);
       } else if (f.etapa === 'detalhes' && payload?.licitacao_id && conector?.detalhes) {
         const lic = db.prepare('SELECT * FROM licitacoes WHERE id=?').get(payload.licitacao_id);

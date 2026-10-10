@@ -261,3 +261,80 @@ export function normalizarDocumentoPncp(d) {
     ativo: bool(d.statusAtivo),
   };
 }
+
+// ---------- Contratos (PNCP /v1/contratos) ----------
+export function linkContratoPncp(cnpj, ano, seq) {
+  return cnpj && ano && seq ? `https://pncp.gov.br/app/contratos/${cnpj}/${ano}/${seq}` : null;
+}
+
+export function normalizarContratoPncp(r) {
+  const org = r.orgaoEntidade || {};
+  const un = r.unidadeOrgao || {};
+  const cnpj = soDigitos(org.cnpj);
+  const data = (v) => (vazio(v) ? null : String(v).slice(0, 10));
+  return {
+    numero_controle_pncp: txt(r.numeroControlePNCP),
+    numero_controle_compra: txt(r.numeroControlePncpCompra),
+    ano: num(r.anoContrato),
+    sequencial: num(r.sequencialContrato),
+    numero_contrato: txt(r.numeroContratoEmpenho),
+    processo: txt(r.processo),
+    tipo_contrato: txt(r.tipoContrato?.nome),
+    categoria: txt(r.categoriaProcesso?.nome),
+    orgao_cnpj: cnpj,
+    orgao_nome: txt(org.razaoSocial),
+    unidade_nome: txt(un.nomeUnidade),
+    esfera: txt(org.esferaId),
+    uf: txt(un.ufSigla),
+    municipio: txt(un.municipioNome),
+    codigo_ibge: txt(un.codigoIbge),
+    fornecedor_ni: soDigitos(r.niFornecedor),
+    fornecedor_nome: txt(r.nomeRazaoSocialFornecedor),
+    tipo_pessoa: txt(r.tipoPessoa),
+    objeto: txt(r.objetoContrato),
+    valor_inicial: num(r.valorInicial),
+    valor_global: num(r.valorGlobal),
+    valor_acumulado: num(r.valorAcumulado),
+    numero_parcelas: num(r.numeroParcelas),
+    data_assinatura: data(r.dataAssinatura),
+    vigencia_inicio: data(r.dataVigenciaInicio),
+    vigencia_fim: data(r.dataVigenciaFim),
+    data_publicacao: dataIso(r.dataPublicacaoPncp),
+    data_atualizacao: dataIso(r.dataAtualizacaoGlobal || r.dataAtualizacao),
+    plataforma_origem: txt(r.usuarioNome),
+    link_pncp: linkContratoPncp(cnpj, r.anoContrato, r.sequencialContrato),
+  };
+}
+
+// ---------- Pesquisa de preços (Compras.gov.br, módulo 03) ----------
+// Mantém só o necessário para a análise; preço e quantidade como informados (null se ausentes).
+export function normalizarPrecoCompras(r) {
+  const unidade = txt(r.siglaUnidadeFornecimento) || txt(r.siglaUnidadeMedida) || txt(r.nomeUnidadeFornecimento) || txt(r.nomeUnidadeMedida);
+  const capacidade = num(r.capacidadeUnidadeFornecimento);
+  return {
+    id_compra: txt(r.idCompra),
+    numero_item: num(r.numeroItemCompra),
+    data_compra: data10(r.dataCompra),
+    data_resultado: data10(r.dataResultado),
+    codigo_item: num(r.codigoItemCatalogo),
+    descricao: txt(r.descricaoItem),
+    descricao_detalhada: txt(r.descricaoDetalhadaItem),
+    unidade: unidade && capacidade ? `${unidade} ${capacidade.toLocaleString('pt-BR')}` : unidade,
+    quantidade: num(r.quantidade),
+    preco_unitario: num(r.precoUnitario),
+    percentual_desconto: num(r.percentualMaiorDesconto) || null,
+    fornecedor_ni: soDigitos(r.niFornecedor),
+    fornecedor_nome: txt(r.nomeFornecedor),
+    marca: txt(r.marca),
+    uasg: txt(r.codigoUasg),
+    uasg_nome: txt(r.nomeUasg),
+    orgao_nome: txt(r.nomeOrgao),
+    uf: txt(r.estado),
+    municipio: txt(r.municipio),
+    esfera: txt(r.esfera),
+    modalidade: num(r.modalidade),
+    forma: txt(r.forma),
+    objeto: txt(r.objetoCompra),
+  };
+}
+function data10(v) { return vazio(v) ? null : String(v).slice(0, 10); }

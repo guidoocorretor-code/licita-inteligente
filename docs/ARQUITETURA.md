@@ -87,3 +87,8 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 - Segmento é estimado por palavras-chave (sinalizado na interface).
 - Alertas por e-mail implementados (Fase 3), ativos quando `SMTP_URL` está configurado. WhatsApp não implementado (depende de provedor oficial).
 - Módulos das Fases 3 a 6 aparecem no menu marcados com a fase e não exibem dados simulados.
+
+## Fase 4 (parte 1): preços e contratos
+- **Contratos** (`server/connectors/pncpContratos.js`, `server/services/contratos.js`): fonte `pncp_contratos`, PNCP `/v1/contratos` dia a dia por data de publicação (todo o Brasil; o endpoint não filtra UF). Carga inicial dos últimos 30 dias; cada dia concluído avança o cursor. Liga o contrato à licitação por `numeroControlePncpCompra`.
+- **Pesquisa de preços** (`server/services/precos.js`): consulta sob demanda ao Compras.gov.br (módulo 03), por PDM/CATMAT ou CATSER, no período escolhido (padrão 12 meses, Lei 14.133 art. 23 §1º II / IN SEGES/ME 65/2021 art. 5º II). Cache de 24h em `precos_consultas`. Estatística por unidade de fornecimento; "fora da curva" pelo critério de Tukey só marca, nunca descarta.
+- **Catálogo** (`catalogo_compras` + FTS): PDM de materiais e itens de serviço, baixado pelo agendador se vazio ou com mais de 30 dias.

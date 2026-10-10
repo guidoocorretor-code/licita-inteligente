@@ -1,0 +1,12 @@
+{
+  "_origem": "Registro REAL retornado por GET https://dadosabertos.compras.gov.br/modulo-pesquisa-preco/3_consultarServico?codigoItemCatalogo=5380 em 10/10/2026 (1º de 20.185). Textos longos resumidos.",
+  "idCompra": "25500005900342025", "idItemCompra": 12968513, "forma": "SISPP", "modalidade": 5, "criterioJulgamento": "V",
+  "numeroItemCompra": 3, "descricaoItem": "PRESTACAO DE SERVICOS DE APOIO ADMINISTRATIVO, TECNICO E OPERACIONAL (resumido)",
+  "codigoItemCatalogo": 5380, "nomeUnidadeMedida": "UNIDADE", "siglaUnidadeMedida": "UN", "quantidade": 31,
+  "precoUnitario": 49816.6, "percentualMaiorDesconto": 0, "niFornecedor": "18623185000156", "nomeFornecedor": "SHINE RIO SERVICOS LTDA",
+  "codigoUasg": "255000", "nomeUasg": "FUNDACAO NACIONAL DE SAUDE/DF", "codigoMunicipio": 5300108, "municipio": "BRASÍLIA",
+  "estado": "DF", "codigoOrgao": 36211, "nomeOrgao": "FUNDACAO NACIONAL DE SAUDE", "poder": "E", "esfera": "F",
+  "dataCompra": "2026-10-09", "dataHoraAtualizacaoCompra": "2026-10-10T01:10:01.716509", "dataHoraAtualizacaoItem": "2026-10-10T03:00:14.141221",
+  "dataResultado": "2026-10-09", "dataHoraAtualizacaoUasg": "2026-07-31T14:42:00", "objetoCompra": "Pregão Eletrônico - Contratação de serviços de apoio (resumido)",
+  "descricaoDetalhadaItem": "Serviço Burocrático", "dataAtualizacaoFato": "2026-10-10T03:00:14.141221"
+}

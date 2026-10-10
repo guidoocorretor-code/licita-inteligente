@@ -12,6 +12,8 @@ import { paraCsv, paraXlsx } from '../services/exportacao.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
+import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
+import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export const ETAPAS_PADRAO = ['Nova oportunidade', 'Em análise', 'Aguardando decisão', 'Documentação em preparação',
   'Proposta em elaboração', 'Pronta para envio', 'Participação confirmada', 'Em disputa', 'Aguardando resultado',
@@ -116,6 +118,7 @@ r.get('/licitacoes/:id', (req, res) => {
     favorito: !!db().prepare("SELECT 1 FROM favoritos WHERE usuario_id=? AND tipo='licitacao' AND referencia=?").get(u.id, String(id)),
     oportunidade: db().prepare(`SELECT o.*, e.nome etapa_nome FROM oportunidades o JOIN kanban_etapas e ON e.id=o.etapa_id
       WHERE o.empresa_id=? AND o.licitacao_id=?`).get(u.empresa_id, id) || null,
+    contratos: contratosDaLicitacao(db(), id),
   });
 });
 
@@ -315,6 +318,63 @@ r.post('/email/teste', async (req, res) => {
 });
 
 // ---------------- Fontes de dados (admin) ----------------
+// ---------------- Fase 4: preços e contratos ----------------
+const csvCampo = (v) => { const t = String(v ?? ''); return /[;"\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+const csv = (cab, linhas) => '\ufeff' + [cab.map(csvCampo).join(';'), ...linhas.map((l) => l.map(csvCampo).join(';'))].join('\r\n');
+const decimal = (v) => (v == null ? '' : String(v).replace('.', ','));
+
+r.get('/precos/catalogo', (req, res) => res.json({ status: statusCatalogo(db()), resultados: buscarCatalogo(db(), req.query.q) }));
+r.post('/precos/catalogo/atualizar', exigirPapel('admin'), (req, res) => {
+  auditar(req, 'catalogo_atualizar');
+  sincronizarCatalogo(db()).then((r2) => console.log('[catalogo]', JSON.stringify(r2))).catch((e) => console.error('[catalogo]', e.message));
+  res.status(202).json({ iniciado: true, mensagem: 'Download do catálogo do Compras.gov.br iniciado em segundo plano.' });
+});
+async function pesquisa(req, res) {
+  const c = validarConsulta(req.query);
+  if (!c) { erro(res, 400, 'Escolha um item do catálogo (tipo e código).'); return null; }
+  try {
+    const r2 = await consultarPrecos(db(), c, { forcar: req.query.atualizar === '1' });
+    const cat = db().prepare('SELECT nome, classe FROM catalogo_compras WHERE tipo=? AND codigo=?')
+      .get(c.tipo === 'servico' ? 'servico' : 'material', c.codigo);
+    return { consulta: { ...c, nome: cat?.nome || null, classe: cat?.classe || null }, ...r2, baixados: r2.registros.length, ...analisarPrecos(r2.registros, req.query) };
+  } catch (e) {
+    erro(res, 502, `Não foi possível consultar o Compras.gov.br agora: ${e.message}`); return null;
+  }
+}
+r.get('/precos', async (req, res) => {
+  const p = await pesquisa(req, res);
+  if (p) res.json({ ...p, registros: p.registros.slice(0, 1000), registros_total: p.registros.length });
+});
+r.get('/precos/exportar', async (req, res) => {
+  const p = await pesquisa(req, res);
+  if (!p) return;
+  const cab = ['Data da compra', 'Código do item', 'Descrição', 'Descrição detalhada', 'Unidade', 'Quantidade', 'Preço unitário (R$)', 'Fora da curva',
+    'Fornecedor', 'CNPJ/CPF fornecedor', 'Marca', 'Órgão', 'UASG', 'UASG nome', 'UF', 'Município', 'ID da compra', 'Item da compra'];
+  const linhas = p.registros.map((x) => [x.data_compra, x.codigo_item, x.descricao, x.descricao_detalhada, x.unidade, decimal(x.quantidade),
+    decimal(x.preco_unitario), x.fora_da_curva ? 'Sim' : '', x.fornecedor_nome, x.fornecedor_ni, x.marca, x.orgao_nome, x.uasg, x.uasg_nome, x.uf,
+    x.municipio, x.id_compra, x.numero_item]);
+  const est = p.estatisticas;
+  const rodape = [[], [`Fonte: Compras.gov.br — Dados Abertos, módulo Pesquisa de Preços. Período ${p.desde} a ${p.ate}. Consultado em ${p.consultado_em} (UTC).`],
+    [`Unidade: ${p.unidade || '—'} · ${est.n || 0} preços · menor ${decimal(est.menor)} · mediana ${decimal(est.mediana)} · média ${decimal(est.media)} · média sem fora da curva ${decimal(est.media_sem_fora_da_curva)} · maior ${decimal(est.maior)}`],
+    ['Fora da curva = critério estatístico (Tukey, 1,5 x intervalo interquartil). A análise crítica dos preços é do usuário (IN SEGES/ME 65/2021, art. 6º).']];
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="precos-${p.consulta.tipo}-${p.consulta.codigo}.csv"`);
+  res.send(csv(cab, [...linhas, ...rodape]));
+});
+
+r.get('/contratos', (req, res) => res.json(buscarContratos(db(), req.query)));
+r.get('/contratos/exportar', (req, res) => {
+  const r2 = buscarContratos(db(), { ...req.query, pagina: 1 }, { limite: 20000 });
+  const cab = ['Nº controle PNCP', 'Contratação de origem', 'Número', 'Tipo', 'Categoria', 'Objeto', 'Fornecedor', 'CNPJ/CPF fornecedor', 'Órgão', 'CNPJ órgão',
+    'UF', 'Município', 'Valor inicial (R$)', 'Valor global (R$)', 'Assinatura', 'Vigência início', 'Vigência fim', 'Publicação PNCP', 'Link PNCP'];
+  const linhas = r2.linhas.map((c) => [c.numero_controle_pncp, c.numero_controle_compra, c.numero_contrato, c.tipo_contrato, c.categoria, c.objeto,
+    c.fornecedor_nome, c.fornecedor_ni, c.orgao_nome, c.orgao_cnpj, c.uf, c.municipio, decimal(c.valor_inicial), decimal(c.valor_global),
+    c.data_assinatura, c.vigencia_inicio, c.vigencia_fim, c.data_publicacao, c.link_pncp]);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="contratos.csv"');
+  res.send(csv(cab, linhas));
+});
+
 r.get('/fontes', (req, res) => {
   const fontes = db().prepare('SELECT id, codigo, nome, url_oficial, tipo_integracao, status_implementacao, situacao_conexao, habilitada, requer_credenciais, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok, registros_importados, ultimo_erro, observacoes, config_json FROM fontes ORDER BY id').all();
   const falhas = db().prepare('SELECT fonte_id, COUNT(*) n FROM sync_falhas WHERE resolvida=0 GROUP BY fonte_id').all();
@@ -354,10 +414,11 @@ r.post('/fontes/:codigo/sincronizar', exigirPapel('admin'), async (req, res) => 
     const modo = req.body?.modo === 'abertas' ? 'abertas' : 'incremental';
     if (sincronizacaoEmAndamento(req.params.codigo)) return res.json({ ignorado: true, mensagem: 'Sincronização já em andamento para esta fonte. Acompanhe em "Execuções".' });
     // Carga completa pode levar dezenas de minutos: roda em segundo plano para a página não ficar presa nem cair por tempo.
-    if (modo === 'abertas') {
+    if (modo === 'abertas' || CONECTORES[req.params.codigo]?.segundoPlano) {
       sincronizarFonte(db(), req.params.codigo, { modo }).then((r) => console.log(`[sync] ${req.params.codigo} abertas: ${r.mensagem ?? r.status ?? ''}`))
         .catch((e) => console.error(`[sync] ${req.params.codigo}:`, e.message));
-      return res.status(202).json({ iniciado: true, mensagem: 'Carga das licitações abertas iniciada em segundo plano. Pode fechar a página; acompanhe em "Execuções".' });
+      const oque = modo === 'abertas' ? 'Carga das licitações abertas' : 'Sincronização';
+      return res.status(202).json({ iniciado: true, mensagem: `${oque} iniciada em segundo plano. Pode fechar a página; acompanhe em "Execuções".` });
     }
     res.json(await sincronizarFonte(db(), req.params.codigo, { modo }));
   } catch (e) { erro(res, 400, e.message); }

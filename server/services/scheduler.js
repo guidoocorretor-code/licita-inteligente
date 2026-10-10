@@ -7,15 +7,26 @@ import { CONECTORES } from '../connectors/registro.js';
 import { avaliarAlertasAcompanhadas } from './alertas.js';
 import { enviarAlertasPendentes } from './email.js';
 import { agoraBrasilia } from './status.js';
+import { precisaAtualizarCatalogo, sincronizarCatalogo } from './precos.js';
 
 export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   let ultimoEmail = 0;
+  let ultimaVerificacaoCatalogo = 0;
   const tick = async () => {
     // Alertas de prazo/mudança e e-mail rodam antes das sincronizações, que podem demorar
     try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
     if (Date.now() - ultimoEmail >= 10 * 60_000) {
       ultimoEmail = Date.now();
       enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));
+    }
+    // Catálogo do Compras.gov.br (para a pesquisa de preços): baixa se vazio ou com mais de 30 dias
+    if (Date.now() - ultimaVerificacaoCatalogo >= 6 * 3600_000) {
+      ultimaVerificacaoCatalogo = Date.now();
+      try {
+        if (precisaAtualizarCatalogo(db)) {
+          sincronizarCatalogo(db).then((r) => console.log('[catalogo]', JSON.stringify(r))).catch((e) => console.error('[catalogo]', e.message));
+        }
+      } catch (e) { console.error('[catalogo]', e.message); }
     }
     try {
       recalcularStatusTemporais(db);
