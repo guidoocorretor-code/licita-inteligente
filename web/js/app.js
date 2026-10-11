@@ -2,6 +2,7 @@ import { api, clienteSelecionado, selecionarCliente } from './api.js';
 import { h, toast } from './ui.js';
 import * as P from './paginas.js';
 import * as E from './empresas.js';
+import * as F from './fornecedores.js';
 
 export const estado = { usuario: null, empresa: null, meta: null, clientes: [] };
 
@@ -19,7 +20,7 @@ const MENU = [
   ['Gestão'],
   ['calendario', 'Calendário'],
   ['documentos', 'Vencimentos'],
-  ['fornecedores', 'Fornecedores', 3],
+  ['fornecedores', 'Fornecedores'],
   ['precos', 'Preços e contratos'],
   ['propostas', 'Propostas', 4],
   ['lances', 'Gestão de lances', 5],
@@ -36,7 +37,7 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacao: F.cotacao, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {

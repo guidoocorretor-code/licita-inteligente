@@ -86,7 +86,14 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 - PNCP não informa a data/hora da sessão de disputa separadamente: o campo fica "Não informado" (não é estimado).
 - Segmento é estimado por palavras-chave (sinalizado na interface).
 - Alertas por e-mail implementados (Fase 3), ativos quando `SMTP_URL` está configurado. WhatsApp não implementado (depende de provedor oficial).
-- Módulos das Fases 3 a 6 aparecem no menu marcados com a fase e não exibem dados simulados.
+- Módulos das Fases 4 a 6 ainda não construídos aparecem no menu marcados com a fase e não exibem dados simulados.
+
+## Fase 3: fornecedores e cotações
+- **Fornecedores** (`server/services/fornecedores.js`, tabela `fornecedores`): cadastro por conta, com `cliente_id` (0 = vale para todas as empresas assessoradas), CNPJ opcional e validado, produtos/marcas separados por ";", prazo, pedido mínimo, pagamento e frete (CIF/FOB). Excluir só sem cotações; com cotações, desativar.
+- **Cotações** (tabela `cotacoes`, por oportunidade do Kanban + número do item + fornecedor): preço unitário digitado pelo usuário, marca, prazo, validade e frete. Vale a cotação escolhida ou, sem escolha, a mais barata.
+- **Cálculo**: margem bruta = (estimado − custo) ÷ estimado; preço mínimo = custo ÷ (1 − impostos − margem), com impostos e margem por oportunidade (`cot_impostos_pct`, `cot_margem_pct`). Item sem valor estimado (ou sigiloso) fica "sem referência", nunca comparado com zero.
+- **Pedido de cotação**: texto montado com os itens marcados, para o usuário copiar ou abrir no WhatsApp (wa.me) ou e-mail (mailto). O sistema não envia nada sozinho.
+- Fornecedor sugerido por item quando todas as palavras de uma expressão de "produtos" aparecem na descrição do item.
 
 ## Fase 4 (parte 1): preços e contratos
 - **Contratos** (`server/connectors/pncpContratos.js`, `server/services/contratos.js`): fonte `pncp_contratos`, PNCP `/v1/contratos` dia a dia por data de publicação (todo o Brasil; o endpoint não filtra UF). Carga inicial dos últimos 30 dias; cada dia concluído avança o cursor. Liga o contrato à licitação por `numeroControlePncpCompra`.

@@ -24,6 +24,8 @@ import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
+import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, cotacoesDaOportunidade,
+  registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros } from '../services/fornecedores.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -468,6 +470,50 @@ r.get('/clientes/:id/documentos/:doc/arquivo', (req, res) => {
   res.sendFile(abs, (e) => { if (e && !res.headersSent) erro(res, 404, 'Arquivo não encontrado.'); });
 });
 r.get('/vencimentos', (req, res) => res.json({ documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: req.clienteId, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO }));
+
+// ---------------- Fornecedores e cotações (Fase 3) ----------------
+const falha = (res, e) => erro(res, e.status || 500, e.status ? e.message : 'Erro interno.');
+r.get('/fornecedores', (req, res) => res.json({
+  fornecedores: listarFornecedores(db(), req.usuario.empresa_id, { clienteId: req.clienteId, q: req.query.q, ativos: req.query.ativos === '1' }), fretes: FRETES }));
+r.post('/fornecedores', exigirPapel('analista'), (req, res) => {
+  try { const id = criarFornecedor(db(), req.usuario.empresa_id, req.body || {}); auditar(req, 'fornecedor_criar', 'fornecedor', id); res.status(201).json({ id }); }
+  catch (e) { falha(res, e); }
+});
+r.patch('/fornecedores/:id', exigirPapel('analista'), (req, res) => {
+  try {
+    if (!atualizarFornecedor(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Fornecedor não encontrado.');
+    auditar(req, 'fornecedor_editar', 'fornecedor', req.params.id); res.json({ ok: true });
+  } catch (e) { falha(res, e); }
+});
+r.delete('/fornecedores/:id', exigirPapel('gestor'), (req, res) => {
+  try {
+    if (!excluirFornecedor(db(), req.usuario.empresa_id, inteiro(req.params.id))) return erro(res, 404, 'Fornecedor não encontrado.');
+    auditar(req, 'fornecedor_excluir', 'fornecedor', req.params.id); res.json({ ok: true });
+  } catch (e) { falha(res, e); }
+});
+r.get('/kanban/:id/cotacoes', (req, res) => {
+  try { res.json(cotacoesDaOportunidade(db(), req.usuario.empresa_id, inteiro(req.params.id))); } catch (e) { falha(res, e); }
+});
+r.post('/kanban/:id/cotacoes', exigirPapel('analista'), (req, res) => {
+  try {
+    const id = inteiro(req.params.id);
+    const out = registrarCotacoes(db(), req.usuario.empresa_id, id, req.usuario.id, req.body || {});
+    const f = db().prepare('SELECT COALESCE(nome_fantasia, razao_social) n FROM fornecedores WHERE id=?').get(Number(req.body.fornecedor_id));
+    db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'cotacao',?)")
+      .run(id, req.usuario.id, `${f.n}: ${out.gravados} item(ns) cotado(s)${out.removidos ? `, ${out.removidos} removido(s)` : ''}`);
+    res.json(out);
+  } catch (e) { falha(res, e); }
+});
+r.post('/kanban/:id/cotacoes/:cid/escolher', exigirPapel('analista'), (req, res) => {
+  try { escolherCotacao(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.cid)); res.json({ ok: true }); } catch (e) { falha(res, e); }
+});
+r.delete('/kanban/:id/cotacoes/:cid', exigirPapel('analista'), (req, res) => {
+  try { if (!excluirCotacao(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.cid))) return erro(res, 404, 'Cotação não encontrada.'); res.json({ ok: true }); }
+  catch (e) { falha(res, e); }
+});
+r.patch('/kanban/:id/cotacoes/parametros', exigirPapel('analista'), (req, res) => {
+  try { salvarParametros(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {}); res.json({ ok: true }); } catch (e) { falha(res, e); }
+});
 
 // ---------------- Preferências de alerta e e-mail (Fase 3) ----------------
 r.get('/preferencias', (req, res) => {
