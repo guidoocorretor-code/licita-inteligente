@@ -98,3 +98,9 @@ Na cotação da oportunidade, clique em **📝 Montar proposta** (ou menu Gestã
 - Preencha marca/modelo, validade, prazo de entrega, condições e marque as declarações que o edital pede.
 - **Imprimir / PDF** gera a proposta em A4: dados da empresa, órgão, nº da dispensa/pregão, UASG, tabela de itens, valor global por extenso, dados bancários, declarações e assinatura. O que faltar no cadastro da empresa aparece em vermelho como "não informado". Complete em Cadastro > Empresa (endereço, CEP, CPF do responsável, banco/agência/conta).
 - Status: Rascunho → Pronta → Enviada → (ou Cancelada). **"Registrar envio no portal" só registra que você enviou**; o sistema não envia proposta nem dá lances sozinho.
+
+## Análise de mercado (antes "Preços e contratos")
+- Busque o item pelo nome do dia a dia. Para "papel A4", o sistema sugere primeiro o PDM 19746 "Papel para impressão formatado" (★ mais usado), onde a maioria das compras de A4 é registrada; o PDM 127 "Papel A4" tem poucas compras.
+- **Panorama do mercado**: marcas mais vendidas (rosca e ranking das 10), quem compra (esfera), volume por mês (ou por estado, quando a busca é no Brasil inteiro), últimas marcas entregues e **melhores preços por fornecedor** (mediana de cada vencedor, sem os fora da curva).
+- **"Com o meu menor preço, em que posição eu ficaria?"**: digite o seu preço mínimo de venda e veja a posição estimada entre os preços já pagos e quais fornecedores costumam vender abaixo dele. É estimativa com compras já fechadas, não previsão da disputa.
+- Cobertura: compras registradas no Compras.gov.br (federais e entes que usam o sistema). Quando há mais de 3.000 preços no período, vêm os mais recentes.

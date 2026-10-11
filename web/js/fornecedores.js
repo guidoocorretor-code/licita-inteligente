@@ -666,6 +666,9 @@ export async function cotacao(alvo, rota, est) {
     total('Itens acima do estimado', String(r.acima), 'O preço mínimo passa do valor unitário estimado: risco de desclassificação ou prejuízo'));
 
   const aguardando = d.pedidos.filter((p) => p.status === 'aguardando');
+  // Valor do item no edital: o total informado pela fonte; se faltar, quantidade × unitário
+  const totalEdital = (i) => (i.valor_total_estimado != null ? i.valor_total_estimado
+    : i.valor_unitario_estimado != null && i.quantidade != null ? Math.round(i.valor_unitario_estimado * i.quantidade * 100) / 100 : null);
   const linhaItem = (i) => {
     // só os que ainda não cotaram este item
     const esperando = aguardando.filter((p) => p.itens.includes(i.numero_item) && !i.cotacoes.some((c) => c.fornecedor_id === p.fornecedor_id));
@@ -685,6 +688,7 @@ export async function cotacao(alvo, rota, est) {
       h('td', { class: 'desc' }, i.descricao || '—', detalhes),
       h('td', { class: 'num' }, i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || ''}` : naoInformado()),
       h('td', { class: 'num' }, i.orcamento_sigiloso ? 'Sigiloso' : brl(i.valor_unitario_estimado)),
+      h('td', { class: 'num', title: 'Valor total estimado do item no edital (quantidade × valor unitário)' }, i.orcamento_sigiloso ? 'Sigiloso' : totalEdital(i) == null ? naoInformado() : moeda(totalEdital(i))),
       h('td', { class: 'num' }, i.custo_unitario == null ? '—' : brl(i.custo_unitario), i.usada_id ? h('div', { class: 'suave pequeno' }, i.cotacoes.find((c) => c.id === i.usada_id)?.fornecedor_nome) : null,
         i.frete_unitario ? h('div', { class: 'suave pequeno' }, `${brl(i.preco_fornecedor)} + ${brl(i.frete_unitario)} frete`) : null),
       h('td', {}, textoFreteItem(i)),
@@ -768,7 +772,7 @@ export async function cotacao(alvo, rota, est) {
     semItens ? null : blocoRecebimentos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-cotacao' },
-        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', 'Frete', 'Margem líquida no estimado', 'Preço mínimo de venda (unit.)', 'Preço mínimo de venda (total)', 'Situação'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Valor do edital (unit.)', 'Valor do edital (total do item)', 'Custo (unit.)', 'Frete', 'Margem líquida no estimado', 'Preço mínimo de venda (unit.)', 'Preço mínimo de venda (total)', 'Situação'].map((t) => h('th', {}, t)))),
         h('tbody', {}, d.itens.map(linhaItem))))),
     semItens ? null : h('div', { style: { marginTop: '14px' } }, parametros),
     semItens || !d.fornecedores.some((f) => f.combina.length) ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Fornecedores que combinam com os itens'),

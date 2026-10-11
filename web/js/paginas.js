@@ -987,10 +987,10 @@ const IN_65 = 'https://www.gov.br/compras/pt-br/acesso-a-informacao/legislacao/i
 export async function precos(alvo, rota, est) {
   const aba = (rota.args[0] || '').split('?')[0] === 'contratos' ? 'contratos' : 'precos';
   const abas = h('div', { class: 'abas', role: 'tablist' },
-    h('a', { class: aba === 'precos' ? 'ativo' : '', role: 'tab', href: '#/precos' }, 'Pesquisa de preços'),
+    h('a', { class: aba === 'precos' ? 'ativo' : '', role: 'tab', href: '#/precos' }, 'Panorama e preços'),
     h('a', { class: aba === 'contratos' ? 'ativo' : '', role: 'tab', href: '#/precos/contratos' }, 'Contratos assinados'));
   const corpo = h('div', {}, carregando());
-  render(alvo, cabecalho('Preços e contratos', aba === 'precos'
+  render(alvo, cabecalho('Análise de mercado', aba === 'precos'
     ? 'Quanto o governo já pagou por um item, com dados oficiais do Compras.gov.br.'
     : 'Quem ganhou, por quanto e até quando: contratos publicados no PNCP.'), abas, corpo);
   if (aba === 'contratos') return contratosAba(corpo, rota, est);
@@ -1045,7 +1045,8 @@ async function precosAba(alvo, rota, est) {
       h('p', { class: 'suave pequeno' }, 'Material aparece pelo PDM (o "tipo" do produto, que reúne as variações). Serviço aparece pelo código CATSER.'),
       h('div', { class: 'lista-cat' }, lista.map((c) => h('button', { class: 'item-cat', onclick: () => ir({ tipo: c.tipo === 'servico' ? 'servico' : 'material_pdm', codigo: c.codigo, item: '', unidade: '' }) },
         h('span', { class: `etiqueta ${c.tipo === 'servico' ? 'azul' : 'verde'}` }, c.tipo === 'servico' ? 'Serviço' : 'Material'),
-        h('strong', {}, c.nome), h('span', { class: 'suave pequeno' }, `${c.classe || ''} · código ${c.codigo}`)))),
+        h('strong', {}, c.nome), c.sugerido ? h('span', { class: 'etiqueta azul pequena', title: c.sugerido }, '★ mais usado nas compras') : null,
+        h('span', { class: 'suave pequeno' }, `${c.classe || ''} · código ${c.codigo}${c.sugerido ? ` · ${c.sugerido}` : ''}`)))),
       direto));
   } catch (e) { render(resultado, erroBox(e)); }
 }
@@ -1117,7 +1118,7 @@ async function mostrarPrecos(alvo, q, ir) {
           h('a', { class: 'btn', href: `/api/precos/exportar${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade, filtro: q.filtro })}` }, '⬇ CSV'),
           h('a', { class: 'btn', href: `#/precos/contratos${qs({ q: titulo.split(/[,(]/)[0].trim().toLowerCase() })}` }, 'Contratos parecidos'))),
       h('div', { class: 'suave pequeno' }, `Fonte: Compras.gov.br, Dados Abertos (Pesquisa de Preços). Consultado em ${dataUtc(d.consultado_em)}${d.cache ? ' (guardado por 24h)' : ''}.`),
-      d.truncado ? h('div', { class: 'aviso amarelo', style: { marginTop: '8px' } }, `A fonte tem ${numero(d.total_fonte)} preços nesse período; trouxemos ${numero(d.baixados)}. Escolha um estado ou um período menor para ver tudo.`) : null,
+      d.truncado ? h('div', { class: 'aviso amarelo', style: { marginTop: '8px' } }, `A fonte tem ${numero(d.total_fonte)} preços nesse período; trouxemos os ${numero(d.baixados)} mais recentes. Escolha um estado ou um período menor para ver tudo.`) : null,
       h('div', { class: 'filtros', style: { marginTop: '10px' } }, filtroEspec, filtroItem, filtroUnid),
       q.filtro ? h('div', { class: 'suave pequeno', style: { marginTop: '6px' } }, `Mostrando só as compras cuja descrição tem: "${q.filtro}". `,
         h('a', { href: `#/precos${qs({ ...q, filtro: '' })}` }, 'Limpar filtro')) : null),
@@ -1137,12 +1138,77 @@ async function mostrarPrecos(alvo, q, ir) {
         : 'Nenhum preço muito fora do padrão. ',
       'Antes de usar na sua proposta, confira se a descrição e a unidade batem com o edital. Nada é descartado automaticamente (',
       h('a', { href: IN_65, target: '_blank', rel: 'noopener noreferrer' }, 'IN 65/2021, art. 6º, §§ 3º e 4º'), ').') : null,
+    e.n && d.panorama ? blocoPanorama(d.panorama, d.unidade, { uf: d.consulta.uf }) : null,
     e.n ? h('div', { class: 'cartao', style: { marginTop: '14px' } },
       h('div', { class: 'cabecalho-pagina', style: { marginBottom: '8px' } }, h('h2', { style: { margin: 0 } }, `Preços (${numero(d.registros.length)})`),
         h('div', { class: 'linha' }, h('label', { for: 'p-ordem', class: 'suave pequeno' }, 'Ordenar'),
           h('select', { id: 'p-ordem', onchange: (ev) => { ordem = ev.target.value; mostrar = 50; desenharTabela(); } },
             h('option', { value: 'data' }, 'Mais recentes'), h('option', { value: 'menor' }, 'Menor preço'), h('option', { value: 'maior' }, 'Maior preço')))),
       tabela) : null);
+}
+
+// ---------- Panorama do mercado (Análise de mercado) ----------
+function blocoPanorama(p, unidade, { uf } = {}) {
+  const un = unidade ? ` (${unidade})` : '';
+  const cartao = (titulo, sub, ...corpo) => h('div', { class: 'cartao' }, h('h3', { style: { margin: '0 0 4px' } }, titulo), sub ? h('div', { class: 'suave pequeno', style: { marginBottom: '8px' } }, sub) : null, ...corpo);
+  const marcasQtd = p.marcas_top.map((m) => ({ rotulo: m.nome, n: m.quantidade || m.compras }));
+  const mesNome = (m) => { const [a, mm] = m.split('-'); return `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(mm) - 1]}/${a.slice(2)}`; };
+
+  // Simulador: com o meu menor preço aceitável, em que posição eu ficaria entre os preços já pagos?
+  const resultadoSim = h('div', { class: 'pequeno', style: { marginTop: '8px' } });
+  const simular = (v) => {
+    const x = Number(String(v).replace(/\./g, '').replace(',', '.'));
+    if (!(x > 0) || !p.precos.length) { render(resultadoSim, h('span', { class: 'suave' }, 'Digite o seu menor preço unitário aceitável (o preço mínimo de venda da cotação).')); return; }
+    const abaixo = p.precos.filter((y) => y < x).length;
+    const pctAbaixo = Math.round((abaixo / p.precos.length) * 100);
+    const concorrentes = p.fornecedores.filter((f) => f.mediana != null && f.mediana < x);
+    render(resultadoSim,
+      h('div', {}, h('strong', {}, `Posição estimada: ${abaixo + 1}º de ${p.precos.length + 1}`), ` · ${pctAbaixo}% das compras foram fechadas por menos que ${brl(x)}.`),
+      h('div', { class: pctAbaixo <= 25 ? 'texto-sucesso' : pctAbaixo <= 60 ? '' : 'texto-perigo', style: { marginTop: '4px' } },
+        pctAbaixo <= 25 ? 'Seu preço é competitivo: está entre os mais baixos já pagos.'
+          : pctAbaixo <= 60 ? 'Seu preço está na faixa do meio: dá para disputar, mas há concorrentes que costumam vender mais barato.'
+            : 'Seu preço está acima da maioria dos preços já pagos: a chance de vencer é baixa.'),
+      concorrentes.length ? h('div', { style: { marginTop: '4px' } }, `Fornecedores que costumam vender abaixo disso (mediana): `,
+        concorrentes.slice(0, 5).map((f) => `${f.nome} (${brl(f.mediana)})`).join(' · '), concorrentes.length > 5 ? ` e mais ${concorrentes.length - 5}.` : '.') : null,
+      h('div', { class: 'suave', style: { marginTop: '4px' } }, 'Estimativa com preços de compras já fechadas (sem os fora da curva). A disputa real depende de quem participar.'));
+  };
+  const campoSim = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'ex.: 23,90', style: { maxWidth: '160px' }, oninput: (ev) => simular(ev.target.value) });
+  simular('');
+
+  const tabelaForn = h('div', { class: 'tabela-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, ['#', 'Fornecedor', 'Vendas', 'Menor preço', 'Mediana', 'Último preço', 'Marcas'].map((t) => h('th', {}, t)))),
+    h('tbody', {}, p.fornecedores.map((f, k) => h('tr', {},
+      h('td', {}, `${k + 1}º`), h('td', {}, f.nome, f.ni ? h('div', { class: 'suave pequeno' }, f.ni.length === 14 ? f.ni.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : 'CPF') : null),
+      h('td', { class: 'num' }, numero(f.compras)), h('td', { class: 'num' }, moedaUnit(f.menor)), h('td', { class: 'num' }, h('strong', {}, moedaUnit(f.mediana))),
+      h('td', { class: 'num' }, moedaUnit(f.ultimo_preco), f.ultima_data ? h('div', { class: 'suave pequeno' }, data(f.ultima_data, false)) : null),
+      h('td', { class: 'pequeno' }, f.marcas.join(', ') || '—'))))));
+
+  const tabelaUltimas = h('div', { class: 'tabela-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, ['Data', 'Marca', 'Fornecedor', 'Órgão', 'Preço unit.'].map((t) => h('th', {}, t)))),
+    h('tbody', {}, p.ultimas_marcas.map((m) => h('tr', {},
+      h('td', {}, data(m.data, false) || '—'), h('td', {}, h('strong', {}, m.marca)), h('td', { class: 'pequeno' }, m.fornecedor || '—'),
+      h('td', { class: 'pequeno' }, m.orgao || '—', m.local ? h('div', { class: 'suave' }, m.local) : null), h('td', { class: 'num' }, moedaUnit(m.preco), m.fora_da_curva ? h('div', {}, h('span', { class: 'etiqueta vermelha', title: 'Fora da faixa usual: provável erro de lançamento na fonte (ex.: valor total como unitário).' }, 'fora da curva')) : null))))));
+
+  return h('div', { class: 'panorama-mercado', style: { marginTop: '14px' } },
+    h('h2', {}, `Panorama do mercado${un}`),
+    h('div', { class: 'suave pequeno', style: { marginBottom: '10px' } },
+      `${numero(p.compras)} compra(s) · ${numero(p.quantidade)} unidade(s) compradas · ${moeda(p.valor_total)} movimentados · ${numero(p.marcas_total)} marca(s) · ${numero(p.fornecedores_total)} fornecedor(es) vencedor(es)`,
+      p.sem_marca ? ` · ${numero(p.sem_marca)} compra(s) sem marca identificável (ex.: "conforme edital")` : ''),
+    h('div', { class: 'grade duas' },
+      cartao('Marcas mais vendidas (participação)', `Pela quantidade comprada${un}.`, rosca(marcasQtd, { max: 6 })),
+      cartao('Ranking das 10 marcas', 'Quantidade comprada por marca.', barras(marcasQtd, { max: 10 }))),
+    h('div', { class: 'grade duas', style: { marginTop: '14px' } },
+      cartao('Quem compra (esfera)', 'Número de compras por esfera de governo.', rosca(p.por_esfera.map((x) => ({ rotulo: x.nome, n: x.compras })), { max: 4 })),
+      uf ? cartao('Volume por mês', 'Número de compras por mês no período.', barras(p.por_mes.map((x) => ({ rotulo: mesNome(x.mes), n: x.compras })), { max: 12 }))
+        : cartao('Estados que mais compram', 'Número de compras por estado.', barras(p.por_uf.map((x) => ({ rotulo: x.nome, n: x.compras })), { max: 10 }))),
+    h('div', { class: 'cartao', style: { marginTop: '14px' } },
+      h('h3', { style: { margin: '0 0 4px' } }, 'Com o meu menor preço, em que posição eu ficaria?'),
+      h('div', { class: 'linha' }, h('label', { class: 'pequeno' }, 'Meu menor preço aceitável (unit.) R$'), campoSim), resultadoSim),
+    h('div', { class: 'cartao', style: { marginTop: '14px' } },
+      h('h3', { style: { margin: '0 0 4px' } }, 'Melhores preços por fornecedor'),
+      h('div', { class: 'suave pequeno', style: { marginBottom: '8px' } }, 'Do mais barato para o mais caro, pela mediana dos preços com que cada fornecedor venceu. Preços fora da curva ficam de fora.'),
+      tabelaForn),
+    p.ultimas_marcas.length ? h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h3', { style: { margin: '0 0 8px' } }, 'Últimas marcas entregues'), tabelaUltimas) : null);
 }
 
 async function contratosAba(alvo, rota, est) {

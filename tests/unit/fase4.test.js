@@ -233,3 +233,45 @@ test('filtro por especificação e aviso de média distorcida (valor total lanç
   assert.ok(tudo.registros.find((r) => r.preco_unitario === 89750000).fora_da_curva);
   assert.equal(estatisticas([10, 11, 12, 13]).media_distorcida, false);
 });
+
+test('Análise de mercado: sinônimo do A4, marcas e panorama', async () => {
+  const { buscarCatalogo, panoramaMercado, marcaNormal } = await import('../../server/services/precos.js');
+  assert.equal(marcaNormal('Conforme edital'), null);
+  assert.equal(marcaNormal('papeis a3, a4, recic'), null);
+  assert.equal(marcaNormal(' chamex '), 'CHAMEX');
+  const regs = [
+    { preco_unitario: 20, quantidade: 10, marca: 'Chamex', fornecedor_ni: '1', fornecedor_nome: 'A', data_compra: '2026-01-10', esfera: 'F', uf: 'ES' },
+    { preco_unitario: 22, quantidade: 30, marca: 'Report', fornecedor_ni: '2', fornecedor_nome: 'B', data_compra: '2026-02-10', esfera: 'E', uf: 'ES' },
+    { preco_unitario: 21, quantidade: 5, marca: 'CHAMEX', fornecedor_ni: '1', fornecedor_nome: 'A', data_compra: '2026-03-10', esfera: 'F', uf: 'ES' },
+    { preco_unitario: 23, quantidade: 5, marca: 'conforme edital', fornecedor_ni: '3', fornecedor_nome: 'C', data_compra: '2026-03-11', esfera: 'M', uf: 'ES' },
+  ];
+  const p = panoramaMercado(regs);
+  assert.equal(p.compras, 4); assert.equal(p.quantidade, 50); assert.equal(p.sem_marca, 1);
+  assert.equal(p.marcas_top[0].nome, 'REPORT');                       // 30 unidades
+  assert.equal(p.marcas_top[1].quantidade, 15);                        // CHAMEX somado sem diferenciar maiúsculas
+  assert.equal(p.fornecedores[0].nome, 'A');                           // menor mediana primeiro
+  assert.equal(p.ultimas_marcas[0].marca, 'CHAMEX');                   // "conforme edital" fica de fora
+  assert.deepEqual(p.precos, [20, 21, 22, 23]);
+
+  // "papel A4": o PDM 19746 (onde a maioria das compras é registrada) vem primeiro, marcado como sugerido
+  const db = bancoMemoria();
+  const ins = db.prepare('INSERT INTO catalogo_compras (tipo, codigo, nome, classe) VALUES (?,?,?,?)');
+  ins.run('material', 127, 'PAPEL A4', 'ARTIGOS PARA ESCRITÓRIO'); ins.run('material', 19746, 'PAPEL PARA IMPRESSÃO FORMATADO', 'PAPEL');
+  const r = buscarCatalogo(db, 'papel A4');
+  assert.equal(r[0].codigo, 19746); assert.ok(r[0].sugerido);
+  assert.ok(r.some((x) => x.codigo === 127));
+});
+
+test('preços: com muitas páginas, baixa as mais novas (a fonte vem da mais antiga para a mais nova)', async () => {
+  _reiniciarLimitador();
+  const { baixarPrecos } = await import('../../server/connectors/comprasgov.js');
+  const fetchImpl = fetchFalso((url) => {
+    const pag = Number(new URL(url).searchParams.get('pagina'));
+    return { status: 200, body: { resultado: [{ idCompra: `P${pag}` }], totalRegistros: 10, totalPaginas: 10, paginasRestantes: 10 - pag } };
+  });
+  const r = await baixarPrecos({ tipo: 'material_pdm', codigo: 1 }, { maxPaginas: 3, fetchImpl });
+  assert.equal(r.truncado, true);
+  assert.deepEqual(r.registros.map((x) => x.idCompra), ['P8', 'P9', 'P10']);
+  const r2 = await baixarPrecos({ tipo: 'material_pdm', codigo: 1 }, { maxPaginas: 20, fetchImpl });
+  assert.equal(r2.registros.length, 10); assert.equal(r2.truncado, false);
+});

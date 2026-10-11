@@ -72,15 +72,31 @@ export function urlPrecos({ tipo, codigo, uf, desde, ate, pagina = 1, tamanhoPag
   return `${BASE_COMPRAS}/modulo-pesquisa-preco/1_consultarMaterial?${qs({ tipo: t, codigo, ...comum })}`;
 }
 
-export async function* paginarPrecos(params, { maxPaginas = 4, fetchImpl } = {}) {
-  for (let pagina = 1; pagina <= maxPaginas; pagina++) {
-    const url = urlPrecos({ ...params, pagina });
-    const { vazio, dados } = await getJson(url, { fetchImpl });
-    const lista = dados?.resultado;
-    if (vazio || !Array.isArray(lista) || lista.length === 0) return;
-    yield { pagina, registros: lista, totalRegistros: dados.totalRegistros, paginasRestantes: dados.paginasRestantes ?? 0 };
-    if (!dados.paginasRestantes) return;
+/**
+ * Baixa os preços mais recentes. A fonte devolve do mais antigo para o mais novo; quando há mais páginas do que
+ * o limite, busca as ÚLTIMAS páginas (compras mais novas) e descarta as antigas. Páginas em paralelo (3 por vez).
+ */
+export async function baixarPrecos(params, { maxPaginas = 6, concorrencia = 3, fetchImpl } = {}) {
+  const pag = async (pagina) => {
+    const { vazio, dados } = await getJson(urlPrecos({ ...params, pagina }), { fetchImpl });
+    return vazio || !Array.isArray(dados?.resultado) ? { lista: [], dados } : { lista: dados.resultado, dados };
+  };
+  const primeira = await pag(1);
+  if (!primeira.lista.length) return { registros: [], totalRegistros: primeira.dados?.totalRegistros ?? 0, truncado: false };
+  const totalPaginas = primeira.dados.totalPaginas || (1 + (primeira.dados.paginasRestantes || 0));
+  const truncado = totalPaginas > maxPaginas;
+  const paginas = truncado
+    ? Array.from({ length: maxPaginas }, (_, k) => totalPaginas - k).reverse()   // as mais novas
+    : Array.from({ length: totalPaginas - 1 }, (_, k) => k + 2);
+  const resultados = new Map();
+  if (!truncado) resultados.set(1, primeira.lista);
+  for (let k = 0; k < paginas.length; k += concorrencia) {
+    const lote = paginas.slice(k, k + concorrencia);
+    const r = await Promise.all(lote.map((p) => pag(p)));
+    lote.forEach((p, j) => resultados.set(p, r[j].lista));
   }
+  const registros = [...resultados.keys()].sort((a, b) => a - b).flatMap((p) => resultados.get(p));
+  return { registros, totalRegistros: primeira.dados.totalRegistros ?? registros.length, truncado };
 }
 
 // Catálogo: PDM de materiais (módulo 01, item 3) e itens de serviço (módulo 02, item 6)

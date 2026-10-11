@@ -2,12 +2,12 @@
 // Referências: Lei 14.133/2021, art. 23, §1º, II (contratações similares da Administração no último ano)
 // e IN SEGES/ME 65/2021, art. 5º e 6º (média, mediana ou menor valor, desconsiderando preços
 // inexequíveis, inconsistentes ou excessivamente elevados — a análise crítica é sempre humana).
-import { paginarPrecos, paginarCatalogo } from '../connectors/comprasgov.js';
+import { baixarPrecos, paginarCatalogo } from '../connectors/comprasgov.js';
 import { normalizarPrecoCompras } from './normalizacao.js';
 import { radical } from './busca.js';
 
 const CACHE_HORAS = 24;
-const MAX_PAGINAS = 4; // até 2.000 registros por consulta (500 por página)
+const MAX_PAGINAS = 6; // até 3.000 registros por consulta (500 por página), sempre os mais recentes
 let catalogoEmAndamento = false;
 
 // ---------- Catálogo ----------
@@ -48,15 +48,38 @@ export function precisaAtualizarCatalogo(db) {
   return !s.n || !s.mais_antigo || Date.parse(s.mais_antigo.replace(' ', 'T') + 'Z') < Date.now() - 30 * 86400000;
 }
 
+// Nomes do dia a dia que no catálogo oficial ficam em outro PDM. Ex.: quase toda compra de papel A4 é registrada no
+// PDM 19746 "PAPEL PARA IMPRESSÃO FORMATADO"; o PDM 127 "PAPEL A4" tem poucas compras (conferido em 11/10/2026:
+// 204 compras no ES no PDM 19746 e nenhuma no PDM 127 no último ano).
+const SINONIMOS = [
+  { quando: /\ba4\b|sulfite|papel (oficio|carta)|resma/, buscar: 'papel impressao formatado', motivo: 'É onde a maioria das compras de papel A4/sulfite é registrada' },
+  { quando: /notebook|laptop/, buscar: 'microcomputador portatil', motivo: 'Nome oficial de notebook no catálogo' },
+  { quando: /\bdesktop\b|computador de mesa/, buscar: 'microcomputador', motivo: 'Nome oficial de computador no catálogo' },
+  { quando: /\bnobreak\b|no-break/, buscar: 'no break', motivo: 'Nome oficial no catálogo' },
+];
+const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function ftsCatalogo(db, texto, { limite, ou = false }) {
+  const termos = texto.split(/\s+/).filter(Boolean).map((x) => `"${radical(x)}"*`);
+  if (!termos.length) return [];
+  return db.prepare(`SELECT c.tipo, c.codigo, c.nome, c.classe FROM catalogo_fts f JOIN catalogo_compras c ON c.rowid=f.rowid
+    WHERE catalogo_fts MATCH ? ORDER BY bm25(catalogo_fts, 5, 1), length(c.nome) LIMIT ?`).all(termos.join(ou ? ' OR ' : ' '), limite);
+}
+
 export function buscarCatalogo(db, q, { limite = 30 } = {}) {
   const t = String(q || '').trim();
   if (!t) return [];
   if (/^\d+$/.test(t)) {
     return db.prepare('SELECT tipo, codigo, nome, classe FROM catalogo_compras WHERE codigo=? ORDER BY tipo').all(Number(t));
   }
-  const termos = t.split(/\s+/).map((x) => `"${radical(x)}"*`).join(' ');
-  return db.prepare(`SELECT c.tipo, c.codigo, c.nome, c.classe FROM catalogo_fts f JOIN catalogo_compras c ON c.rowid=f.rowid
-    WHERE catalogo_fts MATCH ? ORDER BY bm25(catalogo_fts, 5, 1), length(c.nome) LIMIT ?`).all(termos, limite);
+  const vistos = new Set(); const saida = [];
+  const juntar = (lista, extra = {}) => lista.forEach((r) => { const k = `${r.tipo}:${r.codigo}`; if (!vistos.has(k)) { vistos.add(k); saida.push({ ...r, ...extra }); } });
+  const base = semAcento(t);
+  for (const s of SINONIMOS) if (s.quando.test(base)) juntar(ftsCatalogo(db, s.buscar, { limite: 3 }), { sugerido: s.motivo });
+  juntar(ftsCatalogo(db, t, { limite }));
+  // Nenhum PDM com TODAS as palavras: tenta com qualquer uma (ex.: "caneta esferográfica azul")
+  if (saida.length < 3) juntar(ftsCatalogo(db, t, { limite, ou: true }));
+  return saida.slice(0, limite);
 }
 
 // ---------- Estatística ----------
@@ -113,12 +136,9 @@ export async function consultarPrecos(db, consulta, { fetchImpl, agora = new Dat
   if (cache && !forcar) {
     return { registros: JSON.parse(cache.registros_json), total_fonte: cache.total_fonte, truncado: !!cache.truncado, consultado_em: cache.consultado_em, cache: true, desde, ate };
   }
-  const registros = []; let total = null; let truncado = false;
-  for await (const p of paginarPrecos({ tipo, codigo, uf, desde, ate }, { maxPaginas: MAX_PAGINAS, fetchImpl })) {
-    total = p.totalRegistros ?? total;
-    registros.push(...p.registros.map(normalizarPrecoCompras));
-    truncado = p.pagina === MAX_PAGINAS && p.paginasRestantes > 0;
-  }
+  const baixado = await baixarPrecos({ tipo, codigo, uf, desde, ate }, { maxPaginas: MAX_PAGINAS, fetchImpl });
+  const registros = baixado.registros.map(normalizarPrecoCompras);
+  const total = baixado.totalRegistros; const { truncado } = baixado;
   registros.sort((a, b) => String(b.data_compra || '').localeCompare(String(a.data_compra || '')));
   db.prepare(`INSERT INTO precos_consultas (chave, registros_json, total_fonte, truncado, consultado_em) VALUES (?,?,?,?,datetime('now'))
     ON CONFLICT(chave) DO UPDATE SET registros_json=excluded.registros_json, total_fonte=excluded.total_fonte, truncado=excluded.truncado, consultado_em=excluded.consultado_em`)
@@ -172,5 +192,55 @@ export function analisarPrecos(registros, { item, unidade, filtro } = {}) {
     unidade: unidadeSel,
     estatisticas: est,
     registros: lista.map((r) => ({ ...r, fora_da_curva: foraDaCurva(r.preco_unitario, est) })),
+    panorama: panoramaMercado(lista),
+  };
+}
+
+// Marcas que não identificam produto ("conforme edital", "própria", "-")
+const MARCA_VAZIA = /^(-+|\.+|n\/?a|nao (se )?aplica|nao informad[ao]|sem marca|conforme (o )?(edital|termo|tr|especificacao)|generic[oa]|propria|diversas|varias|\d+)$/;
+export function marcaNormal(m) {
+  const t = semAcento(m).replace(/\s+/g, ' ').trim();
+  if (!t || MARCA_VAZIA.test(t) || t.length > 40 || /[,;]/.test(t)) return null; // lista de marcas não identifica o produto
+  return t.toUpperCase();
+}
+
+/**
+ * Panorama do mercado do item (mesma unidade de fornecimento): marcas mais vendidas, últimas marcas entregues,
+ * fornecedores com seus melhores preços, compras por esfera/UF/mês. Preços fora da curva não entram nos
+ * menores preços por fornecedor, para não premiar erro de digitação da fonte.
+ */
+export function panoramaMercado(lista) {
+  const est = estatisticas(lista.map((r) => r.preco_unitario));
+  const validos = lista.filter((r) => r.preco_unitario > 0 && !foraDaCurva(r.preco_unitario, est));
+  const somaQtd = (rs) => rs.reduce((t, r) => t + (Number(r.quantidade) || 0), 0);
+  const agrupar = (rs, chave) => { const m = new Map(); for (const r of rs) { const k = chave(r); if (k == null) continue; if (!m.has(k)) m.set(k, []); m.get(k).push(r); } return m; };
+  const resumo = (k, rs) => {
+    const e = estatisticas(rs.map((r) => r.preco_unitario));
+    const ultimo = [...rs].sort((a, b) => String(b.data_compra).localeCompare(String(a.data_compra)))[0];
+    return { nome: k, compras: rs.length, quantidade: somaQtd(rs), menor: e.menor ?? null, mediana: e.mediana ?? null, ultima_data: ultimo?.data_compra || null, ultimo_preco: ultimo?.preco_unitario ?? null };
+  };
+  const marcas = [...agrupar(lista, (r) => marcaNormal(r.marca))].map(([k, rs]) => resumo(k, rs)).sort((a, b) => b.quantidade - a.quantidade || b.compras - a.compras);
+  const fornecedores = [...agrupar(validos, (r) => r.fornecedor_ni || r.fornecedor_nome)].map(([, rs]) => ({
+    ...resumo(rs[0].fornecedor_nome || 'Fornecedor não informado', rs), ni: rs[0].fornecedor_ni || null,
+    marcas: [...new Set(rs.map((r) => marcaNormal(r.marca)).filter(Boolean))].slice(0, 3),
+  })).sort((a, b) => a.mediana - b.mediana);
+  const ESF = { F: 'Federal', E: 'Estadual', M: 'Municipal', D: 'Distrital' };
+  const contar = (m) => [...m].map(([k, rs]) => ({ nome: k, compras: rs.length, quantidade: somaQtd(rs) })).sort((a, b) => b.compras - a.compras);
+  return {
+    compras: lista.length,
+    quantidade: somaQtd(lista),
+    valor_total: Math.round(lista.reduce((t, r) => t + (Number(r.quantidade) || 0) * (Number(r.preco_unitario) || 0), 0) * 100) / 100,
+    sem_marca: lista.filter((r) => !marcaNormal(r.marca)).length,
+    marcas_top: marcas.slice(0, 10),
+    marcas_total: marcas.length,
+    ultimas_marcas: [...lista].filter((r) => marcaNormal(r.marca)).sort((a, b) => String(b.data_compra).localeCompare(String(a.data_compra))).slice(0, 10)
+      .map((r) => ({ data: r.data_compra, fora_da_curva: foraDaCurva(r.preco_unitario, est), marca: marcaNormal(r.marca), fornecedor: r.fornecedor_nome, orgao: r.orgao_nome || r.uasg_nome, local: [r.municipio, r.uf].filter(Boolean).join('/'), preco: r.preco_unitario, quantidade: r.quantidade })),
+    fornecedores: fornecedores.slice(0, 15),
+    fornecedores_total: fornecedores.length,
+    por_esfera: contar(agrupar(lista, (r) => ESF[r.esfera] || 'Não informada')),
+    por_uf: contar(agrupar(lista, (r) => r.uf || null)).slice(0, 10),
+    por_mes: [...agrupar(lista, (r) => (r.data_compra ? r.data_compra.slice(0, 7) : null))].map(([k, rs]) => ({ mes: k, compras: rs.length, quantidade: somaQtd(rs) })).sort((a, b) => a.mes.localeCompare(b.mes)),
+    // Preços vencedores (sem os fora da curva), para o simulador "com este preço, em que posição eu ficaria?"
+    precos: validos.map((r) => r.preco_unitario).sort((a, b) => a - b),
   };
 }
