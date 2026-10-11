@@ -38,6 +38,7 @@ async function carregar() {
   const pagamento = el('input', { value: ant.condicoes_pagamento || '', placeholder: 'ex.: boleto 30/60, Pix à vista' });
   const obs = el('textarea', { rows: 3, placeholder: 'Opcional' }, ant.observacoes || '');
   const nome = el('input', { value: ant.respondente || '', placeholder: 'quem está respondendo', autocomplete: 'name' });
+  const email = el('input', { type: 'email', value: d.email || '', placeholder: 'seu@email.com.br', autocomplete: 'email' });
   const msg = el('div', {});
   const botao = el('button', { type: 'submit' }, d.respondido_em ? 'Atualizar resposta' : 'Enviar cotação');
   const form = el('form', { onsubmit: async (ev) => {
@@ -45,14 +46,18 @@ async function carregar() {
     const itens = linhas.filter((l) => l.preco.value.trim()).map((l) => ({ numero_item: l.i.numero_item, preco_unitario: lerNum(l.preco.value), marca_modelo: l.marca.value.trim() }));
     if (!itens.length) { msg.replaceChildren(el('div', { class: 'aviso erro' }, 'Informe o preço de pelo menos um item.')); return; }
     if (!nome.value.trim()) { msg.replaceChildren(el('div', { class: 'aviso erro' }, 'Informe o seu nome.')); nome.focus(); return; }
+    if (email.value.trim() && !email.checkValidity()) { msg.replaceChildren(el('div', { class: 'aviso erro' }, 'Confira o e-mail ou deixe em branco.')); email.focus(); return; }
     botao.disabled = true; msg.replaceChildren(el('div', { class: 'aviso info' }, 'Enviando…'));
     try {
       const r = await fetch(`/publico/cotacao/${encodeURIComponent(token)}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'licita' },
-        body: JSON.stringify({ itens, prazo_entrega_dias: prazo.value, validade: validade.value, frete: frete.value, condicoes_pagamento: pagamento.value, observacoes: obs.value, respondente: nome.value }) });
+        body: JSON.stringify({ itens, prazo_entrega_dias: prazo.value, validade: validade.value, frete: frete.value, condicoes_pagamento: pagamento.value, observacoes: obs.value, respondente: nome.value, email: email.value.trim() }) });
       const x = await r.json();
       if (!r.ok) throw new Error(x.erro || 'Não foi possível enviar.');
       conteudo.replaceChildren(el('div', { class: 'aviso ok' }, el('strong', {}, 'Cotação enviada. Obrigado!'), el('br'),
-        `${x.gravados} item(ns) recebido(s) por ${d.solicitante}. Para corrigir, abra o mesmo link de novo.`));
+        `${x.gravados} item(ns) recebido(s) por ${d.solicitante}. Para corrigir, abra o mesmo link de novo.`, el('br'),
+        x.comprovante === 'enviando' ? `O comprovante em PDF está sendo enviado para ${x.email}. Confira também a caixa de spam.`
+          : x.comprovante === 'indisponivel' ? 'Não foi possível enviar o comprovante por e-mail agora; quem pediu a cotação já recebeu a sua resposta.'
+            : 'Sem e-mail informado: nenhum comprovante foi enviado.'));
       window.scrollTo(0, 0);
     } catch (e) { msg.replaceChildren(el('div', { class: 'aviso erro' }, e.message)); botao.disabled = false; }
   } },
@@ -64,7 +69,9 @@ async function carregar() {
       el('div', {}, el('label', {}, 'Frete'), frete),
       el('div', {}, el('label', {}, 'Condições de pagamento'), pagamento)),
     el('div', { style: 'margin-top:10px' }, el('label', {}, 'Observações'), obs),
-    el('div', { style: 'margin-top:10px' }, el('label', {}, 'Seu nome *'), nome)),
+    el('div', { class: 'grade', style: 'margin-top:10px' },
+      el('div', {}, el('label', {}, 'Seu nome *'), nome),
+      el('div', {}, el('label', {}, 'E-mail para receber o comprovante (PDF)'), email))),
   msg, botao);
   conteudo.replaceChildren(...[
     d.respondido_em ? el('div', { class: 'aviso info' }, 'Você já respondeu esta cotação. Pode corrigir e enviar de novo.') : null,

@@ -8,8 +8,9 @@ export const estado = { usuario: null, empresa: null, meta: null, clientes: [] }
 
 // Menu completo. Módulos ainda não implementados aparecem com a fase prevista e NÃO simulam funcionamento.
 const MENU = [
-  ['Principal'],
+  ['Cadastro'],
   ['empresas', 'Empresa'],
+  ['Oportunidades'],
   ['dashboard', 'Dashboard'],
   ['buscar', 'Buscar licitações'],
   ['jornal', 'Jornal de licitações'],
@@ -70,7 +71,7 @@ function montarLayout() {
   const lateral = h('nav', { class: 'lateral', 'aria-label': 'Menu principal' },
     h('div', { class: 'marca' }, h('img', { src: '/icons/icon.svg', alt: '' }), estado.meta?.appName || 'Licita Inteligente'),
     h('div', { class: 'menu' }, MENU.map(([id, rot, fase, sub]) => {
-      if (!rot) return h('div', { class: 'secao' }, id);
+      if (!rot) return h('div', { class: 'secao', role: 'heading', 'aria-level': '2' }, id);
       return h('a', { href: `#/${id}`, 'data-rota': id, class: [fase ? 'futuro' : '', sub ? 'sub' : ''].filter(Boolean).join(' ') }, rot, fase ? h('span', { class: 'fase', title: `Previsto para a Fase ${fase}` }, `Fase ${fase}`) : null);
     })));
   const busca = h('input', { type: 'search', placeholder: 'Busca rápida no objeto, órgão ou município…', 'aria-label': 'Busca global' });

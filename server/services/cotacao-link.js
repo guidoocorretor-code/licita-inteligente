@@ -31,6 +31,21 @@ export function migrarCotacaoLinks(conn) {
   const cols = conn.prepare('PRAGMA table_info(cotacoes)').all().map((c) => c.name);
   if (!cols.includes('origem')) conn.exec('ALTER TABLE cotacoes ADD COLUMN origem TEXT'); // NULL = digitada pela equipe; 'fornecedor' = pelo link
   for (const c of ['condicoes_pagamento', 'respondente']) if (!cols.includes(c)) conn.exec(`ALTER TABLE cotacoes ADD COLUMN ${c} TEXT`);
+  // Cada envio pelo link fica registrado (data/hora, quem respondeu, o que mandou) e gera o comprovante em PDF
+  conn.exec(`CREATE TABLE IF NOT EXISTS cotacao_recebimentos (
+    id INTEGER PRIMARY KEY,
+    link_id INTEGER REFERENCES cotacao_links(id) ON DELETE SET NULL,
+    oportunidade_id INTEGER NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+    fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id) ON DELETE CASCADE,
+    recebido_em TEXT NOT NULL DEFAULT (datetime('now')),
+    respondente TEXT,
+    email TEXT,                               -- para onde vai o comprovante
+    dados TEXT NOT NULL,                      -- JSON: itens (com descrição já sem dados da licitação), condições
+    comprovante_status TEXT NOT NULL DEFAULT 'pendente', -- pendente | enviado | erro | sem_email | sem_smtp
+    comprovante_em TEXT,
+    comprovante_erro TEXT
+  )`);
+  conn.exec('CREATE INDEX IF NOT EXISTS ix_cotrec_op ON cotacao_recebimentos(oportunidade_id, recebido_em)');
 }
 
 // Fim do prazo: encerramento das propostas (horário de Brasília) ou 30 dias, em UTC no formato do SQLite
@@ -92,7 +107,7 @@ export function cotacaoPublica(db, token) {
       COALESCE(cl.razao_social, cl.nome_fantasia) cliente, cl.cnpj cliente_cnpj, e.nome conta
     FROM oportunidades o JOIN licitacoes l ON l.id = o.licitacao_id LEFT JOIN clientes cl ON cl.id = o.cliente_id JOIN empresas e ON e.id = o.empresa_id
     WHERE o.id=?`).get(l.oportunidade_id);
-  const forn = db.prepare('SELECT COALESCE(nome_fantasia, razao_social) nome, frete FROM fornecedores WHERE id=?').get(l.fornecedor_id);
+  const forn = db.prepare('SELECT COALESCE(nome_fantasia, razao_social) nome, frete, email FROM fornecedores WHERE id=?').get(l.fornecedor_id);
   const numeros = JSON.parse(l.itens);
   const itens = db.prepare(`SELECT numero_item, descricao, quantidade, unidade_medida FROM licitacao_itens WHERE licitacao_id=? AND numero_item IN (${numeros.map(() => '?').join(',')}) ORDER BY numero_item`)
     .all(op.licitacao_id, ...numeros);
@@ -101,6 +116,8 @@ export function cotacaoPublica(db, token) {
   const fr = db.prepare('SELECT tipo FROM cotacao_fretes WHERE oportunidade_id=? AND fornecedor_id=?').get(l.oportunidade_id, l.fornecedor_id);
   return {
     solicitante: op.cliente || op.conta, solicitante_cnpj: op.cliente_cnpj || null, fornecedor: forn.nome,
+    // E-mail do comprovante: o último informado pelo fornecedor neste link, senão o do cadastro dele
+    email: db.prepare('SELECT email FROM cotacao_recebimentos WHERE link_id=? AND email IS NOT NULL ORDER BY id DESC LIMIT 1').get(l.id)?.email || forn.email || '',
     // Nada da licitação (órgão, número, cidade, objeto, datas) vai para o fornecedor: só os itens
     respondido_em: l.respondido_em,
     // A descrição vem do edital e pode citar órgão/cidade/convênio: esses trechos saem antes de chegar ao fornecedor
@@ -122,6 +139,8 @@ export function responderCotacao(db, token, b) {
   if (!itens.length) throw erro(400, 'Informe o preço de pelo menos um item.');
   const respondente = texto(b.respondente, 120);
   if (!respondente) throw erro(400, 'Informe o seu nome.');
+  const email = texto(b.email, 160);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw erro(400, 'E-mail inválido. Confira ou deixe em branco.');
   if (b.frete && !['CIF', 'FOB'].includes(b.frete)) throw erro(400, 'Frete inválido.');
   const r = registrarCotacoes(db, op.empresa_id, op.id, null, {
     fornecedor_id: l.fornecedor_id, prazo_entrega_dias: b.prazo_entrega_dias, validade: b.validade || null,
@@ -129,6 +148,18 @@ export function responderCotacao(db, token, b) {
     itens: itens.map((i) => ({ numero_item: Number(i.numero_item), preco_unitario: i.preco_unitario, marca_modelo: i.marca_modelo })),
   }, { origem: 'fornecedor', condicoes_pagamento: texto(b.condicoes_pagamento, 300), respondente });
   db.prepare("UPDATE cotacao_links SET respondido_em=datetime('now') WHERE id=?").run(l.id);
+  // Fotografia do que chegou (para o comprovante e o histórico): descrição já sem os trechos da licitação
+  const pub = cotacaoPublica(db, token);
+  const enviados = new Map(itens.map((i) => [Number(i.numero_item), i]));
+  const dados = {
+    solicitante: pub.solicitante, solicitante_cnpj: pub.solicitante_cnpj, fornecedor: pub.fornecedor,
+    itens: pub.itens.filter((i) => enviados.has(i.numero_item)).map((i) => ({ numero_item: i.numero_item, descricao: i.descricao, quantidade: i.quantidade,
+      unidade_medida: i.unidade_medida, preco_unitario: i.resposta?.preco_unitario ?? null, marca_modelo: i.resposta?.marca_modelo || null })),
+    prazo_entrega_dias: b.prazo_entrega_dias === '' || b.prazo_entrega_dias == null ? null : Number(b.prazo_entrega_dias),
+    validade: b.validade || null, frete: b.frete || null, condicoes_pagamento: texto(b.condicoes_pagamento, 300), observacoes: texto(b.observacoes, 500),
+  };
+  const rec = Number(db.prepare('INSERT INTO cotacao_recebimentos (link_id, oportunidade_id, fornecedor_id, respondente, email, dados, comprovante_status) VALUES (?,?,?,?,?,?,?)')
+    .run(l.id, op.id, l.fornecedor_id, respondente, email, JSON.stringify(dados), email ? 'pendente' : 'sem_email').lastInsertRowid);
   const forn = db.prepare('SELECT COALESCE(nome_fantasia, razao_social) nome FROM fornecedores WHERE id=?').get(l.fornecedor_id);
   const msg = `${forn.nome} respondeu a cotação pelo link (${r.gravados} item(ns), por ${respondente}).`;
   db.prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,NULL,'cotacao',?)").run(op.id, msg);
@@ -136,5 +167,5 @@ export function responderCotacao(db, token, b) {
   const avisar = new Set([l.criado_por, db.prepare('SELECT responsavel_id FROM oportunidades WHERE id=?').get(op.id)?.responsavel_id].filter(Boolean));
   const ins = db.prepare("INSERT INTO notificacoes (empresa_id, usuario_id, tipo, titulo, mensagem, licitacao_id) VALUES (?,?,'cotacao','Cotação recebida',?,?)");
   for (const u of avisar) ins.run(op.empresa_id, u, msg, op.licitacao_id);
-  return { gravados: r.gravados };
+  return { gravados: r.gravados, recebimento_id: rec, email };
 }

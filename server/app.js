@@ -6,6 +6,8 @@ import { exigirCabecalhoAjax } from './lib/auth.js';
 import { getDb } from './db/index.js';
 import { usuarioDoToken, eventosCalendario, gerarIcs } from './services/calendario.js';
 import { cotacaoPublica, responderCotacao } from './services/cotacao-link.js';
+import { enviarComprovante } from './services/comprovante-cotacao.js';
+import { emailConfigurado } from './services/email.js';
 
 // Limite simples por IP para as páginas públicas (sem login): evita robô testando links ou enchendo a cotação
 const acessos = new Map();
@@ -50,7 +52,17 @@ export function criarApp() {
   };
   app.get('/publico/cotacao/:token', publico, limitar(120, 10 * 60000), (req, res) => responderPublico(() => cotacaoPublica(getDb(), req.params.token))(req, res));
   app.post('/publico/cotacao/:token', publico, limitar(20, 10 * 60000), express.json({ limit: '200kb' }), exigirCabecalhoAjax,
-    (req, res) => responderPublico(() => responderCotacao(getDb(), req.params.token, req.body || {}))(req, res));
+    (req, res) => responderPublico(() => {
+      const db = getDb();
+      const r = responderCotacao(db, req.params.token, req.body || {});
+      // Comprovante em PDF por e-mail ao fornecedor, depois da resposta (falha no e-mail não desfaz a cotação)
+      let comprovante = r.email ? (emailConfigurado() ? 'enviando' : 'indisponivel') : 'sem_email';
+      if (r.email) {
+        const quem = db.prepare('SELECT u.email FROM cotacao_recebimentos c JOIN cotacao_links l ON l.id = c.link_id JOIN usuarios u ON u.id = l.criado_por WHERE c.id=?').get(r.recebimento_id);
+        enviarComprovante(db, r.recebimento_id, { responderPara: quem?.email || null }).catch((e) => console.error('[comprovante]', e.message));
+      }
+      return { gravados: r.gravados, comprovante, email: r.email || null };
+    })(req, res));
   const jsonPadrao = express.json({ limit: '1mb' });
   app.use('/api', (req, res, next) => (req.path === '/fontes/importar-json' ? next() : jsonPadrao(req, res, next)), exigirCabecalhoAjax, api);
   // Código da tela (HTML/JS/CSS) é sempre revalidado pelo ETag, para uma publicação nova aparecer no

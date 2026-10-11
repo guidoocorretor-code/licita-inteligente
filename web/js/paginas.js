@@ -3,7 +3,7 @@ import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
   confirmar, modal, barras, rosca, moedaCurta, naoInformado, render,
 } from './ui.js';
-import { painelEmpresas, abasDashboard } from './painel.js';
+import { painelEmpresas, painelFornecedores, abasDashboard } from './painel.js';
 
 const ehAdmin = (e) => ['admin', 'superadmin'].includes(e.usuario.papel);
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
@@ -26,6 +26,7 @@ function cabecalho(titulo, subtitulo, ...acoes) {
 // ============================ DASHBOARD ============================
 export async function dashboard(alvo, rota, est) {
   if (rota?.args?.[0] === 'empresas') return painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa });
+  if (rota?.args?.[0] === 'fornecedores') return painelFornecedores(alvo, rota, est, { cabecalho, avisoEmpresa });
   render(alvo, carregando());
   const d = await api('/dashboard');
   const kpi = (rot, val, link, dica, apoio) => h('div', { class: 'cartao kpi', title: dica || '' },

@@ -2,10 +2,11 @@
 // Os números vêm do Kanban (etapa de cada oportunidade) e dos valores informados no card;
 // valor não informado é mostrado como pendência, nunca como zero.
 import { api, qs, clienteSelecionado, selecionarCliente } from './api.js';
-import { h, moeda, moedaCurta, numero, data, toast, carregando, erroBox, render, modal } from './ui.js';
+import { h, moeda, moedaCurta, numero, data, dataUtc, toast, carregando, erroBox, render, modal } from './ui.js';
+import { zap, mensagemCobranca, numeroLic } from './fornecedores.js';
 
 export const abasDashboard = (ativa) => h('div', { class: 'abas', role: 'tablist' },
-  [['oportunidades', 'Oportunidades', '#/dashboard'], ['empresas', 'Empresas', '#/dashboard/empresas']].map(([k, rot, href]) =>
+  [['oportunidades', 'Oportunidades', '#/dashboard'], ['empresas', 'Empresas', '#/dashboard/empresas'], ['fornecedores', 'Fornecedores', '#/dashboard/fornecedores']].map(([k, rot, href]) =>
     h('button', { class: ativa === k ? 'ativo' : '', role: 'tab', 'aria-selected': String(ativa === k), onclick: () => { location.hash = href; } }, rot)));
 
 const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
@@ -277,4 +278,85 @@ export async function painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa 
           h('li', {}, '"A receber há mais de 30 dias" conta a partir da data da nota fiscal; o prazo de pagamento de cada contrato pode ser diferente.'),
           h('li', {}, 'Licitações do ramo: abertas cujo objeto tem alguma das palavras do ramo, ou que têm um item cuja descrição começa por uma delas (ex.: "NOTEBOOK i5" conta; "DJ com equipamentos próprios (notebook)" não conta).'))),
     ] : null);
+}
+
+// ---------- Dashboard > Fornecedores ----------
+// Cores por situação do pedido: verde = respondido, âmbar = aguardando, cinza = sem retorno
+const COR_PED = { respondido: COR.ganho, aguardando: COR.receber, sem_retorno: COR.neutro };
+const ROT_PED = { respondido: 'Respondidos', aguardando: 'Aguardando', sem_retorno: 'Sem retorno' };
+const horas = (h2) => (h2 == null ? '—' : h2 < 1 ? 'menos de 1 h' : h2 < 24 ? `${String(h2).replace('.', ',')} h` : `${String(Math.round((h2 / 24) * 10) / 10).replace('.', ',')} dia(s)`);
+
+// Prazo das propostas em texto, com urgência (vermelho até 3 dias, âmbar até 7)
+function prazoProposta(dias, iso) {
+  if (dias == null) return h('span', { class: 'suave' }, 'prazo da proposta não informado');
+  const cls = dias < 0 ? 'texto-perigo' : dias <= 3 ? 'texto-perigo' : dias <= 7 ? 'texto-alerta' : 'suave';
+  const quando = dias < 0 ? 'propostas encerradas' : dias < 1 ? 'propostas encerram HOJE' : `propostas encerram em ${Math.ceil(dias)} dia(s)`;
+  return h('span', { class: cls }, `${dias >= 0 && dias <= 3 ? '⚠ ' : ''}${quando} (${data(iso)})`);
+}
+
+/** Barras empilhadas por fornecedor: respondidos, aguardando e sem retorno. */
+function barrasFornecedores(lista) {
+  if (!lista.length) return h('p', { class: 'suave pequeno' }, 'Nenhum pedido de cotação enviado ainda.');
+  const maior = Math.max(1, ...lista.map((f) => f.pedidos));
+  return h('div', {},
+    h('ul', { class: 'pe-legenda linha', style: { marginBottom: '10px' } }, Object.keys(COR_PED).map((k) => h('li', {}, h('span', { class: 'amostra', style: { background: COR_PED[k] } }), h('span', { class: 'nome' }, ROT_PED[k])))),
+    h('div', { class: 'pe-barras pf-barras' }, lista.map((f) => h('div', { class: 'pe-barra',
+      title: `${f.nome}: ${f.pedidos} pedido(s) · ${f.respondido} respondido(s) · ${f.aguardando} aguardando · ${f.sem_retorno} sem retorno · tempo médio de resposta ${horas(f.horas_resposta)} · ${f.itens_cotados} item(ns) cotado(s)` },
+    h('span', { class: 'rot' }, f.nome),
+    h('span', { class: 'trilho', style: { width: `${Math.max(6, (f.pedidos / maior) * 100)}%` } },
+      ['respondido', 'aguardando', 'sem_retorno'].filter((k) => f[k] > 0).map((k) => h('span', { class: 'preench', style: { width: `${(f[k] / f.pedidos) * 100}%`, background: COR_PED[k] } }))),
+    h('span', { class: 'val' }, `${f.pedidos} pedido(s)`),
+    h('span', { class: 'qtd', title: 'Tempo médio de resposta' }, horas(f.horas_resposta))))));
+}
+
+export async function painelFornecedores(alvo, rota, est, { cabecalho, avisoEmpresa }) {
+  render(alvo, cabecalho('Dashboard', 'Fornecedores: cotações pedidas, quem responde e o que está atrasado'), abasDashboard('fornecedores'), carregando());
+  let d;
+  try { d = await api('/painel/fornecedores'); } catch (e) { render(alvo, cabecalho('Dashboard'), abasDashboard('fornecedores'), erroBox(e)); return; }
+  const r = d.resumo;
+  const fornAguardando = new Set(d.aguardando.map((x) => x.fornecedor_id)).size;
+  const total = r.aguardando + r.respondido + r.sem_retorno;
+  const pedidoAguardando = (p) => {
+    const diasEspera = Math.max(0, Math.floor((Date.now() - new Date(`${String(p.enviado_em).replace(' ', 'T')}Z`)) / 86400000));
+    const w = zap(p.whatsapp || p.telefone, mensagemCobranca(p));
+    return h('li', { class: `pf-alerta${p.dias_proposta != null && p.dias_proposta <= 3 ? ' urgente' : ''}` },
+      h('div', {}, h('strong', {}, p.fornecedor_nome), h('span', { class: 'suave' }, ` · ${p.cliente_nome || 'sem empresa'}`)),
+      h('div', { class: 'pequeno' }, h('a', { href: `#/licitacao/${p.licitacao_id}` }, [numeroLic(p), p.orgao_nome].filter(Boolean).join(' · ') || 'Licitação')),
+      h('div', { class: 'pequeno' }, prazoProposta(p.dias_proposta, p.data_encerramento_proposta),
+        h('span', { class: diasEspera >= 3 ? 'texto-perigo' : 'suave' }, ` · itens ${p.itens.join(', ')} · ${diasEspera ? `há ${diasEspera} dia(s) sem resposta` : 'pedido hoje'}`),
+        p.link_revogado === 0 ? h('span', { class: 'suave' }, p.link_acesso ? ' · 🔗 abriu o link' : ' · 🔗 não abriu o link') : ''),
+      h('div', { class: 'linha', style: { marginTop: '6px' } },
+        w ? h('a', { class: 'btn pequeno', href: w, target: '_blank', rel: 'noopener noreferrer', title: 'Lembrete sem dados da licitação' }, '🟢 Cobrar no WhatsApp ↗')
+          : h('span', { class: 'suave pequeno' }, 'Sem WhatsApp cadastrado'),
+        h('a', { class: 'btn pequeno', href: `#/cotacao/${p.oportunidade_id}` }, '💲 Abrir cotação')));
+  };
+  render(alvo,
+    cabecalho('Dashboard', 'Fornecedores: cotações pedidas, quem responde e o que está atrasado'),
+    abasDashboard('fornecedores'),
+    avisoEmpresa(est, 'Números'),
+    h('div', { class: 'pf-painel' },
+    h('div', { class: 'pe-kpis' },
+      kpi('Aguardando retorno', numero(r.aguardando), `${fornAguardando} fornecedor(es)`, { classe: 'destaque', dica: 'Pedidos de cotação enviados e ainda sem resposta.' }),
+      kpi('Prazo apertado', numero(r.urgentes), 'aguardando com propostas em até 3 dias', { cor: COR.perdido, dica: 'Pedidos aguardando cujo prazo de envio da proposta no portal termina em até 3 dias (ou já terminou).' }),
+      kpi('Taxa de resposta', r.taxa_resposta == null ? '—' : pct(r.taxa_resposta), `${r.respondido} respondido(s) · ${r.sem_retorno} sem retorno`, { cor: COR.ganho, dica: 'Respondidos ÷ (respondidos + sem retorno). Pedidos ainda aguardando não entram.' }),
+      kpi('Tempo médio de resposta', horas(r.horas_resposta), 'do pedido até a resposta', { cor: COR.disputa, dica: 'Do envio do pedido até a resposta ser registrada (pela equipe ou pelo link).' }),
+      kpi('Fornecedores ativos', numero(r.fornecedores_ativos), h('a', { href: '#/fornecedores' }, 'ver cadastro'), { cor: COR.neutro })),
+    h('div', { class: 'pe-graficos' },
+      h('section', { class: 'pe-bloco' }, h('h3', {}, 'Situação dos pedidos'),
+        rosca(['respondido', 'aguardando', 'sem_retorno'].map((k) => ({ nome: ROT_PED[k], n: r[k], cor: COR_PED[k] })),
+          { centro: numero(total), sub: 'pedido(s)', vazio: 'Nenhum pedido de cotação enviado ainda.' })),
+      h('section', { class: 'pe-bloco' }, h('h3', {}, 'Pedidos por fornecedor'), h('div', { class: 'suave pequeno', style: { marginBottom: '6px' } }, 'À direita, o tempo médio de resposta.'), barrasFornecedores(d.por_fornecedor))),
+    h('section', { class: 'pe-bloco', style: { marginTop: '14px' } },
+      h('h3', {}, `Aguardando cotação (${d.aguardando.length})`, h('a', { class: 'pequeno', href: '#/cotacoes', style: { marginLeft: '10px', fontWeight: 400 } }, 'ver todas')),
+      h('div', { class: 'suave pequeno' }, 'Pelo prazo para enviar a proposta no portal: o mais apertado primeiro.'),
+      d.aguardando.length ? h('ul', { class: 'pf-alertas' }, d.aguardando.slice(0, 20).map(pedidoAguardando)) : h('p', { class: 'suave pequeno' }, 'Nenhum pedido aguardando retorno.')),
+    h('section', { class: 'pe-bloco', style: { marginTop: '14px' } },
+      h('h3', {}, `Prazo perto e itens sem cotação (${d.prazo_sem_cotacao.length})`),
+      h('div', { class: 'suave pequeno' }, 'Oportunidades com propostas encerrando nos próximos 7 dias que ainda têm itens sem nenhuma cotação.'),
+      d.prazo_sem_cotacao.length ? h('ul', { class: 'pf-alertas' }, d.prazo_sem_cotacao.map((o) => h('li', { class: `pf-alerta${o.dias_proposta <= 3 ? ' urgente' : ''}` },
+        h('div', {}, h('strong', {}, `${o.sem_cotacao} de ${o.itens} item(ns) sem cotação`), h('span', { class: 'suave' }, ` · ${o.cliente_nome || 'sem empresa'}`)),
+        h('div', { class: 'pequeno' }, h('a', { href: `#/licitacao/${o.licitacao_id}` }, [numeroLic(o), o.orgao_nome].filter(Boolean).join(' · ') || 'Licitação')),
+        h('div', { class: 'pequeno' }, prazoProposta(o.dias_proposta, o.data_encerramento_proposta)),
+        h('div', { class: 'linha', style: { marginTop: '6px' } }, h('a', { class: 'btn pequeno primario', href: `#/cotacao/${o.oportunidade_id}` }, '✉ Pedir cotação')))))
+        : h('p', { class: 'suave pequeno' }, 'Nenhuma oportunidade com prazo nos próximos 7 dias e item sem cotação.'))));
 }

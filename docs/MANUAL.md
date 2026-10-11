@@ -52,6 +52,7 @@ Clique no cartão para definir responsável, prazo interno e comentários. Todo 
 2. No Kanban, abra o card e clique em **💲 Cotações** (ou no botão de mesmo nome na licitação).
 3. **✉ Pedir cotação** monta a mensagem com a descrição completa de cada item, para copiar, abrir no WhatsApp ou **Enviar por e-mail** (abre o programa de e-mail padrão, como o Outlook, já com o e-mail do fornecedor). O sistema não envia nada sozinho: depois ele pergunta se você enviou e, se sim, a cotação mostra **Aguardando retorno do fornecedor** até você registrar a resposta ou marcar "Sem retorno".
    - **Trechos que entregam a licitação:** a descrição vem do edital e às vezes cita órgão, cidade, convênio, nº de processo ou CNPJ. O "Pedir cotação" mostra esses trechos num aviso amarelo e, no WhatsApp, eles vão em **negrito** para você achar e apagar. Marcando **Tirar esses trechos da mensagem**, eles saem do texto. Na página do link o fornecedor nunca vê esses trechos. A detecção é por padrões: revise a mensagem antes de enviar.
+   - **Comprovante para o fornecedor:** ao enviar pelo link, o fornecedor informa um e-mail (vem preenchido com o do cadastro) e recebe "Recebemos sua cotação" com o comprovante em PDF (protocolo, data e hora de Brasília, itens, preços e condições; sem dados da licitação). Precisa do e-mail do sistema configurado (SMTP_URL). Na cotação, o bloco **Recebidas pelo link** mostra a data e a hora de cada envio, quem respondeu, a situação do comprovante, o botão **📄 Comprovante** (PDF) e **Reenviar**.
    - **Menu Cotações** (abaixo de Fornecedores): todos os pedidos de todas as oportunidades, com abas Aguardando retorno, Sem retorno, Respondidos e Todos. Os que aguardam vêm primeiro, pelo prazo das propostas mais próximo, com dias sem resposta, se o fornecedor abriu o link e botões para abrir a cotação, cobrar no WhatsApp ou por e-mail (lembrete sem dados da licitação) e marcar "Sem retorno".
    - **🖨 Imprimir / PDF** gera o mapa de cotações (empresa, licitação, itens, fornecedor, prazo de entrega, comparativo e condições). Para PDF, escolha "Salvar como PDF" na impressão.
    - A **margem no estimado** já desconta os impostos informados, para comparar direto com a margem desejada.
@@ -75,3 +76,11 @@ E-mail e WhatsApp ainda dependem de configuração de provedor.
 ## 10. Avisos importantes
 - O sistema organiza informação pública; **não garante** habilitação, vitória ou conformidade jurídica.
 - Sempre confira o edital oficial antes de decidir.
+
+## Dashboard > Fornecedores
+
+Aba ao lado de "Empresas": pedidos aguardando retorno, prazo apertado (propostas em até 3 dias), taxa e tempo médio de resposta, gráfico da situação dos pedidos, barras por fornecedor (respondidos, aguardando, sem retorno), lista de cotações aguardando pelo prazo da proposta com **Cobrar no WhatsApp** (lembrete sem dados da licitação) e oportunidades com propostas nos próximos 7 dias que ainda têm itens sem cotação.
+
+## Menu
+
+Seções destacadas: **Cadastro** (Empresa), **Oportunidades** (Dashboard, buscas, Kanban, alertas), **Gestão**, **Inteligência** e **Administração**.

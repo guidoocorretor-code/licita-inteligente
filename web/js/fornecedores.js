@@ -10,7 +10,7 @@ const podeExcluir = (e) => ['gestor', 'admin', 'superadmin'].includes(e.usuario.
 const nomeF = (f) => f.nome_fantasia || f.razao_social;
 const soDigitos = (v) => String(v || '').replace(/\D/g, '');
 const fmtCnpj = (d) => (d && d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : d || '');
-const zap = (tel, texto) => {
+export const zap = (tel, texto) => {
   const n = soDigitos(tel).replace(/^55/, '');
   return n.length >= 10 ? `https://wa.me/55${n}${texto ? `?text=${encodeURIComponent(texto)}` : ''}` : null;
 };
@@ -202,7 +202,7 @@ const SITUACAO = {
 };
 
 const qtdTexto = (i) => (i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || 'un.'}` : 'a confirmar');
-const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
+export const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
 
 // Mensagem do pedido. Leva só a descrição dos itens: nada de órgão, número, cidade ou data da licitação,
 // para o fornecedor não descobrir a disputa e entrar nela como concorrente.
@@ -696,6 +696,27 @@ export async function cotacao(alvo, rota, est) {
   };
 
   const diasDesde = (iso) => Math.max(0, Math.floor((Date.now() - new Date(String(iso).replace(' ', 'T') + 'Z')) / 86400000));
+  // Respostas recebidas pelo link: data e hora de cada envio e o comprovante mandado ao fornecedor
+  const COMPROVANTE = { enviado: ['✓ comprovante enviado', 'verde'], pendente: ['enviando comprovante…', ''], erro: ['falha no envio do comprovante', 'vermelha'],
+    sem_email: ['sem e-mail: comprovante não enviado', ''], sem_smtp: ['e-mail do sistema não configurado', 'amarela'] };
+  const reenviar = async (r) => {
+    const email = prompt('Enviar o comprovante (PDF) para qual e-mail?', r.email || '');
+    if (email == null) return;
+    try { const x = await api(`/kanban/${id}/recebimentos/${r.id}/reenviar`, { metodo: 'POST', corpo: { email } });
+      toast(x.status === 'enviado' ? 'Comprovante enviado.' : x.status === 'sem_smtp' ? 'E-mail do sistema não configurado (SMTP_URL).' : `Não enviado: ${x.erro || x.status}`, 6000); recarregar(); }
+    catch (e) { toast(e.message, 5000); }
+  };
+  const blocoRecebimentos = !d.recebimentos?.length ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } },
+    h('h2', {}, `Recebidas pelo link (${d.recebimentos.length})`),
+    h('ul', { class: 'lista-pedidos' }, d.recebimentos.map((r) => {
+      const [rot, cor] = COMPROVANTE[r.comprovante_status] || [r.comprovante_status, ''];
+      return h('li', {},
+        h('strong', {}, dataUtc(r.recebido_em)), ' · ', h('strong', {}, r.fornecedor_nome), ` · ${r.itens} item(ns)`,
+        r.respondente ? h('span', { class: 'suave' }, ` · por ${r.respondente}`) : '', ' ',
+        h('span', { class: `etiqueta ${cor} pequena`, title: r.email ? `Para ${r.email}${r.comprovante_em ? ` em ${dataUtc(r.comprovante_em)}` : ''}` : '' }, rot), ' ',
+        h('a', { class: 'btn pequeno', href: `/api/kanban/${id}/recebimentos/${r.id}/pdf`, target: '_blank', rel: 'noopener' }, '📄 Comprovante'),
+        editar && r.comprovante_status !== 'enviado' ? [' ', h('button', { class: 'btn pequeno', onclick: () => reenviar(r) }, r.email ? 'Reenviar' : 'Enviar por e-mail')] : null);
+    })));
   const blocoPedidos = !d.pedidos.length ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } },
     h('h2', {}, `Aguardando retorno do fornecedor (${aguardando.length})`),
     aguardando.length ? h('ul', { class: 'lista-pedidos' }, aguardando.map((p) => {
@@ -743,6 +764,7 @@ export async function cotacao(alvo, rota, est) {
         `No preço mínimo de venda sobra a margem desejada (${pct(d.parametros.margem_pct)}); no valor estimado (o teto) sobra ${pct(margemGeral)}. Abaixo de ${moeda(r.preco_minimo_total)} a margem fica menor que a desejada.`) : null,
     !semItens && r.fretes_pendentes ? h('div', { class: 'aviso amarelo', style: { marginTop: '10px' } }, `${r.fretes_pendentes} item(ns) com frete FOB sem valor: o custo e o preço mínimo deles ainda não incluem o frete. Informe o valor em "Registrar resposta" do fornecedor.`) : null,
     semItens ? null : blocoPedidos,
+    semItens ? null : blocoRecebimentos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-cotacao' },
         h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', 'Frete', 'Margem líquida no estimado', 'Preço mínimo de venda (unit.)', 'Preço mínimo de venda (total)', 'Situação'].map((t) => h('th', {}, t)))),
@@ -761,6 +783,11 @@ export async function cotacao(alvo, rota, est) {
 }
 
 // ---------- Cotações em aberto (todas as oportunidades) ----------
+// Lembrete ao fornecedor: também sem nenhum dado da licitação
+export const mensagemCobranca = (p) => [`Olá${p.contato_nome ? `, ${p.contato_nome}` : ''}! Tudo bem?`, '',
+  `Passando para lembrar do pedido de cotação que enviamos em ${dataUtc(p.enviado_em).slice(0, 10)}${p.cliente_nome ? ` (${p.cliente_nome})` : ''}${p.link_revogado === 0 ? ', com o link para responder' : ''}.`,
+  'Consegue nos retornar? Se precisar de alguma informação, é só falar.', '', 'Obrigado!'].join('\n');
+
 const SITUACAO_PEDIDO = {
   aguardando: ['⏳ Aguardando retorno', 'amarela'], sem_retorno: ['Sem retorno', 'vermelha'], respondido: ['✓ Respondido', 'verde'],
 };
@@ -781,10 +808,7 @@ export async function cotacoes(alvo, rota, est) {
     const txt = `Propostas até ${data(p.data_encerramento_proposta)}`;
     return h('span', { class: falta < 0 ? 'texto-perigo' : falta <= 2 ? 'texto-perigo' : 'suave' }, falta < 0 ? `${txt} (encerrado)` : falta <= 2 ? `${txt} (faltam ${Math.max(0, Math.ceil(falta))} dia(s))` : txt);
   };
-  // Lembrete ao fornecedor: também sem nenhum dado da licitação
-  const cobranca = (p) => [`Olá${p.contato_nome ? `, ${p.contato_nome}` : ''}! Tudo bem?`, '',
-    `Passando para lembrar do pedido de cotação que enviamos em ${dataUtc(p.enviado_em).slice(0, 10)}${p.cliente_nome ? ` (${p.cliente_nome})` : ''}${p.link_revogado === 0 ? ', com o link para responder' : ''}.`,
-    'Consegue nos retornar? Se precisar de alguma informação, é só falar.', '', 'Obrigado!'].join('\n');
+  const cobranca = mensagemCobranca;
   const mudar = async (p, novo) => {
     try { await api(`/kanban/${p.oportunidade_id}/pedidos/${p.id}`, { metodo: 'PATCH', corpo: { status: novo } }); recarregar(); } catch (e) { toast(e.message, 5000); }
   };

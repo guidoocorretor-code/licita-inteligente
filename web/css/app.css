@@ -41,12 +41,17 @@ h3 { font-size: 1rem; margin: 0 0 8px; }
 .marca img { width: 30px; height: 30px; }
 .menu a { display: flex; justify-content: space-between; align-items: center; color: #dbe7f5; text-decoration: none; padding: 8px 12px; border-radius: 8px; margin: 1px 0; font-size: .93rem; }
 .menu a:hover { background: rgba(255,255,255,.08); color: #fff; }
-.menu a.ativo { background: rgba(255,255,255,.16); color: #fff; font-weight: 600; }
+.menu a.ativo { background: rgba(255,255,255,.16); color: #fff; font-weight: 600; box-shadow: inset 3px 0 0 var(--cor-destaque); }
 .menu a.futuro { opacity: .55; }
 .menu a.sub { padding-left: 26px; font-size: .88rem; justify-content: flex-start; }
 .menu a.sub::before { content: ''; width: 6px; height: 6px; border-left: 1px solid rgba(255,255,255,.4); border-bottom: 1px solid rgba(255,255,255,.4); margin-right: 8px; flex: none; }
 .menu .fase { font-size: .7rem; background: rgba(255,255,255,.15); border-radius: 99px; padding: 1px 7px; }
-.menu .secao { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #9db6d3; padding: 14px 12px 4px; }
+/* Título de cada seção do menu: faixa com linha em cima e embaixo e marca na cor de destaque */
+.menu .secao { display: flex; align-items: center; gap: 8px; margin: 16px -10px 6px; padding: 8px 22px;
+  font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; color: #fff;
+  background: rgba(255,255,255,.07); border-top: 1px solid rgba(255,255,255,.22); border-bottom: 1px solid rgba(255,255,255,.22); }
+.menu .secao::before { content: ''; width: 4px; height: 14px; border-radius: 2px; background: var(--cor-destaque); flex: none; }
+.menu .secao:first-child { margin-top: 4px; }
 .principal { min-width: 0; }
 .topo { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--superficie); border-bottom: 1px solid var(--borda); position: sticky; top: 0; z-index: 5; }
 .topo form { flex: 1; max-width: 560px; display: flex; }
@@ -473,3 +478,13 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 /* Página Cotações (pedidos de todas as oportunidades) */
 .lista-pedidos-cotacao { display: grid; gap: 12px; }
 .pedido-cotacao .objeto-curto { margin-top: 2px; }
+
+/* Dashboard > Fornecedores */
+.texto-alerta { color: var(--alerta); }
+.pf-barras .pe-barra { grid-template-columns: 150px minmax(0, 1fr) 82px 58px; }
+.pf-barras .trilho { background: transparent; }
+.pf-alertas { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.pf-alerta { border: 1px solid var(--borda); border-left: 4px solid var(--cor-destaque); border-radius: 8px; padding: 9px 12px; }
+.pf-alerta.urgente { border-left-color: var(--perigo); background: #fff6f4; }
+@media (max-width: 600px) { .pf-barras .pe-barra { grid-template-columns: 90px minmax(0, 1fr) 70px; } .pf-barras .pe-barra .qtd { display: none; } }
+.pf-painel { container-type: inline-size; }
