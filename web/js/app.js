@@ -1,5 +1,5 @@
 import { api, clienteSelecionado, selecionarCliente } from './api.js';
-import { h, toast } from './ui.js';
+import { h, toast, definirSistemas } from './ui.js';
 import * as P from './paginas.js';
 import * as E from './empresas.js';
 import * as F from './fornecedores.js';
@@ -148,7 +148,7 @@ async function iniciar() {
   try {
     const eu = await api('/auth/eu');
     estado.usuario = eu.usuario; estado.empresa = eu.empresa;
-    estado.meta = await api('/meta');
+    estado.meta = await api('/meta'); definirSistemas(estado.meta.sistemas);
   } catch { return telaLogin(); }
   await recarregarEmpresas();
   montarLayout();

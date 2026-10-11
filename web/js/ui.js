@@ -200,13 +200,32 @@ export function botaoCopiar(valor, rotulo) {
   } }, h('span', { class: 'valor-copiar' }, valor), h('span', { class: 'icone-copiar', 'aria-hidden': 'true' }, '📋'));
 }
 
-/** Faixa destacada "UASG 158426 📋 · Dispensa nº 00162/2026 📋" (o que se digita no sistema do governo). */
+// Catálogo de sistemas de disputa (vem de /api/meta; app.js chama definirSistemas ao carregar)
+let SISTEMAS_DISPUTA = {};
+export function definirSistemas(cat) { SISTEMAS_DISPUTA = cat || {}; }
+
+/** Onde é a disputa: link direto do processo (PNCP "linkSistemaOrigem") ou a página do sistema identificado. */
+export function destinoDisputa(l = {}) {
+  const s = l.sistema_eletronico && l.sistema_eletronico !== 'outro' ? SISTEMAS_DISPUTA[l.sistema_eletronico] : null;
+  const nome = s?.nome || l.plataforma_origem || null;
+  if (l.link_origem) return { url: l.link_origem, nome, direto: true };
+  if (s?.cadastro) return { url: s.cadastro, nome, direto: false };
+  return { url: null, nome, direto: false };
+}
+
+/** Faixa destacada "Dispensa nº 00162/2026 📋 · UASG 158426 📋 · Ir para o sistema da disputa ↗". */
 export function faixaGoverno(l, { compacta = false } = {}) {
   const id = identificacaoGoverno(l);
-  if (!id.uasg && !id.numero) return null;
-  const tipo = /dispensa/i.test(l.modalidade_nome || '') ? 'Dispensa' : /preg/i.test(l.modalidade_nome || '') ? 'Pregão' : 'Compra';
+  const dest = destinoDisputa(l);
+  if (!id.uasg && !id.numero && !dest.url) return null;
+  const tipo = /dispensa/i.test(l.modalidade_nome || '') ? 'Dispensa' : /preg/i.test(l.modalidade_nome || '') ? 'Pregão' : /concorr/i.test(l.modalidade_nome || '') ? 'Concorrência' : 'Compra';
+  const ondeNome = dest.nome ? ` (${dest.nome})` : '';
   return h('div', { class: `faixa-governo${compacta ? ' compacta' : ''}` },
-    id.uasg ? h('span', { class: 'par' }, h('span', { class: 'rot' }, 'UASG'), botaoCopiar(id.uasg, 'UASG'))
-      : compacta ? null : h('span', { class: 'par suave pequeno', title: 'UASG é o código da unidade no Compras.gov.br; este órgão usa outro sistema' }, 'Sem UASG (outro sistema)'),
-    id.numero ? h('span', { class: 'par' }, h('span', { class: 'rot' }, `${tipo} nº`), botaoCopiar(id.numero, `Nº da ${tipo.toLowerCase()}`)) : null);
+    id.numero ? h('span', { class: 'par' }, h('span', { class: 'rot' }, `${tipo} nº`), botaoCopiar(id.numero, `Nº da ${tipo.toLowerCase()}`)) : null,
+    h('span', { class: 'par' }, h('span', { class: 'rot' }, 'UASG'), id.uasg ? botaoCopiar(id.uasg, 'UASG')
+      : h('span', { class: 'sem-uasg', title: `UASG é o código da unidade compradora no Compras.gov.br. Esta licitação está em outro sistema${ondeNome}, que não usa UASG.` }, 'não se aplica')),
+    dest.url ? h('a', { class: 'btn pequeno ir-sistema', href: dest.url, target: '_blank', rel: 'noopener noreferrer',
+      title: dest.direto ? `Abre o processo no sistema de origem${ondeNome}` : `Abre a página do ${dest.nome}; lá procure pelo número${id.uasg ? ' e UASG' : ''}` },
+      dest.direto ? 'Ir para o sistema da disputa ↗' : `Ir para ${dest.nome} ↗`)
+      : h('span', { class: 'sem-uasg', title: 'O PNCP informou só quem publicou, sem o link da disputa. O edital diz em qual plataforma será.' }, `Sistema da disputa: confira no edital${ondeNome ? ` · publicado por ${dest.nome}` : ''}`));
 }
