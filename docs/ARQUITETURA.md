@@ -108,3 +108,10 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 - **Contratos** (`server/connectors/pncpContratos.js`, `server/services/contratos.js`): fonte `pncp_contratos`, PNCP `/v1/contratos` dia a dia por data de publicação (todo o Brasil; o endpoint não filtra UF). Carga inicial dos últimos 30 dias; cada dia concluído avança o cursor. Liga o contrato à licitação por `numeroControlePncpCompra`.
 - **Pesquisa de preços** (`server/services/precos.js`): consulta sob demanda ao Compras.gov.br (módulo 03), por PDM/CATMAT ou CATSER, no período escolhido (padrão 12 meses, Lei 14.133 art. 23 §1º II / IN SEGES/ME 65/2021 art. 5º II). Cache de 24h em `precos_consultas`. Estatística por unidade de fornecimento; "fora da curva" pelo critério de Tukey só marca, nunca descarta.
 - **Catálogo** (`catalogo_compras` + FTS): PDM de materiais e itens de serviço, baixado pelo agendador se vazio ou com mais de 30 dias.
+
+## Fase 4 (parte 2): propostas de preços
+- `server/services/propostas.js`: tabelas `propostas` (1 por oportunidade) e `proposta_itens` (marca, modelo, preço, incluir); novas colunas em `clientes` (endereco, cep, resp_cpf, banco, agencia, conta).
+- Sugestão de preço = `centavoAcima(preco_minimo)` da cotação; margem = (preço×(1−impostos) − custo)/preço.
+- Rotas: `GET /api/propostas`, `GET|PUT /api/kanban/:id/proposta`, `PATCH /api/kanban/:id/proposta/status` (pronta/enviada exigem itens com preço; grava histórico).
+- Frontend: `web/js/propostas.js` (editor, lista, impressão A4) e `web/js/extenso.js` (valor por extenso).
+- O status "enviada" é registro manual do usuário. Nada é enviado a portais.

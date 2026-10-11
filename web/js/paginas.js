@@ -491,7 +491,7 @@ function camposExecucao(c, fase) {
   return { el, ler };
 }
 
-const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores', cotacao: 'Cotação' };
+const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores', cotacao: 'Cotação', proposta: 'Proposta' };
 
 // Ao mover o card para uma etapa de execução, pede os dados dessa etapa (só os que ainda estão vazios).
 // Valores sugeridos vêm do próprio card (ex.: valor da nota = valor do empenho) e só gravam se o usuário salvar.
@@ -662,7 +662,7 @@ export async function kanban(alvo, _r, est) {
     const prazo = h('input', { type: 'date', value: c.prazo_interno || '' });
     const execucao = camposExecucao(c, k.etapas.find((e) => e.id === c.etapa_id)?.fase);
     modal(c.objeto?.slice(0, 90) || 'Oportunidade', h('div', {},
-      h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · ', h('a', { href: `#/cotacao/${c.id}`, title: 'Cotações dos fornecedores, custo, margem e preço mínimo por item' }, '💲 Cotações'),
+      h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · ', h('a', { href: `#/cotacao/${c.id}`, title: 'Cotações dos fornecedores, custo, margem e preço mínimo por item' }, '💲 Cotações'), ' · ', h('a', { href: `#/proposta/${c.id}`, title: 'Proposta de preços montada a partir das cotações' }, '📝 Proposta'),
         ' · Situação oficial: ', etiquetaStatus(c.status_calculado, est.meta)),
       faixaGoverno(c),
       h('div', { class: 'campo' }, h('label', {}, 'Responsável'), resp),
