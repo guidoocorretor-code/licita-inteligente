@@ -308,30 +308,6 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .kpi .apoio { font-size: .78rem; color: var(--texto-suave); margin-top: 4px; }
 .kpi.kpi-alerta { border-left: 3px solid var(--perigo); }
 .kpi.kpi-alerta .apoio { color: var(--perigo); font-weight: 600; }
-.caminho { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; margin: 14px 0; }
-.caminho .passo { position: relative; background: var(--superficie); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px; min-width: 0; }
-.caminho .passo::after { content: '›'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%); color: var(--texto-suave); font-weight: 700; z-index: 1; }
-.caminho .passo:last-child::after { content: none; }
-.caminho .passo.zerado { opacity: .55; }
-.caminho .passo-rotulo { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--texto-suave); font-weight: 600; min-height: 2.4em; line-height: 1.2; }
-.caminho .passo-n { font-size: 1.25rem; font-weight: 700; margin-top: 2px; }
-.caminho .passo-valor { font-size: .8rem; color: var(--texto); overflow-wrap: anywhere; }
-.caminho .sem-valor { color: var(--alerta); font-weight: 600; }
-.caminho .passo-disputa { border-top: 3px solid var(--info); }
-.caminho .passo-ganha, .caminho .passo-empenho, .caminho .passo-a_entregar, .caminho .passo-entregue { border-top: 3px solid #7c3aed; }
-.caminho .passo-faturada { border-top: 3px solid var(--alerta); }
-.caminho .passo-recebida { border-top: 3px solid var(--ok); }
-.caminho.compacto .passo { padding: 6px 8px; }
-.caminho.compacto .passo-n { font-size: 1.05rem; }
-.painel-empresas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 16px; }
-.painel-empresa { container-type: inline-size; }
-.pe-corpo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px 20px; }
-@container (min-width: 1000px) { .pe-corpo { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); } .pe-lateral h3:first-child { margin-top: 10px; } }
-@container (max-width: 640px) { .pe-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .caminho { grid-template-columns: repeat(2, minmax(0, 1fr)); } .caminho .passo::after { content: none; } }
-.painel-empresa h2 { margin: 0; font-size: 1.15rem; }
-.painel-empresa h3 { font-size: .95rem; margin: 14px 0 6px; }
-.pe-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
-.painel-empresa .chips { margin: 10px 0 4px; flex-wrap: wrap; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; border-radius: 99px; padding: 4px 11px; font-size: .8rem; font-weight: 600; text-decoration: none; border: 1px solid transparent; font-family: inherit; cursor: pointer; }
 .chip.ok { background: var(--ok-fundo); color: var(--ok); }
 .chip.alerta { background: var(--alerta-fundo); color: var(--alerta); }
@@ -339,22 +315,7 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .chip.info { background: var(--info-fundo); color: var(--info); }
 .chip.neutro { background: var(--fundo); color: var(--texto-suave); border-color: var(--borda); }
 .chip:hover { text-decoration: underline; }
-.pe-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.pe-kpis .kpi { padding: 10px; box-shadow: none; }
-.pe-kpis .kpi .valor { font-size: 1.15rem; }
-.pe-kpis .kpi .rotulo { min-height: 0; font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; font-weight: 600; }
-.projecao { background: var(--fundo); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; font-size: .88rem; margin-top: 4px; }
-.projecao-total { border-top: 1px solid var(--borda); padding-top: 6px; margin-top: 2px; font-size: .95rem; }
-.proximos { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: .86rem; }
-.proximos li { display: flex; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border-radius: 6px; background: var(--fundo); }
-.proximos li.urgente { background: var(--perigo-fundo); }
-.proximos .quando { font-weight: 600; white-space: nowrap; min-width: 118px; }
-.painel-empresa .cnaes { margin-top: 12px; font-size: .85rem; }
-.painel-empresa .cnaes summary, .como-ler summary { cursor: pointer; font-weight: 600; }
-.painel-empresa .cnaes ul, .lista-cnaes ul { margin: 6px 0; padding-left: 18px; }
 .como-ler { margin-top: 16px; }
-@media (max-width: 1100px) { .caminho { grid-template-columns: repeat(4, minmax(0, 1fr)); } .caminho .passo::after { content: none; } }
-@media (max-width: 760px) { .caminho { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* Kanban: valores e execução */
 .cartao-k .valor-card { font-size: .8rem; font-weight: 600; margin-top: 3px; }
 .execucao { border: 1px solid var(--borda); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
@@ -365,6 +326,85 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .grade-exec label { display: block; font-size: .8rem; color: var(--texto-suave); margin-bottom: 2px; }
 .grade-exec input { width: 100%; }
 @media (max-width: 560px) { .grade-exec { grid-template-columns: 1fr 1fr; } }
-.caminho.compacto .passo-rotulo { font-size: .62rem; letter-spacing: 0; overflow-wrap: anywhere; hyphens: auto; }
-.proximos li { padding: 4px 8px; }
-@container (max-width: 640px) { .pe-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ===== Dashboard › Empresas ===== */
+.painel-empresas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 18px; }
+.painel-empresa { container-type: inline-size; padding: 20px; }
+.painel-empresa h2 { margin: 0; font-size: 1.2rem; }
+.painel-empresa h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--texto-suave); margin: 0 0 12px; font-weight: 700; }
+.pe-consolidado { background: linear-gradient(180deg, var(--cor-primaria-clara), var(--superficie) 140px); }
+.pe-topo { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pe-topo .linha { gap: 8px; flex-wrap: wrap; }
+.pe-nome { min-width: 0; }
+/* Ramo: números grandes clicáveis + palavras */
+.pe-ramo { margin: 14px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--info-fundo); display: grid; gap: 8px; }
+.pe-ramo .linha { gap: 10px; flex-wrap: wrap; align-items: center; }
+.pe-ramo-numeros { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: .92rem; }
+.pe-ramo-numeros a { color: var(--texto); text-decoration: none; }
+.pe-ramo-numeros a:hover { text-decoration: underline; }
+.pe-ramo-numeros strong { font-size: 1.25rem; color: var(--info); font-variant-numeric: tabular-nums; }
+.pe-ramo-palavras { display: flex; align-items: center; gap: 8px; font-size: .84rem; min-width: 0; }
+.pe-ramo-palavras > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* KPIs */
+.pe-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.pe-kpi { box-shadow: none; padding: 12px 14px; border-top: 4px solid var(--borda); min-width: 0; container-type: inline-size; }
+.pe-kpi .rotulo { font-size: .78rem; color: var(--texto-suave); font-weight: 600; }
+.pe-kpi .valor { font-size: clamp(1.05rem, 14cqi, 1.55rem); font-weight: 700; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.pe-kpi .apoio { font-size: .76rem; color: var(--texto-suave); margin-top: 3px; }
+.pe-kpi.destaque { background: var(--cor-primaria); border-color: var(--cor-primaria); border-top-color: var(--cor-destaque); color: #fff; }
+.pe-kpi.destaque .rotulo, .pe-kpi.destaque .apoio { color: rgba(255, 255, 255, .85); }
+.pe-kpi.alerta .apoio { color: var(--perigo); font-weight: 600; }
+/* Gráficos */
+.pe-graficos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.pe-bloco { background: var(--superficie); border: 1px solid var(--borda); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.pe-barras { display: grid; gap: 7px; }
+.pe-barra { display: grid; grid-template-columns: 140px minmax(0, 1fr) 82px 26px; gap: 8px; align-items: center; font-size: .84rem; color: var(--texto); text-decoration: none; }
+.pe-barra .rot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pe-barra .trilho { display: flex; height: 14px; background: var(--neutro-fundo); border-radius: 4px; overflow: hidden; gap: 2px; }
+.pe-barra .preench { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.pe-barra .val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pe-barra .qtd { text-align: right; color: var(--texto-suave); font-size: .76rem; font-variant-numeric: tabular-nums; }
+.pe-barra.zerada { color: var(--texto-suave); }
+.pe-barra.zerada .val { font-weight: 400; }
+a.pe-barra:hover .rot { text-decoration: underline; }
+.pe-comparativo .pe-barra { grid-template-columns: 170px minmax(0, 1fr) 82px 26px; }
+.pe-rosca { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 16px; align-items: center; }
+.pe-rosca-svg { width: 128px; height: 128px; }
+.pe-rosca-centro { font-size: 22px; font-weight: 700; fill: var(--texto); }
+.pe-rosca-sub { font-size: 10px; fill: var(--texto-suave); }
+.pe-rosca-vazio { grid-column: 1 / -1; }
+.pe-legenda { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: .85rem; }
+.pe-legenda li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.pe-legenda .amostra { width: 12px; height: 12px; border-radius: 3px; }
+.pe-legenda .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-legenda strong { font-variant-numeric: tabular-nums; }
+.pe-legenda.linha { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; }
+.pe-legenda.linha li { display: inline-grid; grid-template-columns: 12px auto auto; }
+.amostra.provavel, .pe-empilhada .provavel { background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, .45) 0 3px, transparent 3px 7px) !important; }
+.pe-projecao-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 12px; }
+.pe-projecao-total .suave { font-size: .8rem; }
+.pe-projecao-total strong { font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.pe-empilhada { display: flex; gap: 2px; height: 22px; border-radius: 6px; overflow: hidden; background: var(--neutro-fundo); }
+.pe-empilhada span { display: block; height: 100%; }
+.pe-projecao .suave.pequeno { margin-top: 8px; }
+/* Agenda */
+.pe-proximos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pe-proximos li { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: center; padding: 7px 10px; border-radius: 8px; background: var(--fundo); border-left: 3px solid var(--borda); }
+.pe-proximos li.urgente { background: var(--perigo-fundo); border-left-color: var(--perigo); }
+.pe-proximos .quando { display: grid; justify-items: center; font-weight: 700; font-size: .85rem; line-height: 1.2; }
+.pe-proximos .quando small { font-weight: 400; color: var(--texto-suave); }
+.pe-proximos .oque { min-width: 0; font-size: .85rem; }
+.pe-proximos .oque a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--texto); font-weight: 600; text-decoration: none; }
+.pe-proximos .oque a:hover { text-decoration: underline; }
+.pe-proximos .orgao { color: var(--texto-suave); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-nada { background: var(--ok-fundo); color: var(--ok); border-radius: 8px; padding: 10px 12px; font-size: .86rem; }
+.pe-cnaes { margin-top: 14px; font-size: .85rem; }
+.pe-cnaes summary, .como-ler summary { cursor: pointer; font-weight: 600; }
+.pe-cnaes ul, .lista-cnaes ul { margin: 6px 0; padding-left: 18px; }
+.pe-sugestoes { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.pe-sugestoes .chip.marcado { background: var(--info-fundo); color: var(--info); border-color: var(--info); }
+.modal h4 { margin: 14px 0 4px; font-size: .85rem; }
+.modal textarea { width: 100%; }
+@container (max-width: 899px) { .pe-graficos { grid-template-columns: minmax(0, 1fr); } .pe-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pe-kpis .destaque { grid-column: 1 / -1; } }
+@container (max-width: 480px) { .pe-barra { grid-template-columns: 96px minmax(0, 1fr) 70px 18px; font-size: .78rem; } .pe-comparativo .pe-barra { grid-template-columns: 96px minmax(0, 1fr) 70px 18px; } .pe-rosca { grid-template-columns: 104px minmax(0, 1fr); } .pe-rosca-svg { width: 104px; height: 104px; } .painel-empresa { padding: 14px; } }
+.pe-nota { margin-top: 8px; }
