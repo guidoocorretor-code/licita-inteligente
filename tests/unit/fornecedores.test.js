@@ -203,7 +203,9 @@ test('frete FOB entra no custo, rateado pelo valor dos itens; FOB sem valor fica
   assert.equal(d.resumo.frete_total, 400);
   assert.equal(d.resumo.custo_total, 4400);
   assert.equal(d.fretes_fornecedor[0].transportadora, 'Transp X');
-  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', itens: [{ numero_item: 1, preco_unitario: '21' }] });
+  assert.equal(cotacoesDaOportunidade(db, emp, op).resumo.frete_total, 400);      // sem transportadora/valor no envio: mantém o informado
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', transportadora: '', valor_frete: '', itens: [{ numero_item: 1, preco_unitario: '20' }] });
   d = cotacoesDaOportunidade(db, emp, op);
   assert.equal(d.itens[0].frete_pendente, true);                     // FOB sem valor: avisa, não inventa zero
   assert.equal(d.resumo.fretes_pendentes, 2);

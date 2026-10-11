@@ -204,7 +204,7 @@ const qtdTexto = (i) => (i.quantidade != null ? `${String(i.quantidade).replace(
 const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
 
 // Mensagem do pedido. formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
-function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '') {
+function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', link = null) {
   const op = d.oportunidade;
   const itens = d.itens.filter((i) => numeros.includes(i.numero_item));
   const t = (s) => (formato === 'whatsapp' ? `*${s}*` : s);
@@ -215,6 +215,10 @@ function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '') {
     '',
     `${op.cliente_razao || op.cliente_nome ? `Somos da ${op.cliente_razao || op.cliente_nome}. ` : ''}Estamos participando de uma licitação e gostaríamos da sua cotação para ${itens.length === 1 ? 'o item abaixo' : `os ${itens.length} itens abaixo`}.`,
     '',
+    link ? t('RESPONDA PELO LINK (mais rápido):') : null,
+    link || null,
+    link ? 'É só preencher preço, marca e prazo de cada item. Se preferir, responda por aqui mesmo.' : null,
+    link ? '' : null,
     t('DADOS DA LICITAÇÃO'),
     op.orgao_nome ? `Órgão: ${op.orgao_nome}` : '',
     local ? `Local de entrega: ${local}` : '',
@@ -274,12 +278,29 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
   const contagem = h('span', { class: 'suave pequeno' });
   const formato = h('select', { onchange: () => atualizar() }, h('option', { value: 'whatsapp' }, 'WhatsApp (com negrito)'), h('option', { value: 'email' }, 'E-mail (texto simples)'));
   const texto = h('textarea', { rows: 14, readonly: true, class: 'texto-pedido' });
+  // Link para o fornecedor responder online: um por fornecedor nesta oportunidade (o mesmo link serve para reenvios)
+  const comLink = h('input', { type: 'checkbox', checked: true, onchange: () => buscarLink() });
+  const urls = new Map(); // fornecedor_id -> url
+  const sincronizarLink = async (f) => {
+    const x = await api(`/kanban/${d.oportunidade.id}/links`, { metodo: 'POST', corpo: { fornecedor_id: f.id, itens: marcados() } });
+    urls.set(f.id, x.url); return x.url;
+  };
+  let buscando = false;
+  const buscarLink = async () => {
+    const f = atual();
+    if (comLink.checked && !urls.has(f.id) && marcados().length && !buscando) {
+      buscando = true;
+      try { await sincronizarLink(f); } catch (e) { toast(`Não foi possível gerar o link: ${e.message}`, 6000); comLink.checked = false; }
+      buscando = false;
+    }
+    atualizar();
+  };
   const links = h('div', { class: 'linha' });
   const atual = () => fs.find((x) => String(x.id) === sel.value);
   const marcados = () => [...marcar].filter(([, cb]) => cb.checked).map(([n]) => n);
   const copiar = async (msg) => { try { await navigator.clipboard.writeText(msg); return true; } catch { return false; } };
   let fecharPedido = () => {};
-  const depoisDeAbrir = (f, numeros, canal) => setTimeout(() => confirmarEnvio(d, f, numeros, canal, () => { fecharPedido(); recarregar?.(); }), 800);
+  const depoisDeAbrir = (f, numeros, canal) => (comLink.checked ? sincronizarLink(f).catch(() => {}) : null, setTimeout(() => confirmarEnvio(d, f, numeros, canal, () => { fecharPedido(); recarregar?.(); }), 800));
   const atualizar = () => {
     const f = atual(); const numeros = marcados();
     contagem.textContent = `${numeros.length} de ${d.itens.length} marcado(s)`;
@@ -287,9 +308,11 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
       texto.value = '';
       return render(links, h('div', { class: 'aviso amarelo pequeno' }, 'Marque pelo menos um item para montar a mensagem.'));
     }
-    texto.value = textoPedido(d, f, numeros, formato.value, assinatura);
-    const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura);
-    const msgEmail = textoPedido(d, f, numeros, 'email', assinatura);
+    const link = comLink.checked ? urls.get(f.id) || null : null;
+    if (comLink.checked && !link && !buscando) setTimeout(buscarLink, 0);
+    texto.value = textoPedido(d, f, numeros, formato.value, assinatura, link);
+    const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura, link);
+    const msgEmail = textoPedido(d, f, numeros, 'email', assinatura, link);
     const w = zap(f.whatsapp || f.telefone, msgZap);
     const assunto = ['Pedido de cotação', d.oportunidade.orgao_nome, numeroLic(d.oportunidade)].filter(Boolean).join(' – ');
     // Alguns programas de e-mail cortam links mailto longos: acima do limite, o corpo vai pela área de transferência
@@ -316,7 +339,7 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
         i.usada_id ? h('span', { class: 'etiqueta pequena' }, 'já cotado') : null,
         aguardando.has(i.numero_item) ? h('span', { class: 'etiqueta amarela pequena' }, 'já pedido, aguardando') : null);
     }));
-    atualizar();
+    buscarLink();
   };
   const todos = (v) => { marcar.forEach((cb) => { cb.checked = v; }); atualizar(); };
   sel.addEventListener('change', () => { sugeridos = null; montarLista(); });
@@ -327,6 +350,7 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
     h('div', { class: 'campo' }, h('label', {}, 'Itens ', contagem, ' ',
       h('button', { type: 'button', class: 'btn pequeno', onclick: () => todos(true) }, 'Marcar todos'), ' ',
       h('button', { type: 'button', class: 'btn pequeno', onclick: () => todos(false) }, 'Nenhum')), lista),
+    h('label', { class: 'opcao-check', style: { marginBottom: '8px' } }, comLink, ' Incluir link para o fornecedor responder online (a resposta entra direto nesta cotação)'),
     h('div', { class: 'campo' }, h('label', {}, 'Mensagem (descrição completa de cada item)'), texto),
     links,
     h('p', { class: 'suave pequeno' }, 'O sistema não envia nada sozinho: o WhatsApp ou o seu programa de e-mail (Outlook, se for o padrão do computador) abre com a mensagem pronta e você revisa e envia. Depois o sistema pergunta se foi enviado.')), []);
@@ -630,6 +654,8 @@ export async function cotacao(alvo, rota, est) {
         h('strong', {}, c.fornecedor_nome), ` · ${brl(c.preco_unitario)}`, c.marca_modelo ? ` · ${c.marca_modelo}` : '',
         c.prazo_entrega_dias != null ? ` · ${c.prazo_entrega_dias} dia(s)` : '', c.frete_incluso === 0 ? ' · frete não incluso' : c.frete_incluso === 1 ? ' · frete incluso' : '',
         c.validade ? h('span', { class: c.validade < new Date().toLocaleDateString('sv-SE') ? 'texto-perigo' : '' }, ` · válida até ${data(c.validade, false)}`) : '',
+        c.condicoes_pagamento ? ` · pagamento: ${c.condicoes_pagamento}` : '',
+        c.origem === 'fornecedor' ? h('span', { class: 'etiqueta azul pequena', title: c.respondente ? `Respondida por ${c.respondente}` : '' }, 'pelo link') : null,
         c.id === i.usada_id ? h('span', { class: 'etiqueta verde pequena' }, c.escolhida ? 'escolhida' : 'mais barata') : null,
         editar && c.id !== i.usada_id ? h('button', { class: 'btn pequeno', onclick: async () => { await api(`/kanban/${id}/cotacoes/${c.id}/escolher`, { metodo: 'POST', corpo: {} }); recarregar(); } }, 'Usar esta') : null,
         editar ? h('button', { class: 'btn pequeno', title: 'Excluir cotação', onclick: async () => { if (confirmar('Excluir esta cotação?')) { await api(`/kanban/${id}/cotacoes/${c.id}`, { metodo: 'DELETE' }); recarregar(); } } }, '✕') : null)))) : null;
@@ -658,6 +684,7 @@ export async function cotacao(alvo, rota, est) {
         h('strong', {}, p.fornecedor_nome), ` · itens ${p.itens.join(', ')} · pedido por ${CANAIS[p.canal] || p.canal} em ${dataUtc(p.enviado_em)}`,
         h('span', { class: dias >= 3 ? 'texto-perigo' : 'suave' }, ` · ${dias === 0 ? 'hoje' : `há ${dias} dia(s)`}`),
         p.usuario_nome ? h('span', { class: 'suave' }, ` · ${p.usuario_nome}`) : '',
+        (() => { const l = d.links.find((x) => x.fornecedor_id === p.fornecedor_id && !x.revogado); return l ? h('span', { class: 'suave' }, l.ultimo_acesso ? ` · 🔗 abriu o link em ${dataUtc(l.ultimo_acesso)}` : ' · 🔗 link ainda não aberto') : ''; })(),
         editar ? [' ', h('button', { class: 'btn pequeno', onclick: () => registrarResposta(d, recarregar, p.fornecedor_id) }, 'Registrar resposta'),
           ' ', h('button', { class: 'btn pequeno', title: 'O fornecedor não respondeu: tira da lista de espera', onclick: async () => {
             try { await api(`/kanban/${id}/pedidos/${p.id}`, { metodo: 'PATCH', corpo: { status: 'sem_retorno' } }); recarregar(); } catch (e) { toast(e.message); } } }, 'Sem retorno')] : null);
