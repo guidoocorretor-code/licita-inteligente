@@ -16,6 +16,10 @@ export const radical = (t) => {
   return r;
 };
 const fts = (t) => `"${radical(t)}"*`;
+// Credenciamento (Lei 14.133, art. 79): modalidade 12 do PNCP ou amparo legal no art. 79 (alguns órgãos
+// publicam como inexigibilidade). Preço fixado pelo órgão, sem disputa, edital aberto por meses.
+export const SQL_CREDENCIAMENTO = `(l.modalidade_id = 12 OR (COALESCE(l.amparo_legal, '') LIKE '%14.133%'
+  AND (l.amparo_legal GLOB '*Art. 79[^0-9]*' OR l.amparo_legal GLOB '*Art. 79')))`;
 /** "informática; papelaria, material de escritório" -> [['informática'], ['papelaria'], ['material', 'escritório']] (até 30 expressões). */
 export const expressoesRamo = (v) => String(v ?? "").split(/[;,\n]+/).map((x) => termos(x).filter((t) => !PALAVRAS_VAZIAS.has(t))).filter((x) => x.length).slice(0, 30);
 const PALAVRAS_VAZIAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com', 'ou', 'a', 'o', 'as', 'os', 'por']);
@@ -72,6 +76,8 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   inList('l.uf', lista(f.uf).map((s) => s.toUpperCase()));
   inList('l.esfera', lista(f.esfera));
   inList('l.modalidade_id', lista(f.modalidade).map(Number).filter(Number.isFinite));
+  if (f.credenciamento === 'ocultar') w.push(`NOT ${SQL_CREDENCIAMENTO}`);
+  if (f.credenciamento === 'so') w.push(SQL_CREDENCIAMENTO);
   inList('l.plataforma_origem', lista(f.plataforma));
   inList('l.sistema_eletronico', lista(f.sistema));
   if (f.sistema_custo) inList('l.sistema_eletronico', Object.entries(SISTEMAS).filter(([, x]) => lista(f.sistema_custo).includes(x.custo)).map(([k]) => k));
@@ -149,7 +155,7 @@ export const COLUNAS_LISTA = `l.id, l.numero_controle_pncp, l.numero_compra, l.a
   l.data_publicacao, l.data_abertura_proposta, l.data_encerramento_proposta, l.status_calculado, l.status_motivo,
   l.situacao_oficial_nome, l.plataforma_origem, l.sistema_eletronico, l.link_origem, l.link_pncp, l.ultima_verificacao, l.me_epp_exclusivo,
   l.num_itens, l.tem_documentos, l.regime_legal, l.criterio_julgamento, l.modo_disputa_nome, l.srp, l.codigo_ibge,
-  ${SQL_CAPAG_LIC} AS capag,
+  ${SQL_CAPAG_LIC} AS capag, CASE WHEN ${SQL_CREDENCIAMENTO} THEN 1 ELSE 0 END AS credenciamento,
   (SELECT group_concat(fonte_codigo) FROM licitacao_fontes lf WHERE lf.licitacao_id = l.id) AS fontes`;
 
 export function buscar(db, f = {}, { agora } = {}) {

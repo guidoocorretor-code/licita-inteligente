@@ -98,6 +98,7 @@ label { display: block; font-size: .82rem; color: var(--texto-suave); margin-bot
 .etiqueta.amarela { background: var(--alerta-fundo); color: var(--alerta); }
 .etiqueta.vermelha { background: var(--perigo-fundo); color: var(--perigo); }
 .etiqueta.azul { background: var(--info-fundo); color: var(--info); }
+.etiqueta.credenc { background: #ccfbf1; color: #115e59; }
 
 .tabela-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
