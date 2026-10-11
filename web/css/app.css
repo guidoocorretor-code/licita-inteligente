@@ -426,3 +426,8 @@ body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-o
 .pe-barra .preench.sem-valor { opacity: .45; background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, .6) 0 3px, transparent 3px 6px) !important; border-radius: 0; }
 .pe-barra .val.falta { color: var(--alerta); font-weight: 600; font-size: .78rem; }
 @media (min-width: 761px) { .kanban-etapas { flex-wrap: wrap; overflow-x: visible; } }
+/* Kanban: arrastar o quadro pela área vazia */
+.kanban { cursor: grab; }
+.kanban .cartao-k { cursor: pointer; }
+.kanban .cartao-k[data-arrastavel] { cursor: grab; }
+.kanban.pegando, .kanban.pegando * { cursor: grabbing !important; user-select: none; }
