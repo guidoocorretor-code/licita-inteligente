@@ -54,12 +54,18 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
 
   // Ramo: qualquer uma das expressões (separadas por ";"); dentro de cada expressão, todas as palavras.
   // Usado no painel de Empresas (palavras-chave do ramo de cada empresa) e no campo "Qualquer destas".
+  // Mais estrito que a busca livre, para não trazer licitação que só cita a palavra de passagem:
+  // - no objeto (e só no objeto, não no órgão nem na informação complementar), palavras de uma
+  //   expressão precisam estar próximas ("material de expediente" não casa com "material ... expediente" soltos);
+  // - nos itens, a expressão precisa começar a descrição do item, que é onde fica o produto
+  //   ("NOTEBOOK CORE I5" conta; "DJ com equipamentos próprios (mesa de som, notebook)" não conta).
   const ramo = expressoesRamo(f.ramo);
   if (ramo.length) {
-    const q = ramo.map((ws) => `(${ws.map(fts).join(' AND ')})`).join(' OR ');
+    const noObjeto = `objeto : (${ramo.map((ws) => (ws.length > 1 ? `NEAR(${ws.map(fts).join(' ')}, 3)` : fts(ws[0]))).join(' OR ')})`;
+    const noItem = ramo.map((ws) => `(^${ws.map(fts).join(' AND ')})`).join(' OR ');
     w.push(`(l.id IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)
       OR l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?)))`);
-    p.push(q, q);
+    p.push(noObjeto, noItem);
   }
 
   const inList = (col, vals) => { if (vals.length) { w.push(`${col} IN (${vals.map(() => '?').join(',')})`); p.push(...vals); } };

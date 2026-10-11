@@ -13,6 +13,7 @@ const { abrirBanco } = await import('../../server/db/index.js');
 const { resumir } = await import('../../server/services/painel-empresas.js');
 const { sugerirPalavras, sugerirRamo, deBrasilApi, deCnpjWs, fmtCnae } = await import('../../server/services/cnpj.js');
 const { agoraBrasilia } = await import('../../server/services/status.js');
+const { montarFiltro } = await import('../../server/services/busca.js');
 
 // DADOS DE TESTE: empresas e licitações fictícias
 const SENHA = 'SenhaForte123';
@@ -158,4 +159,21 @@ test('painel de empresas: do edital ao recebimento, por empresa', async () => {
   // Histórico registra os valores
   const hist = (await g(`/kanban/${um}/historico`)).corpo;
   assert.ok(hist.some((h) => h.tipo === 'valores'));
+});
+
+test('ramo: palavra citada de passagem não conta (só objeto ou início do item)', () => {
+  const d = bancoMemoria();
+  const lic = d.prepare("INSERT INTO licitacoes (chave_canonica, objeto, orgao_nome, informacao_complementar, status_calculado) VALUES (?,?,?,?, 'aberta')");
+  const item = d.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)');
+  const artistas = Number(lic.run('r1', 'Credenciamento de artistas locais para apresentações artísticas', 'Prefeitura de Informática', 'Entregar no horário de expediente, material lacrado').lastInsertRowid);
+  item.run(artistas, 1, 'DJ PROFISSIONAL, EQUIPAMENTOS PROPRIOS (MESA DE SOM, NOTEBOOK)');
+  const pregao = Number(lic.run('r2', 'Registro de preços para aquisição de bens', 'Câmara', null).lastInsertRowid);
+  item.run(pregao, 1, 'NOTEBOOK CORE I5 8GB');
+  const papel = Number(lic.run('r3', 'Aquisição de material de expediente', 'Câmara', null).lastInsertRowid);
+  const solto = Number(lic.run('r4', 'Locação de material de som para o expediente da festa', 'Câmara', null).lastInsertRowid);
+  const ids = (palavras) => { const { where, params } = montarFiltro({ ramo: palavras }); return d.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.id`).all(...params).map((r) => r.id); };
+  assert.deepEqual(ids('notebook'), [pregao]);                           // DJ com notebook fica de fora
+  assert.deepEqual(ids('informática; material de expediente'), [papel]); // órgão e informação complementar não contam; palavras soltas também não
+  assert.ok(!ids('material de expediente').includes(solto));
+  assert.ok(!ids('informática').includes(artistas));
 });
