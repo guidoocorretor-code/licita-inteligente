@@ -107,6 +107,7 @@ function seloCapag(n, { longo = false } = {}) {
   if (!n) return h('span', { class: 'etiqueta', title: 'Sem nota CAPAG (órgão federal, nota não calculada ou dado ainda não baixado)' }, longo ? 'Sem nota' : '—');
   return h('span', { class: `etiqueta ${COR_CAPAG[n[0]] || ''} selo-capag`, title: 'Capacidade de pagamento do ente (CAPAG/Tesouro Nacional)' }, `CAPAG ${n}`);
 }
+const PALAVRA_CAPAG = { A: 'Boa', B: 'Razoável', C: 'Fraca', D: 'Muito fraca' };
 const textoNotaCapag = { A: 'boa capacidade de pagamento', B: 'capacidade de pagamento razoável', C: 'capacidade de pagamento fraca: atenção', D: 'capacidade de pagamento muito fraca: risco alto' };
 const INDICADORES_CAPAG = [['ind1', 'nota1', 'Endividamento', 'Dívida em relação à receita. Quanto menor, melhor.'],
   ['ind2', 'nota2', 'Poupança corrente', 'Quanto da receita corrente já vai para despesas correntes. Quanto menor, mais folga.'],
@@ -123,7 +124,7 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
   const itens = l.itens_encontrados || [];
   const resumoItem = (i) => h('li', {}, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)');
   return h('div', { class: 'cartao item-lic' },
-    h('div', {},
+    h('div', { class: 'corpo-lic' },
       h('a', { class: 'objeto', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
       h('div', { class: 'orgao-local' },
         h('span', { class: 'orgao' }, '🏛 ', l.orgao_nome || naoInformado()),
@@ -134,7 +135,8 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
         campoFicha('Publicação', dataOuNao(l.data_publicacao, false)),
         campoFicha('Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : 'destaque' }),
         campoFicha('Sistema eletrônico', nomeSistema(l, est.meta), { classe: classeSistema(l, est.meta), title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
-        campoFicha('Pagômetro', l.esfera === 'F' ? h('span', { class: 'suave' }, 'Federal') : seloCapag(l.capag, { longo: true }),
+        campoFicha('Pagômetro', l.esfera === 'F' ? h('span', { class: 'suave' }, 'Federal (sem CAPAG)') : l.capag
+          ? h('span', { class: 'capag-curta' }, seloCapag(l.capag), h('span', { class: 'capag-palavra' }, PALAVRA_CAPAG[l.capag[0]])) : seloCapag(null, { longo: true }),
           { classe: l.capag ? `capag-${l.capag[0].toLowerCase()}` : '', title: l.capag ? `Nota CAPAG ${l.capag}: ${textoNotaCapag[l.capag[0]]}. Fonte: Tesouro Nacional.` : 'Sem nota CAPAG' })),
       avisoSistema(l, est.meta),
       (l.segmento || l.me_epp_exclusivo === 1) ? h('div', { class: 'linha etiquetas-lic' },
