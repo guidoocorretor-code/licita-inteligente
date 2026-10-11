@@ -513,3 +513,4 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .declaracoes { display: grid; gap: 6px; }
 .declaracoes .opcao-check { align-items: flex-start; font-size: .86rem; }
 .acoes-proposta { margin: 14px 0; gap: 8px; }
+.texto-sucesso { color: var(--ok); }
