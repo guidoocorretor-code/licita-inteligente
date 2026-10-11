@@ -50,6 +50,9 @@ function dadosCliente(b) {
     uf: texto(b.uf, 2)?.toUpperCase() || null, municipio: texto(b.municipio, 100), email: texto(b.email, 150), telefone: texto(b.telefone, 30),
     resp_nome: texto(b.resp_nome, 150), resp_cargo: texto(b.resp_cargo, 80), resp_email: texto(b.resp_email, 150), resp_telefone: texto(b.resp_telefone, 30),
     observacoes: texto(b.observacoes, 2000),
+    // Usados no cabeçalho e no rodapé da proposta de preços
+    endereco: texto(b.endereco, 300), cep: texto(b.cep, 10), resp_cpf: texto(b.resp_cpf, 14),
+    banco: texto(b.banco, 80), agencia: texto(b.agencia, 20), conta: texto(b.conta, 30),
     cnaes_json: cnaesJson(b),
     palavras_chave: palavrasChave(b.palavras_chave),
   };

@@ -23,6 +23,13 @@ function telefone(ddd, numero) {
   return `(${ddd2}) ${n.length === 9 ? `${n.slice(0, 5)}-${n.slice(5)}` : `${n.slice(0, 4)}-${n.slice(4)}`}`;
 }
 
+// "RUA X, 100, SALA 2 - CENTRO"
+function endereco(rua, numero, complemento, bairro) {
+  const r = texto(rua); if (!r) return null;
+  return [[r, texto(numero), texto(complemento)].filter(Boolean).join(', '), texto(bairro)].filter(Boolean).join(' - ');
+}
+const cepFmt = (c) => { const d = soDigitos(c); return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : null; };
+
 export function portePadrao(descricao, mei = false) {
   if (mei) return 'MEI';
   const p = String(descricao || '').toUpperCase();
@@ -53,6 +60,8 @@ export function deBrasilApi(d) {
     porte: portePadrao(d.porte || d.descricao_porte, d.opcao_pelo_mei === true),
     uf: texto(d.uf),
     municipio: texto(d.municipio),
+    endereco: endereco([d.descricao_tipo_de_logradouro, d.logradouro].filter(Boolean).join(' '), d.numero, d.complemento, d.bairro),
+    cep: cepFmt(d.cep),
     email: texto(d.email)?.toLowerCase() || null,
     telefone: telefone(null, d.ddd_telefone_1) || telefone(null, d.ddd_telefone_2),
     situacao: texto(d.descricao_situacao_cadastral),
@@ -71,6 +80,8 @@ export function deCnpjWs(d) {
     porte: portePadrao(d.porte?.descricao, d.simples?.mei === 'Sim'),
     uf: texto(e.estado?.sigla),
     municipio: texto(e.cidade?.nome),
+    endereco: endereco([e.tipo_logradouro, e.logradouro].filter(Boolean).join(' '), e.numero, e.complemento, e.bairro),
+    cep: cepFmt(e.cep),
     email: texto(e.email)?.toLowerCase() || null,
     telefone: telefone(e.ddd1, e.telefone1) || telefone(e.ddd2, e.telefone2),
     situacao: texto(e.situacao_cadastral),

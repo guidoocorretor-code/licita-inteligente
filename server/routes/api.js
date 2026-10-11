@@ -28,6 +28,7 @@ import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js'
 import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, FORMAS_PAGAMENTO, PRAZOS_BOLETO, cotacoesDaOportunidade,
   registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros, registrarPedido, mudarStatusPedido, listarPedidos, painelFornecedores } from '../services/fornecedores.js';
 import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
+import { propostaDaOportunidade, salvarProposta, mudarStatusProposta, listarPropostas } from '../services/propostas.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -516,6 +517,20 @@ r.post('/kanban/:id/cotacoes/:cid/escolher', exigirPapel('analista'), (req, res)
 r.delete('/kanban/:id/cotacoes/:cid', exigirPapel('analista'), (req, res) => {
   try { if (!excluirCotacao(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.cid))) return erro(res, 404, 'Cotação não encontrada.'); res.json({ ok: true }); }
   catch (e) { falha(res, e); }
+});
+// ---------------- Fase 4: propostas de preços ----------------
+r.get('/propostas', (req, res) => {
+  try { res.json(listarPropostas(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, status: String(req.query.status || 'todas') })); } catch (e) { falha(res, e); }
+});
+r.get('/kanban/:id/proposta', (req, res) => {
+  try { res.json(propostaDaOportunidade(db(), req.usuario.empresa_id, inteiro(req.params.id))); } catch (e) { falha(res, e); }
+});
+r.put('/kanban/:id/proposta', exigirPapel('analista'), (req, res) => {
+  try { salvarProposta(db(), req.usuario.empresa_id, inteiro(req.params.id), req.usuario.id, req.body || {}); res.json(propostaDaOportunidade(db(), req.usuario.empresa_id, inteiro(req.params.id))); }
+  catch (e) { falha(res, e); }
+});
+r.patch('/kanban/:id/proposta/status', exigirPapel('analista'), (req, res) => {
+  try { mudarStatusProposta(db(), req.usuario.empresa_id, inteiro(req.params.id), req.usuario.id, req.body?.status); res.json({ ok: true }); } catch (e) { falha(res, e); }
 });
 r.get('/cotacoes/pedidos', (req, res) => {
   try { res.json(listarPedidos(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, status: String(req.query.status || 'aguardando') })); } catch (e) { falha(res, e); }

@@ -498,3 +498,16 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .faixa-governo .copiar:hover { background: #fdf1d0; }
 .faixa-governo .valor-copiar { font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--texto); }
 .faixa-governo .icone-copiar { font-size: .85rem; }
+
+/* Fase 4 · Proposta de preços */
+.rolagem-x { overflow-x: auto; }
+.tabela-proposta { min-width: 1100px; font-size: .86rem; }
+.tabela-proposta td { vertical-align: top; }
+.tabela-proposta td.desc { max-width: 280px; }
+.tabela-proposta td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tabela-proposta .preco-prop { width: 110px; text-align: right; font-weight: 600; }
+.tabela-proposta .marca-modelo input { display: block; width: 150px; margin-bottom: 4px; }
+.tabela-proposta tr.fora td { opacity: .45; }
+.declaracoes { display: grid; gap: 6px; }
+.declaracoes .opcao-check { align-items: flex-start; font-size: .86rem; }
+.acoes-proposta { margin: 14px 0; gap: 8px; }

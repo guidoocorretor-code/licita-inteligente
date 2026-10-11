@@ -88,3 +88,11 @@ Seções destacadas: **Cadastro** (Empresa), **Oportunidades** (Dashboard, busca
 ## UASG e número para o sistema do governo
 
 Em Buscar licitações, no detalhe da licitação e ao abrir o card do Kanban aparece uma faixa amarela com **UASG** e **nº da dispensa/pregão**. Um clique copia o valor para colar no Compras.gov.br. A UASG vem do código da compra no link do Compras.gov.br (UASG + modalidade + número + ano); quando a licitação está em outro sistema (BLL, Licitanet, Portal de Compras Públicas…), não existe UASG e só o número aparece.
+
+## Proposta de preços (Fase 4)
+Na cotação da oportunidade, clique em **📝 Montar proposta** (ou menu Gestão > **Propostas**).
+- O preço de cada item vem sugerido pelo **preço mínimo de venda** da cotação, arredondado para cima no centavo. Ajuste à sua estratégia.
+- O sistema avisa em vermelho quando o preço passa do **estimado** do órgão ou fica **abaixo do custo**, e em amarelo quando fica abaixo do mínimo de venda.
+- Preencha marca/modelo, validade, prazo de entrega, condições e marque as declarações que o edital pede.
+- **Imprimir / PDF** gera a proposta em A4: dados da empresa, órgão, nº da dispensa/pregão, UASG, tabela de itens, valor global por extenso, dados bancários, declarações e assinatura. O que faltar no cadastro da empresa aparece em vermelho como "não informado". Complete em Cadastro > Empresa (endereço, CEP, CPF do responsável, banco/agência/conta).
+- Status: Rascunho → Pronta → Enviada → (ou Cancelada). **"Registrar envio no portal" só registra que você enviou**; o sistema não envia proposta nem dá lances sozinho.

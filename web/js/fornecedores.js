@@ -744,6 +744,7 @@ export async function cotacao(alvo, rota, est) {
     cabecalho('Cotações', [op.cliente_nome ? `🏢 ${op.cliente_nome} · ` : '', (op.objeto || '').slice(0, 160)].join(''),
       h('a', { class: 'btn', href: `#/licitacao/${op.licitacao_id}` }, 'Abrir licitação'),
       !semItens ? h('button', { class: 'btn', onclick: () => imprimirCotacoes(d, est) }, '🖨 Imprimir / PDF') : null,
+      !semItens ? h('a', { class: 'btn primario', href: `#/proposta/${op.id}`, title: 'Proposta de preços com os preços desta cotação' }, '📝 Montar proposta') : null,
       editar && !semItens ? h('button', { class: 'btn', onclick: () => pedirCotacao(d, null, recarregar, est) }, '✉ Pedir cotação') : null,
       editar && !semItens ? h('button', { class: 'btn primario', onclick: () => registrarResposta(d, recarregar) }, '+ Registrar resposta') : null),
     h('div', { class: 'suave pequeno', style: { marginBottom: '10px' } }, [op.orgao_nome, op.municipio && `${op.municipio}/${op.uf}`, op.data_encerramento_proposta && `propostas até ${data(op.data_encerramento_proposta)}`].filter(Boolean).join(' · ')),

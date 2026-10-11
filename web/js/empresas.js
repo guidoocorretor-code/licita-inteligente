@@ -63,6 +63,7 @@ function formEmpresa(est, c = {}, aoSalvar) {
       por('razao_social', d.razao_social, sempre); por('nome_fantasia', d.nome_fantasia, sempre);
       por('uf', d.uf, sempre); por('municipio', d.municipio, sempre);
       por('email', d.email, sempre); por('telefone', d.telefone, sempre);
+      por('endereco', d.endereco, sempre); por('cep', d.cep, sempre);
       if (d.porte && (sempre || !campos.porte.value)) campos.porte.value = d.porte;
       const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
       escolherSocio(d.responsavel);
@@ -99,13 +100,19 @@ function formEmpresa(est, c = {}, aoSalvar) {
       inp('uf', 'UF', { maxlength: 2, placeholder: 'ES' }),
       inp('municipio', 'Município', { placeholder: 'Vila Velha' }),
       inp('email', 'E-mail da empresa', { type: 'email' }),
-      inp('telefone', 'Telefone da empresa', { type: 'tel' })),
+      inp('telefone', 'Telefone da empresa', { type: 'tel' }),
+      inp('endereco', 'Endereço (rua, nº, bairro)', {}, true),
+      inp('cep', 'CEP', { inputmode: 'numeric', placeholder: '29100-000' })),
     statusReceita,
     h('h3', {}, 'Responsável legal'),
     seletorSocio,
     h('div', { class: 'filtros' },
       inp('resp_nome', 'Nome', {}, true), inp('resp_cargo', 'Cargo', { placeholder: 'Sócio-administrador' }),
-      inp('resp_email', 'E-mail', { type: 'email' }), inp('resp_telefone', 'Telefone / WhatsApp', { type: 'tel' })),
+      inp('resp_email', 'E-mail', { type: 'email' }), inp('resp_telefone', 'Telefone / WhatsApp', { type: 'tel' }),
+      inp('resp_cpf', 'CPF (assina a proposta)', { inputmode: 'numeric', placeholder: '000.000.000-00' })),
+    h('h3', {}, 'Dados bancários (saem na proposta de preços)'),
+    h('div', { class: 'filtros' },
+      inp('banco', 'Banco', { placeholder: 'ex.: 001 · Banco do Brasil' }), inp('agencia', 'Agência'), inp('conta', 'Conta corrente')),
     h('h3', {}, 'Ramo de atuação'),
     listaCnaes,
     h('div', { class: 'campo' }, h('label', { for: 'e-palavras_chave' }, 'Palavras do ramo (separe com ;)'), campos.palavras_chave,
