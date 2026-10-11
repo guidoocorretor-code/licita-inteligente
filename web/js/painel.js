@@ -272,6 +272,6 @@ export async function painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa 
           h('li', {}, 'Em disputa sem valor da proposta usa o valor estimado do edital inteiro, que pode incluir lotes que a empresa não disputa.'),
           h('li', {}, 'Taxa de vitória = vencidas ÷ (vencidas + perdidas). Só entra na projeção com 5 resultados registrados.'),
           h('li', {}, '"A receber há mais de 30 dias" conta a partir da data da nota fiscal; o prazo de pagamento de cada contrato pode ser diferente.'),
-          h('li', {}, 'Licitações do ramo: abertas cujo objeto ou itens têm alguma das palavras do ramo da empresa.'))),
+          h('li', {}, 'Licitações do ramo: abertas cujo objeto tem alguma das palavras do ramo, ou que têm um item cuja descrição começa por uma delas (ex.: "NOTEBOOK i5" conta; "DJ com equipamentos próprios (notebook)" não conta).'))),
     ] : null);
 }
