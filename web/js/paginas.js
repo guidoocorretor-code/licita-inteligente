@@ -492,7 +492,7 @@ export async function kanban(alvo, _r, est) {
           c.responsavel_nome ? h('div', { class: 'suave' }, `👤 ${c.responsavel_nome}`) : null,
           !clienteSelecionado() && est.clientes?.length ? (podeEditar(est)
             ? h('button', { type: 'button', class: 'etiqueta empresa clicavel' + (c.cliente_nome ? '' : ' sem'), style: { marginTop: '6px' }, title: c.cliente_nome ? 'Trocar a empresa vinculada' : 'Clique para vincular uma empresa',
-              onclick: (e) => { e.stopPropagation(); vincularEmpresa(c); } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`, h('span', { class: 'acao-vinc' }, c.cliente_nome ? '✎' : '· vincular'))
+              onclick: (e) => { e.stopPropagation(); vincularEmpresa(c); } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`, c.cliente_nome ? null : h('span', { class: 'acao-vinc' }, '· vincular'))
             : h('div', { class: 'etiqueta empresa', style: { marginTop: '6px' } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`)) : null,
           podeEditar(est) ? h('select', { 'aria-label': 'Mover para', onclick: (e) => e.stopPropagation(), onchange: (e) => mover(c.id, e.target.value) },
             k.etapas.map((e2) => h('option', { value: e2.id, selected: e2.id === c.etapa_id }, `Mover: ${e2.nome}`))) : null);
