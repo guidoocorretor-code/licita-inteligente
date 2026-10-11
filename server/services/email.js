@@ -84,3 +84,18 @@ export async function enviarEmailTeste(usuario) {
     throw new Error(`Falha ao enviar: ${estado.ultimoErro}`);
   }
 }
+
+/** E-mail avulso (ex.: comprovante para o fornecedor). Lança erro sem expor credenciais. */
+export async function enviarEmail({ para, assunto, texto, html, anexos = [], responderPara, nomeRemetente }) {
+  const t = obterTransporte();
+  if (!t) throw Object.assign(new Error('E-mail não configurado (SMTP_URL).'), { semSmtp: true });
+  const de = remetente();
+  try {
+    await t.sendMail({ from: nomeRemetente && de ? { name: nomeRemetente, address: de } : de, to: para, replyTo: responderPara || undefined,
+      subject: assunto, text: texto, html, attachments: anexos });
+    estado.enviados++; estado.ultimoEnvio = new Date().toISOString(); estado.ultimoErro = null;
+  } catch (e) {
+    estado.ultimoErro = erroSeguro(e);
+    throw new Error(estado.ultimoErro);
+  }
+}

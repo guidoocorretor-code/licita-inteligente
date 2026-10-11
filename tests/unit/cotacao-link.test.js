@@ -4,7 +4,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { criarFornecedor, cotacoesDaOportunidade, registrarCotacoes, registrarPedido } from '../../server/services/fornecedores.js';
+import { criarFornecedor, cotacoesDaOportunidade, registrarCotacoes, registrarPedido, listarPedidos, mudarStatusPedido } from '../../server/services/fornecedores.js';
 import { linkDoFornecedor, cotacaoPublica, responderCotacao, revogarLink } from '../../server/services/cotacao-link.js';
 
 // Base de TESTE com itens de exemplo
@@ -76,4 +76,89 @@ test('resposta pelo link entra na cotação, marca o pedido como respondido e av
   assert.equal(db.prepare("SELECT COUNT(*) n FROM notificacoes WHERE tipo='cotacao' AND usuario_id=?").get(u).n, 1);
   assert.ok(cotacaoPublica(db, token).respondido_em);
   assert.equal(cotacaoPublica(db, token).itens[0].resposta.preco_unitario, 20.5); // pode corrigir depois
+});
+
+test('página do link tira da descrição os trechos que citam órgão, cidade ou convênio', () => {
+  const { db, emp, u, op, forn } = preparar();
+  db.prepare("UPDATE licitacao_itens SET descricao=? WHERE numero_item=1").run('Papel A4 75g para atender a Prefeitura Municipal de Bernardo Sayão - TO. Convênio nº 980858/2025.');
+  const { token } = linkDoFornecedor(db, emp, op, u, { fornecedor_id: forn, itens: [1] });
+  const desc = cotacaoPublica(db, token).itens[0].descricao;
+  assert.equal(desc, 'Papel A4 75g para atender.');
+});
+
+test('lista de pedidos da conta: filtro por situação, contagem e outra conta', () => {
+  const { db, emp, outra, u, op, forn } = preparar();
+  const f2 = criarFornecedor(db, emp, { razao_social: 'Segundo Fornecedor' });
+  registrarPedido(db, emp, op, u, { fornecedor_id: forn, canal: 'whatsapp', itens: [1, 2] });
+  const p2 = registrarPedido(db, emp, op, u, { fornecedor_id: f2, canal: 'email', itens: [3] });
+  mudarStatusPedido(db, emp, op, p2, 'sem_retorno');
+  const ag = listarPedidos(db, emp, {});
+  assert.deepEqual(ag.contagem, { aguardando: 1, sem_retorno: 1, respondido: 0 });
+  assert.equal(ag.pedidos.length, 1);
+  assert.deepEqual(ag.pedidos[0].itens, [1, 2]);
+  assert.equal(ag.pedidos[0].fornecedor_nome, 'Fornecedor Teste');
+  assert.equal(ag.pedidos[0].itens_licitacao, 3);
+  assert.equal(listarPedidos(db, emp, { status: 'todos' }).pedidos.length, 2);
+  assert.equal(listarPedidos(db, emp, { status: 'sem_retorno' }).pedidos[0].fornecedor_nome, 'Segundo Fornecedor');
+  assert.equal(listarPedidos(db, emp, { clienteId: 999 }).pedidos.length, 0);  // empresa em foco sem pedidos
+  assert.equal(listarPedidos(db, outra, { status: 'todos' }).pedidos.length, 0);
+});
+
+test('cada envio pelo link fica registrado com data/hora e gera comprovante em PDF por e-mail', async () => {
+  const { pdfComprovante, enviarComprovante, recebimento } = await import('../../server/services/comprovante-cotacao.js');
+  const { _reiniciarEmail } = await import('../../server/services/email.js');
+  const { db, emp, u, op, forn } = preparar();
+  db.prepare("UPDATE licitacao_itens SET descricao=? WHERE numero_item=1").run('Papel A4 75g para a Prefeitura Municipal de Bernardo Sayão - TO.');
+  const { token } = linkDoFornecedor(db, emp, op, u, { fornecedor_id: forn, itens: [1, 2] });
+  assert.throws(() => responderCotacao(db, token, { respondente: 'Zé', email: 'xx', itens: [{ numero_item: 1, preco_unitario: '1' }] }), /E-mail inválido/);
+  const r1 = responderCotacao(db, token, { respondente: 'Zé', itens: [{ numero_item: 1, preco_unitario: '1' }] });
+  const r2 = responderCotacao(db, token, { respondente: 'Zé Vendas', email: 'ze@forn.com', frete: 'CIF', prazo_entrega_dias: '5',
+    itens: [{ numero_item: 1, preco_unitario: '20,50', marca_modelo: 'Chamex' }, { numero_item: 2, preco_unitario: '300' }] });
+  assert.equal(r2.email, 'ze@forn.com');
+  const d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.recebimentos.length, 2);
+  assert.equal(d.recebimentos[0].itens, 2);
+  assert.equal(d.recebimentos.find((x) => x.id === r1.recebimento_id).comprovante_status, 'sem_email');
+  assert.equal(cotacaoPublica(db, token).email, 'ze@forn.com');              // próximo envio já vem com o e-mail preenchido
+  const rec = recebimento(db, r2.recebimento_id);
+  assert.ok(!/Prefeitura|Sayão/.test(JSON.stringify(rec.dados)));           // comprovante também sem dados da licitação
+  const pdf = pdfComprovante(rec);
+  assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+  const bruto = pdf.toString('latin1');
+  assert.ok(bruto.includes('Comprovante de recebimento de cota\xe7\xe3o'));
+  assert.ok(bruto.includes('Chamex') && bruto.includes('Z\xe9 Vendas'));
+  // Envio com transporte falso
+  const enviados = [];
+  process.env.SMTP_URL = 'smtp://teste:segredo@localhost:25';
+  _reiniciarEmail({ sendMail: async (m) => { enviados.push(m); } });
+  try {
+    assert.equal(await enviarComprovante(db, r2.recebimento_id, { responderPara: 'ana@teste.com' }), 'enviado');
+    assert.equal(enviados[0].to, 'ze@forn.com');
+    assert.equal(enviados[0].replyTo, 'ana@teste.com');
+    assert.equal(enviados[0].attachments[0].contentType, 'application/pdf');
+    assert.ok(!/Prefeitura|Sayão/.test(enviados[0].text + enviados[0].html));
+    assert.equal(recebimento(db, r2.recebimento_id).comprovante_status, 'enviado');
+    _reiniciarEmail({ sendMail: async () => { throw new Error('falhou smtp://user:senha@host'); } });
+    assert.equal(await enviarComprovante(db, r2.recebimento_id), 'erro');
+    assert.ok(!recebimento(db, r2.recebimento_id).comprovante_erro.includes('senha'));  // erro sem credencial
+  } finally { delete process.env.SMTP_URL; _reiniciarEmail(); }
+  assert.equal(await enviarComprovante(db, r2.recebimento_id), 'sem_smtp');
+});
+
+test('painel de fornecedores: situação, taxa de resposta, prazo apertado e itens sem cotação', async () => {
+  const { painelFornecedores } = await import('../../server/services/fornecedores.js');
+  const { db, emp, outra, u, op, forn } = preparar({ encerra: new Date(Date.now() + 2 * 86400000 - 3 * 3600000).toISOString().slice(0, 19) });
+  const f2 = criarFornecedor(db, emp, { razao_social: 'Segundo' });
+  registrarPedido(db, emp, op, u, { fornecedor_id: forn, canal: 'whatsapp', itens: [1] });
+  const p2 = registrarPedido(db, emp, op, u, { fornecedor_id: f2, canal: 'email', itens: [2] });
+  mudarStatusPedido(db, emp, op, p2, 'sem_retorno');
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: f2, itens: [{ numero_item: 2, preco_unitario: '10' }] });
+  const d = painelFornecedores(db, emp, {});
+  assert.equal(d.resumo.aguardando, 1);
+  assert.equal(d.resumo.urgentes, 1);                                   // propostas em ~2 dias
+  assert.equal(d.resumo.fornecedores_ativos, 2);
+  assert.equal(d.por_fornecedor.length, 2);
+  assert.equal(d.prazo_sem_cotacao.length, 1);
+  assert.equal(d.prazo_sem_cotacao[0].sem_cotacao, 2);                  // itens 1 e 3 sem cotação
+  assert.equal(painelFornecedores(db, outra, {}).aguardando.length, 0);
 });

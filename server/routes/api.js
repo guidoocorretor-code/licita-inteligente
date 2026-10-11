@@ -1,4 +1,5 @@
 import express from 'express';
+import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
 import { getDb, transacao } from '../db/index.js';
 import { autenticar, definirCookie, limparCookie, exigirLogin, exigirPapel, auditar, criarUsuario, validarSenha, hashSenha, PAPEIS } from '../lib/auth.js';
 import { buscar, buscarTodos } from '../services/busca.js';
@@ -25,7 +26,7 @@ import { painelEmpresas } from '../services/painel-empresas.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, FORMAS_PAGAMENTO, PRAZOS_BOLETO, cotacoesDaOportunidade,
-  registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros, registrarPedido, mudarStatusPedido } from '../services/fornecedores.js';
+  registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros, registrarPedido, mudarStatusPedido, listarPedidos, painelFornecedores } from '../services/fornecedores.js';
 import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -433,6 +434,9 @@ r.post('/clientes/:id/cnaes', exigirPapel('analista'), async (req, res) => {
   } catch (e) { erro(res, e.status || 502, e.message); }
 });
 // Painel de Empresas: do edital ao dinheiro na conta, por empresa assessorada
+r.get('/painel/fornecedores', (req, res) => {
+  try { res.json(painelFornecedores(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null })); } catch (e) { falha(res, e); }
+});
 r.get('/painel/empresas', (req, res) => {
   res.json({ ...painelEmpresas(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, hoje: hojeBr(), agora: agoraBrasilia() }), fases: FASES });
 });
@@ -512,6 +516,9 @@ r.delete('/kanban/:id/cotacoes/:cid', exigirPapel('analista'), (req, res) => {
   try { if (!excluirCotacao(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.cid))) return erro(res, 404, 'Cotação não encontrada.'); res.json({ ok: true }); }
   catch (e) { falha(res, e); }
 });
+r.get('/cotacoes/pedidos', (req, res) => {
+  try { res.json(listarPedidos(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, status: String(req.query.status || 'aguardando') })); } catch (e) { falha(res, e); }
+});
 r.post('/kanban/:id/pedidos', exigirPapel('analista'), (req, res) => {
   try { res.status(201).json({ id: registrarPedido(db(), req.usuario.empresa_id, inteiro(req.params.id), req.usuario.id, req.body || {}) }); } catch (e) { falha(res, e); }
 });
@@ -521,6 +528,28 @@ r.post('/kanban/:id/links', exigirPapel('analista'), (req, res) => {
 });
 r.delete('/kanban/:id/links/:fid', exigirPapel('analista'), (req, res) => {
   try { res.json({ ok: revogarLink(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.fid)) }); } catch (e) { falha(res, e); }
+});
+// Comprovante de uma resposta recebida pelo link: baixar o PDF ou reenviar o e-mail ao fornecedor
+const recebimentoDaConta = (req) => db().prepare(`SELECT r.id FROM cotacao_recebimentos r JOIN oportunidades o ON o.id = r.oportunidade_id
+  WHERE r.id=? AND r.oportunidade_id=? AND o.empresa_id=?`).get(inteiro(req.params.rid), inteiro(req.params.id), req.usuario.empresa_id);
+r.get('/kanban/:id/recebimentos/:rid/pdf', (req, res) => {
+  const x = recebimentoDaConta(req);
+  if (!x) return erro(res, 404, 'Recebimento não encontrado.');
+  const rec = recebimento(db(), x.id);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="comprovante-cotacao-${protocolo(rec)}.pdf"`);
+  res.send(pdfComprovante(rec));
+});
+r.post('/kanban/:id/recebimentos/:rid/reenviar', exigirPapel('analista'), async (req, res) => {
+  const x = recebimentoDaConta(req);
+  if (!x) return erro(res, 404, 'Recebimento não encontrado.');
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().slice(0, 160) : null;
+  if (email) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return erro(res, 400, 'E-mail inválido.');
+    db().prepare('UPDATE cotacao_recebimentos SET email=? WHERE id=?').run(email, x.id);
+  }
+  const status = await enviarComprovante(db(), x.id, { responderPara: req.usuario.email });
+  res.json({ status, erro: status === 'erro' ? db().prepare('SELECT comprovante_erro FROM cotacao_recebimentos WHERE id=?').get(x.id).comprovante_erro : null });
 });
 r.patch('/kanban/:id/pedidos/:pid', exigirPapel('analista'), (req, res) => {
   try { mudarStatusPedido(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.pid), req.body?.status); res.json({ ok: true }); } catch (e) { falha(res, e); }

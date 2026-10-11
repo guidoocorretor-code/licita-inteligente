@@ -249,6 +249,10 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
     },
     pedidos, fornecedores_cotados: fornecedoresCotados,
     links: db.prepare('SELECT fornecedor_id, ultimo_acesso, respondido_em, expira_em, revogado FROM cotacao_links WHERE oportunidade_id=?').all(id),
+    // Respostas que chegaram pelo link, com data/hora e situação do comprovante enviado ao fornecedor
+    recebimentos: db.prepare(`SELECT r.id, r.fornecedor_id, COALESCE(f.nome_fantasia, f.razao_social) fornecedor_nome, r.recebido_em, r.respondente, r.email,
+        json_array_length(json_extract(r.dados, '$.itens')) itens, r.comprovante_status, r.comprovante_em
+      FROM cotacao_recebimentos r JOIN fornecedores f ON f.id = r.fornecedor_id WHERE r.oportunidade_id=? ORDER BY r.recebido_em DESC, r.id DESC`).all(id),
   };
 }
 const round2 = (v) => Math.round(v * 100) / 100;
@@ -374,4 +378,81 @@ export function mudarStatusPedido(db, empresaId, oportunidadeId, pedidoId, statu
   if (!['sem_retorno', 'aguardando'].includes(status)) throw erro(400, 'Situação inválida.');
   const n = db.prepare('UPDATE cotacao_pedidos SET status=? WHERE id=? AND oportunidade_id=?').run(status, pedidoId, oportunidadeId).changes;
   if (!n) throw erro(404, 'Pedido não encontrado.');
+}
+
+/**
+ * Pedidos de cotação de todas as oportunidades da conta (página "Cotações").
+ * status: aguardando | sem_retorno | respondido | todos. Com empresa em foco, só os dela.
+ */
+export function listarPedidos(db, empresaId, { clienteId = null, status = 'aguardando' } = {}) {
+  const w = ['o.empresa_id = ?']; const p = [empresaId];
+  if (clienteId) { w.push('o.cliente_id = ?'); p.push(clienteId); }
+  const contagem = { aguardando: 0, sem_retorno: 0, respondido: 0 };
+  for (const r of db.prepare(`SELECT p.status, COUNT(*) n FROM cotacao_pedidos p JOIN oportunidades o ON o.id = p.oportunidade_id WHERE ${w.join(' AND ')} GROUP BY p.status`).all(...p)) contagem[r.status] = r.n;
+  if (status !== 'todos') { w.push('p.status = ?'); p.push(['aguardando', 'sem_retorno', 'respondido'].includes(status) ? status : 'aguardando'); }
+  const pedidos = db.prepare(`SELECT p.id, p.oportunidade_id, p.fornecedor_id, p.itens, p.canal, p.status, p.enviado_em, p.respondido_em,
+      COALESCE(f.nome_fantasia, f.razao_social) fornecedor_nome, f.contato_nome, f.whatsapp, f.telefone, f.email,
+      l.id licitacao_id, l.orgao_nome, l.municipio, l.uf, l.modalidade_nome, l.numero_compra, l.ano, l.objeto, l.data_encerramento_proposta,
+      COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome, u.nome usuario_nome,
+      lk.ultimo_acesso link_acesso, lk.respondido_em link_respondido, lk.revogado link_revogado,
+      (SELECT COUNT(*) FROM licitacao_itens li WHERE li.licitacao_id = l.id) itens_licitacao
+    FROM cotacao_pedidos p JOIN oportunidades o ON o.id = p.oportunidade_id JOIN licitacoes l ON l.id = o.licitacao_id
+    JOIN fornecedores f ON f.id = p.fornecedor_id LEFT JOIN clientes cl ON cl.id = o.cliente_id LEFT JOIN usuarios u ON u.id = p.usuario_id
+    LEFT JOIN cotacao_links lk ON lk.oportunidade_id = p.oportunidade_id AND lk.fornecedor_id = p.fornecedor_id
+    WHERE ${w.join(' AND ')}
+    ORDER BY CASE p.status WHEN 'aguardando' THEN 0 WHEN 'sem_retorno' THEN 1 ELSE 2 END,
+      CASE WHEN l.data_encerramento_proposta IS NULL THEN 1 ELSE 0 END, l.data_encerramento_proposta, p.enviado_em
+    LIMIT 500`).all(...p).map((r) => ({ ...r, itens: JSON.parse(r.itens) }));
+  return { pedidos, contagem };
+}
+
+// Dias até o encerramento das propostas (horário de Brasília); null se não informado
+const diasAte = (iso, agoraMs = Date.now()) => {
+  if (!iso) return null;
+  const t = Date.parse(`${String(iso).replace(' ', 'T').slice(0, 19)}-03:00`);
+  return Number.isNaN(t) ? null : (t - agoraMs) / 86400000;
+};
+
+/**
+ * Dashboard > Fornecedores: situação dos pedidos, desempenho de cada fornecedor, cotações aguardando
+ * com o prazo das propostas e oportunidades com prazo perto e itens ainda sem cotação.
+ */
+export function painelFornecedores(db, empresaId, { clienteId = null, agoraMs = Date.now() } = {}) {
+  const w = ['o.empresa_id = ?']; const p = [empresaId];
+  if (clienteId) { w.push('o.cliente_id = ?'); p.push(clienteId); }
+  const onde = w.join(' AND ');
+  const { pedidos: aguardando, contagem } = listarPedidos(db, empresaId, { clienteId, status: 'aguardando' });
+  for (const x of aguardando) x.dias_proposta = diasAte(x.data_encerramento_proposta, agoraMs);
+  // Por fornecedor: pedidos por situação, tempo de resposta e cotações registradas
+  const porFornecedor = db.prepare(`SELECT f.id, COALESCE(f.nome_fantasia, f.razao_social) nome, f.whatsapp, f.telefone,
+      SUM(p.status='aguardando') aguardando, SUM(p.status='respondido') respondido, SUM(p.status='sem_retorno') sem_retorno, COUNT(*) pedidos,
+      AVG(CASE WHEN p.status='respondido' AND p.respondido_em IS NOT NULL THEN (julianday(p.respondido_em) - julianday(p.enviado_em)) * 24 END) horas_resposta
+    FROM cotacao_pedidos p JOIN oportunidades o ON o.id = p.oportunidade_id JOIN fornecedores f ON f.id = p.fornecedor_id
+    WHERE ${onde} GROUP BY f.id ORDER BY pedidos DESC, nome LIMIT 12`).all(...p);
+  const cotados = new Map(db.prepare(`SELECT c.fornecedor_id, COUNT(*) n, COUNT(DISTINCT c.oportunidade_id) oportunidades FROM cotacoes c JOIN oportunidades o ON o.id = c.oportunidade_id
+    WHERE ${onde} GROUP BY c.fornecedor_id`).all(...p).map((r) => [r.fornecedor_id, r]));
+  for (const f of porFornecedor) { f.itens_cotados = cotados.get(f.id)?.n || 0; f.horas_resposta = f.horas_resposta == null ? null : Math.round(f.horas_resposta * 10) / 10; }
+  const tempo = db.prepare(`SELECT AVG((julianday(p.respondido_em) - julianday(p.enviado_em)) * 24) h FROM cotacao_pedidos p JOIN oportunidades o ON o.id = p.oportunidade_id
+    WHERE ${onde} AND p.status='respondido' AND p.respondido_em IS NOT NULL`).get(...p).h;
+  // Oportunidades com propostas abertas nos próximos 7 dias e itens sem nenhuma cotação
+  const abertas = db.prepare(`SELECT o.id oportunidade_id, l.id licitacao_id, l.orgao_nome, l.modalidade_nome, l.numero_compra, l.ano, l.objeto, l.data_encerramento_proposta,
+      COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome,
+      (SELECT COUNT(*) FROM licitacao_itens li WHERE li.licitacao_id = l.id) itens,
+      (SELECT COUNT(*) FROM licitacao_itens li WHERE li.licitacao_id = l.id AND NOT EXISTS (SELECT 1 FROM cotacoes c WHERE c.oportunidade_id = o.id AND c.numero_item = li.numero_item)) sem_cotacao
+    FROM oportunidades o JOIN licitacoes l ON l.id = o.licitacao_id LEFT JOIN clientes cl ON cl.id = o.cliente_id
+    WHERE ${onde} AND l.data_encerramento_proposta IS NOT NULL`).all(...p)
+    .map((x) => ({ ...x, dias_proposta: diasAte(x.data_encerramento_proposta, agoraMs) }))
+    .filter((x) => x.dias_proposta != null && x.dias_proposta >= 0 && x.dias_proposta <= 7 && x.itens > 0 && x.sem_cotacao > 0)
+    .sort((a, b) => a.dias_proposta - b.dias_proposta);
+  const ativos = db.prepare(`SELECT COUNT(*) n FROM fornecedores WHERE empresa_id=? AND ativo=1${clienteId ? ' AND cliente_id IN (0, ?)' : ''}`).get(...(clienteId ? [empresaId, clienteId] : [empresaId])).n;
+  const respondidos = contagem.respondido; const fechados = respondidos + contagem.sem_retorno;
+  return {
+    resumo: {
+      fornecedores_ativos: ativos, ...contagem,
+      urgentes: aguardando.filter((x) => x.dias_proposta != null && x.dias_proposta <= 3).length,
+      taxa_resposta: fechados ? respondidos / fechados : null,          // só pedidos já resolvidos (respondido ou sem retorno)
+      horas_resposta: tempo == null ? null : Math.round(tempo * 10) / 10,
+    },
+    aguardando, por_fornecedor: porFornecedor, prazo_sem_cotacao: abertas,
+  };
 }

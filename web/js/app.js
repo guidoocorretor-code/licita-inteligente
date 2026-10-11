@@ -8,8 +8,9 @@ export const estado = { usuario: null, empresa: null, meta: null, clientes: [] }
 
 // Menu completo. Módulos ainda não implementados aparecem com a fase prevista e NÃO simulam funcionamento.
 const MENU = [
-  ['Principal'],
+  ['Cadastro'],
   ['empresas', 'Empresa'],
+  ['Oportunidades'],
   ['dashboard', 'Dashboard'],
   ['buscar', 'Buscar licitações'],
   ['jornal', 'Jornal de licitações'],
@@ -21,6 +22,7 @@ const MENU = [
   ['calendario', 'Calendário'],
   ['documentos', 'Vencimentos'],
   ['fornecedores', 'Fornecedores'],
+  ['cotacoes', 'Cotações', null, true],
   ['precos', 'Preços e contratos'],
   ['propostas', 'Propostas', 4],
   ['lances', 'Gestão de lances', 5],
@@ -37,7 +39,7 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacao: F.cotacao, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacoes: F.cotacoes, cotacao: F.cotacao, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {
@@ -68,9 +70,9 @@ function montarLayout() {
   const app = document.getElementById('app');
   const lateral = h('nav', { class: 'lateral', 'aria-label': 'Menu principal' },
     h('div', { class: 'marca' }, h('img', { src: '/icons/icon.svg', alt: '' }), estado.meta?.appName || 'Licita Inteligente'),
-    h('div', { class: 'menu' }, MENU.map(([id, rot, fase]) => {
-      if (!rot) return h('div', { class: 'secao' }, id);
-      return h('a', { href: `#/${id}`, 'data-rota': id, class: fase ? 'futuro' : '' }, rot, fase ? h('span', { class: 'fase', title: `Previsto para a Fase ${fase}` }, `Fase ${fase}`) : null);
+    h('div', { class: 'menu' }, MENU.map(([id, rot, fase, sub]) => {
+      if (!rot) return h('div', { class: 'secao', role: 'heading', 'aria-level': '2' }, id);
+      return h('a', { href: `#/${id}`, 'data-rota': id, class: [fase ? 'futuro' : '', sub ? 'sub' : ''].filter(Boolean).join(' ') }, rot, fase ? h('span', { class: 'fase', title: `Previsto para a Fase ${fase}` }, `Fase ${fase}`) : null);
     })));
   const busca = h('input', { type: 'search', placeholder: 'Busca rápida no objeto, órgão ou município…', 'aria-label': 'Busca global' });
   const topo = h('header', { class: 'topo' },
@@ -89,7 +91,7 @@ function montarLayout() {
 async function navegar() {
   if (!estado.usuario) return;
   const r = rotaAtual();
-  document.querySelectorAll('.menu a').forEach((a) => a.classList.toggle('ativo', a.dataset.rota === r.nome));
+  document.querySelectorAll('.menu a').forEach((a) => a.classList.toggle('ativo', a.dataset.rota === r.nome || (r.nome === 'cotacao' && a.dataset.rota === 'cotacoes')));
   const alvo = document.getElementById('conteudo');
   const pagina = ROTAS[r.nome];
   const item = MENU.find(([id]) => id === r.nome);
