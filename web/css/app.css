@@ -35,7 +35,7 @@ h3 { font-size: 1rem; margin: 0 0 8px; }
 .carregando-tela { display: grid; place-items: center; min-height: 100vh; color: var(--texto-suave); }
 
 /* Layout */
-.layout { display: grid; grid-template-columns: var(--lateral) 1fr; min-height: 100vh; }
+.layout { display: grid; grid-template-columns: var(--lateral) minmax(0, 1fr); min-height: 100vh; }
 .lateral { background: var(--cor-primaria); color: #fff; padding: 16px 10px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
 .marca { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; padding: 4px 10px 16px; }
 .marca img { width: 30px; height: 30px; }
@@ -135,9 +135,9 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
 .nao-info { color: #98a2b3; font-style: italic; }
 
 /* Kanban */
-.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 12px; }
+.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(232px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 12px; }
 .coluna-k { background: #eaeef3; border-radius: var(--raio); padding: 10px; min-height: 200px; }
-.coluna-k.sobre { outline: 2px dashed var(--info); }
+.coluna-k.sobre { outline: 2px dashed var(--info); background: var(--info-fundo); }
 .coluna-k h3 { display: flex; justify-content: space-between; font-size: .88rem; }
 .cartao-k { background: #fff; border: 1px solid var(--borda); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: grab; font-size: .86rem; box-shadow: var(--sombra); }
 .cartao-k.arrastando { opacity: .4; }
@@ -408,3 +408,21 @@ a.pe-barra:hover .rot { text-decoration: underline; }
 @container (max-width: 899px) { .pe-graficos { grid-template-columns: minmax(0, 1fr); } .pe-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pe-kpis .destaque { grid-column: 1 / -1; } }
 @container (max-width: 480px) { .pe-barra { grid-template-columns: 96px minmax(0, 1fr) 70px 18px; font-size: .78rem; } .pe-comparativo .pe-barra { grid-template-columns: 96px minmax(0, 1fr) 70px 18px; } .pe-rosca { grid-template-columns: 104px minmax(0, 1fr); } .pe-rosca-svg { width: 104px; height: 104px; } .painel-empresa { padding: 14px; } }
 .pe-nota { margin-top: 8px; }
+/* Kanban: faixa de etapas (atalho e alvo para soltar) e arrastar com mouse/dedo */
+.kanban-etapas { position: sticky; top: var(--altura-topo, 60px); z-index: 4; display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 10px; margin-bottom: 4px; background: var(--fundo); scrollbar-width: thin; }
+.chip-etapa { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); border-radius: 99px; padding: 5px 10px; font-size: .78rem; font-weight: 600; cursor: pointer; font-family: inherit; border-left: 4px solid var(--borda); }
+.chip-etapa b { background: var(--neutro-fundo); border-radius: 99px; padding: 0 7px; font-size: .74rem; }
+.chip-etapa.vazia { color: var(--texto-suave); font-weight: 500; }
+.chip-etapa.fase-disputa { border-left-color: #2a78d6; }
+.chip-etapa.fase-ganha, .chip-etapa.fase-empenho, .chip-etapa.fase-a_entregar, .chip-etapa.fase-entregue { border-left-color: #1baf7a; }
+.chip-etapa.fase-faturada { border-left-color: #eda100; }
+.chip-etapa.fase-recebida { border-left-color: #0f7a55; }
+.chip-etapa.fase-perdida { border-left-color: #eb6834; }
+.chip-etapa.sobre { background: var(--info-fundo); border-color: var(--info); color: var(--info); transform: scale(1.06); }
+.cartao-k[data-arrastavel] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.cartao-k.fantasma { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; opacity: .95; box-shadow: 0 12px 28px rgba(16, 24, 40, .28); margin: 0; cursor: grabbing; }
+body.arrastando-card, body.arrastando-card * { cursor: grabbing !important; user-select: none; }
+body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-offset: -2px; border-radius: 8px; }
+.pe-barra .preench.sem-valor { opacity: .45; background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, .6) 0 3px, transparent 3px 6px) !important; border-radius: 0; }
+.pe-barra .val.falta { color: var(--alerta); font-weight: 600; font-size: .78rem; }
+@media (min-width: 761px) { .kanban-etapas { flex-wrap: wrap; overflow-x: visible; } }

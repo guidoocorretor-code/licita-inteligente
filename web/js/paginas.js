@@ -477,12 +477,129 @@ function camposExecucao(c, fase) {
 }
 
 const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores' };
+
+// Ao mover o card para uma etapa de execução, pede os dados dessa etapa (só os que ainda estão vazios).
+// Valores sugeridos vêm do próprio card (ex.: valor da nota = valor do empenho) e só gravam se o usuário salvar.
+const hojeLocal = () => new Date().toLocaleDateString('sv-SE');
+const PEDIR_NA_ETAPA = {
+  ganha: { titulo: 'Licitação vencida', campos: [['valor_ganho', 'Valor ganho', 'valor', (c) => c.valor_proposta]] },
+  a_entregar: { titulo: 'Empenho recebido', campos: [['empenho_numero', 'Nº do empenho', 'texto'], ['empenho_valor', 'Valor empenhado', 'valor', (c) => c.valor_ganho ?? c.valor_proposta],
+    ['empenho_data', 'Data do empenho', 'data', hojeLocal], ['entrega_prazo', 'Prazo de entrega', 'data']] },
+  entregue: { titulo: 'Produto entregue / serviço executado', campos: [['entrega_data', 'Entregue em', 'data', hojeLocal]] },
+  faturada: { titulo: 'Nota fiscal emitida', campos: [['nf_numero', 'Nº da nota', 'texto'], ['nf_valor', 'Valor da nota', 'valor', (c) => c.empenho_valor ?? c.valor_ganho], ['nf_data', 'Emitida em', 'data', hojeLocal]] },
+  recebida: { titulo: 'Pagamento recebido', campos: [['recebido_valor', 'Valor recebido', 'valor', (c) => c.nf_valor], ['recebido_data', 'Recebido em', 'data', hojeLocal]] },
+};
+function pedirDadosDaEtapa(c, fase, aoSalvar) {
+  const def = PEDIR_NA_ETAPA[fase];
+  const faltam = def ? def.campos.filter(([k]) => c[k] == null || c[k] === '') : [];
+  if (!faltam.length) return false;
+  const els = {};
+  const linhas = faltam.map(([k, rot, tipo, sug]) => {
+    const v = sug ? sug(c) : null;
+    els[k] = h('input', tipo === 'data' ? { type: 'date', value: v || '' }
+      : tipo === 'valor' ? { type: 'text', inputmode: 'decimal', placeholder: 'R$ 0,00', value: fmtNum(v) } : { type: 'text', maxlength: 60 });
+    els[k].dataset.tipo = tipo;
+    return h('div', {}, h('label', {}, rot, v != null && tipo === 'valor' ? h('span', { class: 'suave pequeno' }, ' (sugerido: confira)') : null), els[k]);
+  });
+  modal(`${def.titulo}: registrar dados`, h('div', {},
+    h('p', { class: 'suave pequeno' }, c.objeto?.slice(0, 120) || ''),
+    h('div', { class: 'grade-exec' }, linhas),
+    h('p', { class: 'suave pequeno' }, 'Esses dados alimentam o Dashboard › Empresas. Pode deixar em branco e completar depois no card.')),
+  [{ texto: 'Salvar', classe: 'primario', acao: async () => {
+    const corpo = {};
+    for (const [k, e] of Object.entries(els)) {
+      let v = e.value.trim();
+      if (e.dataset.tipo === 'valor') { v = paraNumero(v); if (Number.isNaN(v)) { toast('Valor inválido: use, por exemplo, 1.234,56'); return false; } }
+      if (v != null && v !== '') corpo[k] = v;
+    }
+    if (!Object.keys(corpo).length) return true;
+    try { await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo }); toast('Dados registrados.'); aoSalvar(); }
+    catch (e) { toast(e.message, 5000); return false; }
+  } }]);
+  return true;
+}
+
+// Arrastar com o mouse ou com o dedo (segurar ~0,3 s no celular). Enquanto arrasta, o quadro rola sozinho
+// perto das bordas e a faixa de etapas no topo também aceita soltar, para não precisar rolar até a coluna.
+let ouvintesArrastar = null;
+function ativarArrastar(quadro, faixa, aoSoltar) {
+  ouvintesArrastar?.abort(); ouvintesArrastar = new AbortController();
+  const { signal } = ouvintesArrastar;
+  let arr = null; // { card, id, fantasma, dx, dy, alvo, x, y }
+  let pendente = null;
+  const alvoEm = (x, y) => document.elementFromPoint(x, y)?.closest('[data-etapa]');
+  const marcar = (el) => {
+    if (arr.alvo === el) return;
+    arr.alvo?.classList.remove('sobre'); arr.alvo = el; el?.classList.add('sobre');
+  };
+  const rolar = () => {
+    if (!arr) return;
+    const borda = 90; const f = faixa.getBoundingClientRect();
+    // Sobre a faixa de etapas (quando ela rola, no celular) rola a faixa; no resto, rola o quadro
+    const el = arr.y >= f.top && arr.y <= f.bottom ? faixa : quadro;
+    const r = el.getBoundingClientRect();
+    if (arr.x < r.left + borda) el.scrollLeft -= Math.ceil((r.left + borda - arr.x) / 6);
+    else if (arr.x > r.right - borda) el.scrollLeft += Math.ceil((arr.x - (r.right - borda)) / 6);
+    if (arr.y < 70) window.scrollBy(0, -12); else if (arr.y > window.innerHeight - 70) window.scrollBy(0, 12);
+    marcar(alvoEm(arr.x, arr.y));
+    requestAnimationFrame(rolar);
+  };
+  const comecar = (card, x, y) => {
+    const r = card.getBoundingClientRect();
+    const fantasma = card.cloneNode(true);
+    fantasma.classList.add('fantasma'); fantasma.style.width = `${r.width}px`;
+    document.body.append(fantasma);
+    card.classList.add('arrastando'); document.body.classList.add('arrastando-card');
+    arr = { card, id: card.dataset.id, origem: card.closest('[data-etapa]').dataset.etapa, fantasma, dx: x - r.left, dy: y - r.top, alvo: null, x, y };
+    mover(x, y); requestAnimationFrame(rolar);
+  };
+  const mover = (x, y) => { arr.x = x; arr.y = y; arr.fantasma.style.transform = `translate(${x - arr.dx}px, ${y - arr.dy}px) rotate(2deg)`; };
+  const terminar = (soltar) => {
+    if (pendente) { clearTimeout(pendente.timer); pendente = null; }
+    if (!arr) return;
+    const { card, id, alvo, origem, fantasma } = arr;
+    fantasma.remove(); card.classList.remove('arrastando'); document.body.classList.remove('arrastando-card'); alvo?.classList.remove('sobre');
+    arr = null;
+    card.dataset.arrastou = '1'; setTimeout(() => { delete card.dataset.arrastou; }, 50);
+    if (soltar && alvo && alvo.dataset.etapa !== origem) aoSoltar(id, alvo.dataset.etapa);
+  };
+  quadro.addEventListener('pointerdown', (e) => {
+    const card = e.target.closest('.cartao-k[data-arrastavel]');
+    if (!card || e.button > 0 || e.target.closest('select, button, a, input')) return;
+    const toque = e.pointerType !== 'mouse';
+    pendente = { card, x: e.clientX, y: e.clientY, toque, pronto: !toque };
+    if (toque) pendente.timer = setTimeout(() => { if (pendente) { pendente.pronto = true; navigator.vibrate?.(15); comecar(card, pendente.x, pendente.y); } }, 300);
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (arr) { mover(e.clientX, e.clientY); return; }
+    if (!pendente) return;
+    const longe = Math.hypot(e.clientX - pendente.x, e.clientY - pendente.y) > 8;
+    if (pendente.toque) { if (longe) { clearTimeout(pendente.timer); pendente = null; } return; } // rolou a tela: não é arrasto
+    if (longe) { const p = pendente; pendente = null; comecar(p.card, p.x, p.y); mover(e.clientX, e.clientY); }
+  }, { signal });
+  window.addEventListener('pointerup', () => terminar(true), { signal });
+  window.addEventListener('pointercancel', () => terminar(false), { signal });
+  // No celular, impede a página de rolar enquanto o card está sendo arrastado
+  document.addEventListener('touchmove', (e) => { if (arr) e.preventDefault(); }, { passive: false, signal });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') terminar(false); }, { signal });
+  faixa.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-etapa]'); if (!chip) return;
+    quadro.querySelector(`.coluna-k[data-etapa="${chip.dataset.etapa}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+  });
+}
+let rolagemKanban = 0;
+
 export async function kanban(alvo, _r, est) {
-  render(alvo, carregando());
+  if (!alvo.querySelector('.kanban')) render(alvo, carregando());
   const k = await api('/kanban');
+  const recarregar = () => { rolagemKanban = document.querySelector('.kanban')?.scrollLeft || 0; kanban(alvo, _r, est); };
   const mover = async (cardId, etapaId) => {
-    try { await api(`/kanban/${cardId}`, { metodo: 'PATCH', corpo: { etapa_id: Number(etapaId) } }); kanban(alvo, _r, est); }
-    catch (e) { toast(e.message); }
+    try {
+      await api(`/kanban/${cardId}`, { metodo: 'PATCH', corpo: { etapa_id: Number(etapaId) } });
+      const c = k.cards.find((x) => String(x.id) === String(cardId)); const et = k.etapas.find((e) => String(e.id) === String(etapaId));
+      recarregar();
+      if (c && et) pedirDadosDaEtapa(c, et.fase, recarregar);
+    } catch (e) { toast(e.message); }
   };
   // Clique em "🏢 Sem empresa" (ou no nome da empresa) para vincular a oportunidade a uma empresa cadastrada
   const vincularEmpresa = (c) => {
@@ -494,7 +611,7 @@ export async function kanban(alvo, _r, est) {
       h('div', { class: 'campo' }, h('label', {}, 'Empresa que vai disputar esta licitação'), sel),
       h('p', { class: 'pequeno suave' }, 'A oportunidade passa a aparecer no Kanban dessa empresa (seletor no topo). O histórico registra a troca.')),
     [{ texto: 'Vincular', classe: 'primario', acao: async () => {
-      try { await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { cliente_id: Number(sel.value) } }); toast('Empresa vinculada.'); kanban(alvo, _r, est); }
+      try { await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { cliente_id: Number(sel.value) } }); toast('Empresa vinculada.'); recarregar(); }
       catch (e) { toast(e.message); return false; }
     } }]);
   };
@@ -517,12 +634,12 @@ export async function kanban(alvo, _r, est) {
         try {
           await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { responsavel_id: resp.value ? Number(resp.value) : null, prazo_interno: prazo.value || null, ...execucao.ler() } });
           if (txt.value.trim()) await api(`/kanban/${c.id}/comentarios`, { metodo: 'POST', corpo: { texto: txt.value.trim() } });
-          kanban(alvo, _r, est);
+          recarregar();
         } catch (e) { toast(e.message); return false; }
       } },
       ...(est.usuario.papel !== 'analista' ? [{ texto: 'Remover do Kanban', classe: 'perigo', acao: async () => {
         if (!confirmar('Remover esta oportunidade do Kanban?')) return false;
-        await api(`/kanban/${c.id}`, { metodo: 'DELETE' }); kanban(alvo, _r, est);
+        await api(`/kanban/${c.id}`, { metodo: 'DELETE' }); recarregar();
       } }] : []),
     ] : []);
   };
@@ -531,7 +648,7 @@ export async function kanban(alvo, _r, est) {
     const col = h('div', { class: 'coluna-k', 'data-etapa': et.id },
       h('h3', {}, h('span', {}, et.nome), h('span', { class: 'etiqueta' }, k.cards.filter((c) => c.etapa_id === et.id).length)),
       k.cards.filter((c) => c.etapa_id === et.id).map((c) => {
-        const card = h('div', { class: 'cartao-k', draggable: podeEditar(est) ? 'true' : 'false', 'data-id': c.id },
+        const card = h('div', { class: 'cartao-k', 'data-id': c.id, 'data-arrastavel': podeEditar(est) ? '1' : null, title: podeEditar(est) ? 'Clique para abrir · segure e arraste para mudar de etapa' : null },
           h('div', { class: 't' }, c.objeto || '—'),
           h('div', { class: 'suave' }, c.orgao_nome || ''),
           h('div', { class: 'linha', style: { marginTop: '6px' } }, etiquetaStatus(c.status_calculado, est.meta),
@@ -544,20 +661,23 @@ export async function kanban(alvo, _r, est) {
             : h('div', { class: 'etiqueta empresa', style: { marginTop: '6px' } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`)) : null,
           podeEditar(est) ? h('select', { 'aria-label': 'Mover para', onclick: (e) => e.stopPropagation(), onchange: (e) => mover(c.id, e.target.value) },
             k.etapas.map((e2) => h('option', { value: e2.id, selected: e2.id === c.etapa_id }, `Mover: ${e2.nome}`))) : null);
-        card.addEventListener('click', () => abrir(c));
-        card.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', String(c.id)); card.classList.add('arrastando'); });
-        card.addEventListener('dragend', () => card.classList.remove('arrastando'));
+        card.addEventListener('click', () => { if (!card.dataset.arrastou) abrir(c); });
         return card;
       }));
-    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('sobre'); });
-    col.addEventListener('dragleave', () => col.classList.remove('sobre'));
-    col.addEventListener('drop', (e) => { e.preventDefault(); col.classList.remove('sobre'); const id = e.dataTransfer.getData('text/plain'); if (id) mover(id, et.id); });
     return col;
   });
+  const qtd = (id) => k.cards.filter((c) => c.etapa_id === id).length;
+  const faixa = h('div', { class: 'kanban-etapas', title: 'Clique para ir até a etapa · solte um card aqui para movê-lo' },
+    k.etapas.map((et) => h('button', { type: 'button', class: `chip-etapa fase-${et.fase || 'outra'}${qtd(et.id) ? '' : ' vazia'}`, 'data-etapa': et.id }, et.nome, h('b', {}, qtd(et.id)))));
+  const quadro = h('div', { class: 'kanban' }, colunas);
+  if (podeEditar(est)) ativarArrastar(quadro, faixa, mover);
+  else faixa.addEventListener('click', (e) => { const ch = e.target.closest('[data-etapa]'); if (ch) quadro.querySelector(`.coluna-k[data-etapa="${ch.dataset.etapa}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' }); });
   render(alvo, cabecalho('Kanban de oportunidades', 'Etapas internas da sua empresa. A situação oficial da licitação aparece na etiqueta e é independente da etapa.'),
     avisoEmpresa(est, 'Cards'),
     k.cards.length ? null : h('div', { class: 'aviso azul' }, 'Nenhuma oportunidade ainda. Abra uma licitação e clique em "+ Acompanhar no Kanban".'),
-    h('div', { class: 'kanban' }, colunas));
+    faixa, quadro);
+  quadro.scrollLeft = rolagemKanban; rolagemKanban = 0;
+  document.documentElement.style.setProperty('--altura-topo', `${document.querySelector('.topo')?.offsetHeight || 60}px`);
 }
 
 // ============================ CALENDÁRIO (Fase 3) ============================
