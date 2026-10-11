@@ -498,6 +498,8 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .faixa-governo .copiar:hover { background: #fdf1d0; }
 .faixa-governo .valor-copiar { font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--texto); }
 .faixa-governo .icone-copiar { font-size: .85rem; }
+.faixa-governo .sem-uasg { font-size: .82rem; color: var(--texto-suave); font-style: italic; }
+.faixa-governo .ir-sistema { margin-left: auto; font-weight: 600; }
 
 /* Fase 4 · Proposta de preços */
 .rolagem-x { overflow-x: auto; }

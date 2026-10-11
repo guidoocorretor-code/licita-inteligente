@@ -66,7 +66,7 @@ export function propostaDaOportunidade(db, empresaId, oportunidadeId) {
   const op = c.oportunidade;
   const cliente = op.cliente_id ? db.prepare(`SELECT id, cnpj, razao_social, nome_fantasia, porte, uf, municipio, email, telefone, resp_nome, resp_cargo, resp_cpf,
       endereco, cep, banco, agencia, conta FROM clientes WHERE id=? AND empresa_id=?`).get(op.cliente_id, empresaId) : null;
-  const lic = db.prepare('SELECT unidade_codigo, link_origem, sistema_eletronico, modalidade_nome, numero_compra, ano, processo, orgao_cnpj, unidade_nome FROM licitacoes WHERE id=?').get(op.licitacao_id);
+  const lic = db.prepare('SELECT unidade_codigo, link_origem, sistema_eletronico, plataforma_origem, modalidade_nome, numero_compra, ano, processo, orgao_cnpj, unidade_nome FROM licitacoes WHERE id=?').get(op.licitacao_id);
   const p = db.prepare('SELECT * FROM propostas WHERE oportunidade_id=?').get(op.id);
   const gravados = new Map(p ? db.prepare('SELECT * FROM proposta_itens WHERE proposta_id=?').all(p.id).map((i) => [i.numero_item, i]) : []);
   const imp = c.parametros.impostos_pct;
@@ -95,7 +95,7 @@ export function propostaDaOportunidade(db, empresaId, oportunidadeId) {
   return {
     oportunidade: { id: op.id, licitacao_id: op.licitacao_id, objeto: op.objeto, orgao_nome: op.orgao_nome, unidade_nome: lic.unidade_nome, municipio: op.municipio, uf: op.uf,
       modalidade_nome: lic.modalidade_nome, numero_compra: lic.numero_compra, ano: lic.ano, processo: lic.processo, data_encerramento_proposta: op.data_encerramento_proposta,
-      link_origem: lic.link_origem, unidade_codigo: lic.unidade_codigo, sistema_eletronico: lic.sistema_eletronico, link_pncp: op.link_pncp },
+      link_origem: lic.link_origem, unidade_codigo: lic.unidade_codigo, sistema_eletronico: lic.sistema_eletronico, plataforma_origem: lic.plataforma_origem, link_pncp: op.link_pncp },
     cliente,
     impostos_pct: imp,
     proposta: p ? { ...p, declaracoes: lerJson(p.declaracoes, []) } : {
@@ -167,7 +167,7 @@ export function listarPropostas(db, empresaId, { clienteId = null, status = 'tod
   for (const r of db.prepare(`SELECT pr.status, COUNT(*) n FROM propostas pr JOIN oportunidades o ON o.id = pr.oportunidade_id WHERE ${w.join(' AND ')} GROUP BY pr.status`).all(...p)) contagem[r.status] = r.n;
   if (STATUS_PROPOSTA[status]) { w.push('pr.status = ?'); p.push(status); }
   const propostas = db.prepare(`SELECT pr.id, pr.oportunidade_id, pr.status, pr.enviada_em, pr.atualizado_em, l.id licitacao_id, l.orgao_nome, l.modalidade_nome, l.numero_compra, l.ano,
-      l.objeto, l.data_encerramento_proposta, l.link_origem, l.unidade_codigo, l.sistema_eletronico, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome,
+      l.objeto, l.data_encerramento_proposta, l.link_origem, l.unidade_codigo, l.sistema_eletronico, l.plataforma_origem, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome,
       (SELECT COUNT(*) FROM proposta_itens pi WHERE pi.proposta_id = pr.id AND pi.incluir = 1) itens,
       (SELECT SUM(pi.preco_unitario * li.quantidade) FROM proposta_itens pi JOIN licitacao_itens li ON li.licitacao_id = l.id AND li.numero_item = pi.numero_item
         WHERE pi.proposta_id = pr.id AND pi.incluir = 1) total,

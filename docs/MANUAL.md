@@ -86,8 +86,10 @@ Aba ao lado de "Empresas": pedidos aguardando retorno, prazo apertado (propostas
 Seções destacadas: **Cadastro** (Empresa), **Oportunidades** (Dashboard, buscas, Kanban, alertas), **Gestão**, **Inteligência** e **Administração**.
 
 ## UASG e número para o sistema do governo
-
-Em Buscar licitações, no detalhe da licitação e ao abrir o card do Kanban aparece uma faixa amarela com **UASG** e **nº da dispensa/pregão**. Um clique copia o valor para colar no Compras.gov.br. A UASG vem do código da compra no link do Compras.gov.br (UASG + modalidade + número + ano); quando a licitação está em outro sistema (BLL, Licitanet, Portal de Compras Públicas…), não existe UASG e só o número aparece.
+A faixa amarela (busca, detalhe, Kanban e proposta) mostra, nesta ordem:
+- **Nº da dispensa/pregão/concorrência** com 📋 para copiar.
+- **UASG** com 📋, só no Compras.gov.br. Nos outros sistemas aparece "não se aplica", porque a UASG é um código exclusivo do Compras.gov.br.
+- **Ir para o sistema da disputa ↗**: abre o processo pelo link que o PNCP informa. Sem esse link, abre a página do sistema identificado (ex.: BLL, BNC). Quando o PNCP só informa quem publicou (ex.: sistemas de gestão da prefeitura), a faixa diz "confira no edital", porque a plataforma da disputa está no edital.
 
 ## Proposta de preços (Fase 4)
 Na cotação da oportunidade, clique em **📝 Montar proposta** (ou menu Gestão > **Propostas**).

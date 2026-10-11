@@ -144,7 +144,6 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
       faixaGoverno(l, { compacta: true }),
       h('div', { class: 'ficha' },
         campoFicha('Modalidade', l.modalidade_nome || naoInformado()),
-        campoFicha('Número', l.numero_compra ? `${l.numero_compra}/${l.ano ?? ''}` : naoInformado()),
         campoFicha('Publicação', dataOuNao(l.data_publicacao, false)),
         campoFicha('Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : 'destaque' }),
         campoFicha('Sistema eletrônico', nomeSistema(l, est.meta), { classe: classeSistema(l, est.meta), title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
@@ -167,8 +166,7 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
       prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela'), title: 'Tempo restante para envio de propostas' }, `⏱ faltam ${prazo}`) : null,
       h('div', { class: 'linha' },
         aoFavoritar ? h('button', { class: 'btn pequeno', title: 'Favoritar', onclick: () => aoFavoritar(l) }, '☆') : null,
-        l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null,
-        l.link_origem ? h('a', { class: 'btn pequeno', href: l.link_origem, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no sistema de origem' }, 'Edital ↗') : null)));
+        l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null)));
 }
 
 // A busca nos itens só alcança licitações cujos itens já foram baixados do PNCP: dizer isso, sem esconder
