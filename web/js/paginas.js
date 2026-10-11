@@ -120,6 +120,15 @@ const INDICADORES_CAPAG = [['ind1', 'nota1', 'Endividamento', 'Dívida em relaç
 const campoFicha = (rotulo, valor, extra = {}) => h('div', { class: 'campo-ficha' + (extra.classe ? ' ' + extra.classe : ''), title: extra.title || '' },
   h('span', { class: 'rotulo' }, rotulo), h('span', { class: 'valor' }, valor));
 
+// Credenciamento: preço fixado pelo órgão, sem disputa, e edital aberto por meses (Lei 14.133, art. 79).
+// "Prazo longo" quando o recebimento de propostas dura mais de 60 dias.
+function seloCredenciamento(l) {
+  const dias = l.data_abertura_proposta && l.data_encerramento_proposta
+    ? (Date.parse(l.data_encerramento_proposta) - Date.parse(l.data_abertura_proposta)) / 86400000 : null;
+  return h('span', { class: 'etiqueta credenc', title: 'Credenciamento (Lei 14.133/2021, art. 79): o órgão fixa o preço, não há disputa de lances e credencia todos que cumprirem o edital. O edital fica aberto para novos interessados, por isso o prazo costuma ser longo. Ser credenciado não garante volume de serviço.' },
+    dias != null && dias > 60 ? 'Credenciamento · prazo longo' : 'Credenciamento');
+}
+
 function linhaLicitacao(l, est, { aoFavoritar } = {}) {
   const prazo = prazoRestante(l.data_encerramento_proposta);
   const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
@@ -142,7 +151,8 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
           ? h('span', { class: 'capag-curta' }, seloCapag(l.capag), h('span', { class: 'capag-palavra' }, PALAVRA_CAPAG[l.capag[0]])) : seloCapag(null, { longo: true }),
           { classe: l.capag ? `capag-${l.capag[0].toLowerCase()}` : '', title: l.capag ? `Nota CAPAG ${l.capag}: ${textoNotaCapag[l.capag[0]]}. Fonte: Tesouro Nacional.` : 'Sem nota CAPAG' })),
       avisoSistema(l, est.meta),
-      (l.segmento || l.me_epp_exclusivo === 1) ? h('div', { class: 'linha etiquetas-lic' },
+      (l.segmento || l.me_epp_exclusivo === 1 || l.credenciamento === 1) ? h('div', { class: 'linha etiquetas-lic' },
+        l.credenciamento === 1 ? seloCredenciamento(l) : null,
         l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
         l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null) : null,
       itens.length ? h('details', { class: 'itens-achados' },
@@ -196,6 +206,7 @@ export async function buscar(alvo, rota, est) {
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
       campo('Esfera', sel('esfera', Object.entries(ESF))),
       campo('Modalidade', sel('modalidade', Object.entries(meta.modalidades), 'Todas')),
+      campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar')),
       campo('Segmento (estimado)', sel('segmento', meta.segmentos.map((s) => [s, s]))),
       campo('Sistema eletrônico', sel('sistema', Object.entries(meta.sistemas || {}).map(([k, x]) => [k, `${x.nome}${x.custo === 'pago' ? ' · pago' : x.custo === 'gratuito' ? ' · gratuito' : ''}`]), 'Todos')),
       campo('Pagômetro (CAPAG)', sel('capag', [['A,B', 'Só A e B (contas saudáveis)'], ['A', 'Só A'], ['B', 'Só B'], ['C', 'Só C'], ['D', 'Só D'], ['sem', 'Sem nota / federal']], 'Todas')),

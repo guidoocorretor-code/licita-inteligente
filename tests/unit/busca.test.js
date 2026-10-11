@@ -106,3 +106,19 @@ test('períodos: abertura da sessão nos próximos 7/15/30 dias e publicadas nos
   assert.equal(conta({ sessao_dias: '9' }), 5);    // período fora da lista é ignorado
   assert.equal(conta({ publicadas_dias: '7' }), 3); // publicadas desde 03/10
 });
+
+test('credenciamentos: esconder, mostrar só eles e marcar no resultado', () => {
+  const db = bancoMemoria(); popular(db);
+  const ids = db.prepare('SELECT id FROM licitacoes ORDER BY id').all().map((r) => r.id);
+  db.prepare("UPDATE licitacoes SET modalidade_id = 12, modalidade_nome = 'Credenciamento' WHERE id = ?").run(ids[0]);
+  // Publicado como inexigibilidade, mas com amparo no art. 79 da Lei 14.133 (credenciamento)
+  db.prepare("UPDATE licitacoes SET modalidade_id = 9, amparo_legal = 'Lei 14.133/2021, Art. 79, II' WHERE id = ?").run(ids[1]);
+  // Art. 74 não é credenciamento; amparo nulo não pode sumir ao esconder
+  db.prepare("UPDATE licitacoes SET modalidade_id = 9, amparo_legal = 'Lei 14.133/2021, Art. 74, I' WHERE id = ?").run(ids[2]);
+  db.prepare('UPDATE licitacoes SET amparo_legal = NULL WHERE id = ?').run(ids[3]);
+  assert.equal(buscar(db, { credenciamento: 'so' }).total, 2);
+  assert.equal(buscar(db, { credenciamento: 'ocultar' }).total, 3);
+  assert.equal(buscar(db, {}).total, 5);
+  const marcados = buscar(db, {}).dados.filter((d) => d.credenciamento === 1).map((d) => d.id).sort();
+  assert.deepEqual(marcados, [ids[0], ids[1]].sort());
+});
