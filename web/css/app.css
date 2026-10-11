@@ -292,3 +292,7 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 
 .capag-curta { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .capag-palavra { font-size: .85rem; color: var(--texto-suave); font-weight: 600; }
+.etiqueta.empresa.clicavel { border: 1px dashed transparent; cursor: pointer; font-family: inherit; font-size: .75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+.etiqueta.empresa.clicavel:hover, .etiqueta.empresa.clicavel:focus-visible { border-color: #7c3aed; background: #ddd6fe; }
+.etiqueta.empresa.clicavel.sem { border-color: #a78bfa; }
+.etiqueta.empresa .acao-vinc { font-weight: 700; color: #6d28d9; }

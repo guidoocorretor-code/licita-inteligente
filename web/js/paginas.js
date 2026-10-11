@@ -431,13 +431,27 @@ export async function favoritos(alvo, _r, est) {
 }
 
 // ============================ KANBAN ============================
-const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno' };
+const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada' };
 export async function kanban(alvo, _r, est) {
   render(alvo, carregando());
   const k = await api('/kanban');
   const mover = async (cardId, etapaId) => {
     try { await api(`/kanban/${cardId}`, { metodo: 'PATCH', corpo: { etapa_id: Number(etapaId) } }); kanban(alvo, _r, est); }
     catch (e) { toast(e.message); }
+  };
+  // Clique em "🏢 Sem empresa" (ou no nome da empresa) para vincular a oportunidade a uma empresa cadastrada
+  const vincularEmpresa = (c) => {
+    const ativos = est.clientes.filter((cl) => cl.ativo || cl.id === c.cliente_id);
+    const sel = h('select', {}, h('option', { value: '0' }, 'Sem empresa'),
+      ativos.map((cl) => h('option', { value: cl.id, selected: cl.id === c.cliente_id }, cl.nome_fantasia || cl.razao_social)));
+    modal('Vincular empresa', h('div', {},
+      h('p', { class: 'suave' }, c.objeto?.slice(0, 140) || ''),
+      h('div', { class: 'campo' }, h('label', {}, 'Empresa que vai disputar esta licitação'), sel),
+      h('p', { class: 'pequeno suave' }, 'A oportunidade passa a aparecer no Kanban dessa empresa (seletor no topo). O histórico registra a troca.')),
+    [{ texto: 'Vincular', classe: 'primario', acao: async () => {
+      try { await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { cliente_id: Number(sel.value) } }); toast('Empresa vinculada.'); kanban(alvo, _r, est); }
+      catch (e) { toast(e.message); return false; }
+    } }]);
   };
   const abrir = async (c) => {
     const hist = await api(`/kanban/${c.id}/historico`);
@@ -476,7 +490,10 @@ export async function kanban(alvo, _r, est) {
           h('div', { class: 'linha', style: { marginTop: '6px' } }, etiquetaStatus(c.status_calculado, est.meta),
             c.data_encerramento_proposta ? h('span', { class: 'suave' }, `até ${data(c.data_encerramento_proposta)}`) : null),
           c.responsavel_nome ? h('div', { class: 'suave' }, `👤 ${c.responsavel_nome}`) : null,
-          !clienteSelecionado() && est.clientes?.length ? h('div', { class: 'etiqueta empresa', style: { marginTop: '6px' } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`) : null,
+          !clienteSelecionado() && est.clientes?.length ? (podeEditar(est)
+            ? h('button', { type: 'button', class: 'etiqueta empresa clicavel' + (c.cliente_nome ? '' : ' sem'), style: { marginTop: '6px' }, title: c.cliente_nome ? 'Trocar a empresa vinculada' : 'Clique para vincular uma empresa',
+              onclick: (e) => { e.stopPropagation(); vincularEmpresa(c); } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`, h('span', { class: 'acao-vinc' }, c.cliente_nome ? '✎' : '· vincular'))
+            : h('div', { class: 'etiqueta empresa', style: { marginTop: '6px' } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`)) : null,
           podeEditar(est) ? h('select', { 'aria-label': 'Mover para', onclick: (e) => e.stopPropagation(), onchange: (e) => mover(c.id, e.target.value) },
             k.etapas.map((e2) => h('option', { value: e2.id, selected: e2.id === c.etapa_id }, `Mover: ${e2.nome}`))) : null);
         card.addEventListener('click', () => abrir(c));

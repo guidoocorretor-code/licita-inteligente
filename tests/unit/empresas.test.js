@@ -153,6 +153,22 @@ test('empresa selecionada: Kanban, favoritos e alertas só dela; a mesma licita�
   const depois = (await g.json('/kanban')).corpo.cards;
   assert.equal(depois.length, 3);
   assert.equal(depois.filter((c) => c.cliente_id === 0).length, 2);
+
+  // Card "Sem empresa" pode ser vinculado a uma empresa cadastrada
+  const semB = depois.find((c) => c.cliente_id === 0 && c.licitacao_id === licB);
+  const semA = depois.find((c) => c.cliente_id === 0 && c.licitacao_id === licA);
+  assert.equal((await g.json(`/kanban/${semB.id}`, { method: 'PATCH', body: JSON.stringify({ cliente_id: alfa }) })).status, 200);
+  assert.equal((await g.json('/kanban', {}, alfa)).corpo.cards.length, 2);
+  const hist = (await g.json(`/kanban/${semB.id}/historico`)).corpo;
+  assert.ok(hist.some((x) => x.tipo === 'empresa'));
+  // A Alfa já tem essa licitação no Kanban: não duplica
+  const dup = await g.json(`/kanban/${semA.id}`, { method: 'PATCH', body: JSON.stringify({ cliente_id: alfa }) });
+  assert.equal(dup.status, 409); assert.match(dup.corpo.erro, /já está no Kanban/);
+  // Empresa que não existe (ou de outra conta) é recusada
+  assert.equal((await g.json(`/kanban/${semA.id}`, { method: 'PATCH', body: JSON.stringify({ cliente_id: 999999 }) })).status, 400);
+  // Desvincular volta para "Sem empresa"
+  assert.equal((await g.json(`/kanban/${semB.id}`, { method: 'PATCH', body: JSON.stringify({ cliente_id: 0 }) })).status, 200);
+  assert.equal((await g.json('/kanban', {}, alfa)).corpo.cards.length, 1);
 });
 
 test('avisos de vencimento: 30, 15, 7 dias e vencido, uma vez cada, só para a conta dona', () => {
