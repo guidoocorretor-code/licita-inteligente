@@ -43,6 +43,8 @@ h3 { font-size: 1rem; margin: 0 0 8px; }
 .menu a:hover { background: rgba(255,255,255,.08); color: #fff; }
 .menu a.ativo { background: rgba(255,255,255,.16); color: #fff; font-weight: 600; }
 .menu a.futuro { opacity: .55; }
+.menu a.sub { padding-left: 26px; font-size: .88rem; justify-content: flex-start; }
+.menu a.sub::before { content: ''; width: 6px; height: 6px; border-left: 1px solid rgba(255,255,255,.4); border-bottom: 1px solid rgba(255,255,255,.4); margin-right: 8px; flex: none; }
 .menu .fase { font-size: .7rem; background: rgba(255,255,255,.15); border-radius: 99px; padding: 1px 7px; }
 .menu .secao { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #9db6d3; padding: 14px 12px 4px; }
 .principal { min-width: 0; }
@@ -462,3 +464,12 @@ body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-o
 textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .item-pedido .etiqueta { margin-left: 6px; }
 .resultado-tributos { margin-top: 6px; }
+
+/* Pedido de cotação: trechos da descrição que citam a licitação */
+.aviso-local ul { margin: 6px 0; padding-left: 18px; }
+.aviso-local mark { background: #fde68a; color: #111; font-weight: 700; padding: 0 2px; border-radius: 3px; }
+.aviso-local .opcao-check { display: inline-flex; gap: 6px; align-items: center; margin: 4px 0; font-weight: 600; }
+
+/* Página Cotações (pedidos de todas as oportunidades) */
+.lista-pedidos-cotacao { display: grid; gap: 12px; }
+.pedido-cotacao .objeto-curto { margin-top: 2px; }

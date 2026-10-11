@@ -2,6 +2,7 @@
 // Nada é enviado sozinho: o pedido de cotação é um texto que o usuário copia ou abre no WhatsApp/e-mail.
 import { api, qs } from './api.js';
 import { REGIMES, ANEXOS_SIMPLES, PRESUMIDO, calcularTributos } from './tributos.js';
+import { trechosSensiveis, destacarTrechos, removerTrechos } from './sigilo.js';
 import { h, toast, carregando, vazio, confirmar, modal, render, data, dataUtc, naoInformado, moeda } from './ui.js';
 
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
@@ -203,11 +204,12 @@ const SITUACAO = {
 const qtdTexto = (i) => (i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || 'un.'}` : 'a confirmar');
 const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
 
-// Mensagem do pedido. formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
 // Mensagem do pedido. Leva só a descrição dos itens: nada de órgão, número, cidade ou data da licitação,
 // para o fornecedor não descobrir a disputa e entrar nela como concorrente.
 // formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
-function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', link = null) {
+// A descrição vem do edital e às vezes cita órgão/cidade/convênio: no WhatsApp esses trechos vão em negrito
+// (para o usuário lembrar de apagar) ou saem da mensagem se tirarLocal estiver marcado.
+function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', link = null, tirarLocal = false) {
   const op = d.oportunidade;
   const itens = d.itens.filter((i) => numeros.includes(i.numero_item));
   const t = (s) => (formato === 'whatsapp' ? `*${s}*` : s);
@@ -226,7 +228,10 @@ function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', li
     sep,
   ];
   itens.forEach((i, n) => {
-    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', (i.descricao || '(sem descrição)').trim());
+    const desc = (i.descricao || '(sem descrição)').trim();
+    const tr = trechosSensiveis(desc, op);
+    const texto = tirarLocal ? removerTrechos(desc, tr) : formato === 'whatsapp' ? destacarTrechos(desc, tr, '*') : desc;
+    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', texto);
     if (formato === 'email' && n < itens.length - 1) linhas.push('');
   });
   linhas.push('', sep,
@@ -276,6 +281,9 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
   const texto = h('textarea', { rows: 14, readonly: true, class: 'texto-pedido' });
   // Link para o fornecedor responder online: um por fornecedor nesta oportunidade (o mesmo link serve para reenvios)
   const comLink = h('input', { type: 'checkbox', checked: true, onchange: () => buscarLink() });
+  // Trechos da descrição que citam órgão, cidade, convênio ou processo (o fornecedor não pode saber da licitação)
+  const tirarLocal = h('input', { type: 'checkbox', onchange: () => atualizar() });
+  const avisoLocal = h('div');
   const urls = new Map(); // fornecedor_id -> url
   const sincronizarLink = async (f) => {
     const x = await api(`/kanban/${d.oportunidade.id}/links`, { metodo: 'POST', corpo: { fornecedor_id: f.id, itens: marcados() } });
@@ -301,14 +309,22 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
     const f = atual(); const numeros = marcados();
     contagem.textContent = `${numeros.length} de ${d.itens.length} marcado(s)`;
     if (!numeros.length) {
-      texto.value = '';
+      texto.value = ''; render(avisoLocal);
       return render(links, h('div', { class: 'aviso amarelo pequeno' }, 'Marque pelo menos um item para montar a mensagem.'));
     }
     const link = comLink.checked ? urls.get(f.id) || null : null;
     if (comLink.checked && !link && !buscando) setTimeout(buscarLink, 0);
-    texto.value = textoPedido(d, f, numeros, formato.value, assinatura, link);
-    const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura, link);
-    const msgEmail = textoPedido(d, f, numeros, 'email', assinatura, link);
+    const achados = d.itens.filter((i) => numeros.includes(i.numero_item))
+      .map((i) => [i.numero_item, trechosSensiveis(i.descricao, d.oportunidade).map((x) => x.texto)]).filter(([, l]) => l.length);
+    render(avisoLocal, achados.length ? h('div', { class: `aviso ${tirarLocal.checked ? 'verde' : 'amarelo'} pequeno aviso-local` },
+      h('strong', {}, tirarLocal.checked ? '✓ Trechos que citam a licitação foram tirados da mensagem.' : '⚠ A descrição cita a licitação. Apague antes de enviar:'),
+      h('ul', {}, achados.map(([n, l]) => h('li', {}, `Item ${n}: `, l.map((x, k) => [k ? ' · ' : '', h('mark', {}, x)])))),
+      h('label', { class: 'opcao-check' }, tirarLocal, ' Tirar esses trechos da mensagem'),
+      tirarLocal.checked ? null : h('div', { class: 'suave' }, 'No WhatsApp eles vão em negrito para você achar fácil. Confira também se sobrou algum nome de cidade ou órgão que o sistema não reconheceu.'))
+      : null);
+    texto.value = textoPedido(d, f, numeros, formato.value, assinatura, link, tirarLocal.checked);
+    const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura, link, tirarLocal.checked);
+    const msgEmail = textoPedido(d, f, numeros, 'email', assinatura, link, tirarLocal.checked);
     const w = zap(f.whatsapp || f.telefone, msgZap);
     const assunto = ['Pedido de cotação', d.oportunidade.cliente_nome].filter(Boolean).join(' – '); // sem órgão/licitação no assunto
     // Alguns programas de e-mail cortam links mailto longos: acima do limite, o corpo vai pela área de transferência
@@ -347,6 +363,7 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
       h('button', { type: 'button', class: 'btn pequeno', onclick: () => todos(true) }, 'Marcar todos'), ' ',
       h('button', { type: 'button', class: 'btn pequeno', onclick: () => todos(false) }, 'Nenhum')), lista),
     h('label', { class: 'opcao-check', style: { marginBottom: '8px' } }, comLink, ' Incluir link para o fornecedor responder online (a resposta entra direto nesta cotação)'),
+    avisoLocal,
     h('div', { class: 'campo' }, h('label', {}, 'Mensagem (descrição completa de cada item)'), texto),
     links,
     h('p', { class: 'suave pequeno' }, 'O sistema não envia nada sozinho: o WhatsApp ou o seu programa de e-mail (Outlook, se for o padrão do computador) abre com a mensagem pronta e você revisa e envia. Depois o sistema pergunta se foi enviado.')), []);
@@ -741,4 +758,69 @@ export async function cotacao(alvo, rota, est) {
         if (!confirmar(`Gravar ${moeda(r.preco_minimo_total)} como "Valor da proposta" no card do Kanban? Você pode mudar depois.`)) return;
         try { await api(`/kanban/${id}`, { metodo: 'PATCH', corpo: { valor_proposta: r.preco_minimo_total } }); toast('Valor da proposta gravado no card.'); recarregar(); } catch (e) { toast(e.message); }
       } }, 'Usar como valor da proposta')));
+}
+
+// ---------- Cotações em aberto (todas as oportunidades) ----------
+const SITUACAO_PEDIDO = {
+  aguardando: ['⏳ Aguardando retorno', 'amarela'], sem_retorno: ['Sem retorno', 'vermelha'], respondido: ['✓ Respondido', 'verde'],
+};
+
+export async function cotacoes(alvo, rota, est) {
+  render(alvo, carregando());
+  const status = rota.query.get('status') || 'aguardando';
+  const d = await api(`/cotacoes/pedidos${qs({ status })}`);
+  const recarregar = () => cotacoes(alvo, rota, est);
+  const editar = podeEditar(est);
+  const diasDesde = (iso) => Math.max(0, Math.floor((Date.now() - new Date(String(iso).replace(' ', 'T') + 'Z')) / 86400000));
+  const total = d.contagem.aguardando + d.contagem.sem_retorno + d.contagem.respondido;
+  const aba = (v, rot, n) => h('a', { class: `btn pequeno ${status === v ? 'primario' : ''}`, href: `#/cotacoes${qs({ status: v })}` }, `${rot}${n != null ? ` (${n})` : ''}`);
+  // Prazo das propostas: vermelho quando já encerrou ou faltam 2 dias ou menos
+  const prazo = (p) => {
+    if (!p.data_encerramento_proposta) return h('span', { class: 'suave' }, 'Encerramento das propostas: não informado');
+    const falta = (Date.parse(`${String(p.data_encerramento_proposta).replace(' ', 'T').slice(0, 19)}-03:00`) - Date.now()) / 86400000;
+    const txt = `Propostas até ${data(p.data_encerramento_proposta)}`;
+    return h('span', { class: falta < 0 ? 'texto-perigo' : falta <= 2 ? 'texto-perigo' : 'suave' }, falta < 0 ? `${txt} (encerrado)` : falta <= 2 ? `${txt} (faltam ${Math.max(0, Math.ceil(falta))} dia(s))` : txt);
+  };
+  // Lembrete ao fornecedor: também sem nenhum dado da licitação
+  const cobranca = (p) => [`Olá${p.contato_nome ? `, ${p.contato_nome}` : ''}! Tudo bem?`, '',
+    `Passando para lembrar do pedido de cotação que enviamos em ${dataUtc(p.enviado_em).slice(0, 10)}${p.cliente_nome ? ` (${p.cliente_nome})` : ''}${p.link_revogado === 0 ? ', com o link para responder' : ''}.`,
+    'Consegue nos retornar? Se precisar de alguma informação, é só falar.', '', 'Obrigado!'].join('\n');
+  const mudar = async (p, novo) => {
+    try { await api(`/kanban/${p.oportunidade_id}/pedidos/${p.id}`, { metodo: 'PATCH', corpo: { status: novo } }); recarregar(); } catch (e) { toast(e.message, 5000); }
+  };
+  const cartao = (p) => {
+    const [rot, cor] = SITUACAO_PEDIDO[p.status] || [p.status, ''];
+    const dias = diasDesde(p.enviado_em);
+    const w = p.status === 'aguardando' ? zap(p.whatsapp || p.telefone, cobranca(p)) : null;
+    return h('div', { class: 'cartao pedido-cotacao' },
+      h('div', { class: 'linha', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
+        h('div', {}, h('span', { class: `etiqueta ${cor} pequena` }, rot), ' ', h('strong', {}, p.fornecedor_nome)),
+        h('span', { class: 'etiqueta empresa' }, `🏢 ${p.cliente_nome || 'Sem empresa'}`)),
+      h('div', { class: 'pequeno', style: { marginTop: '6px' } },
+        h('a', { href: `#/licitacao/${p.licitacao_id}` }, [numeroLic(p), p.orgao_nome].filter(Boolean).join(' · ') || 'Licitação'),
+        [p.municipio, p.uf].filter(Boolean).length ? h('span', { class: 'suave' }, ` · ${[p.municipio, p.uf].filter(Boolean).join('/')}`) : ''),
+      p.objeto ? h('div', { class: 'suave pequeno objeto-curto' }, p.objeto.length > 160 ? `${p.objeto.slice(0, 160)}…` : p.objeto) : null,
+      h('div', { class: 'pequeno', style: { marginTop: '6px' } },
+        `Itens ${p.itens.join(', ')}${p.itens_licitacao ? ` de ${p.itens_licitacao}` : ''} · pedido por ${CANAIS[p.canal] || p.canal} em ${dataUtc(p.enviado_em)}`,
+        p.status === 'aguardando' ? h('span', { class: dias >= 3 ? 'texto-perigo' : 'suave' }, ` · ${dias === 0 ? 'hoje' : `há ${dias} dia(s) sem resposta`}`) : '',
+        p.status === 'respondido' && p.respondido_em ? h('span', { class: 'suave' }, ` · respondeu em ${dataUtc(p.respondido_em)}`) : '',
+        p.usuario_nome ? h('span', { class: 'suave' }, ` · ${p.usuario_nome}`) : ''),
+      h('div', { class: 'pequeno' }, prazo(p),
+        p.link_revogado === 0 ? h('span', { class: 'suave' }, p.link_respondido ? ` · 🔗 respondeu pelo link em ${dataUtc(p.link_respondido)}`
+          : p.link_acesso ? ` · 🔗 abriu o link em ${dataUtc(p.link_acesso)}` : ' · 🔗 link ainda não aberto') : ''),
+      h('div', { class: 'linha', style: { marginTop: '10px' } },
+        h('a', { class: 'btn pequeno primario', href: `#/cotacao/${p.oportunidade_id}` }, '💲 Abrir cotação'),
+        w ? h('a', { class: 'btn pequeno', href: w, target: '_blank', rel: 'noopener noreferrer', title: 'Lembrete sem dados da licitação' }, '🟢 Cobrar no WhatsApp ↗') : null,
+        p.status === 'aguardando' && p.email ? h('a', { class: 'btn pequeno', href: `mailto:${encodeURIComponent(p.email)}?subject=${encodeURIComponent(['Pedido de cotação', p.cliente_nome].filter(Boolean).join(' – '))}&body=${encodeURIComponent(cobranca(p))}` }, '✉ Cobrar por e-mail ↗') : null,
+        editar && p.status === 'aguardando' ? h('button', { class: 'btn pequeno', title: 'O fornecedor não respondeu: tira da lista de espera', onclick: () => mudar(p, 'sem_retorno') }, 'Sem retorno') : null,
+        editar && p.status === 'sem_retorno' ? h('button', { class: 'btn pequeno', onclick: () => mudar(p, 'aguardando') }, 'Voltar a aguardar') : null));
+  };
+  const vazioTxt = { aguardando: 'Nenhum pedido aguardando retorno. Os pedidos aparecem aqui quando você usa "Pedir cotação" numa oportunidade e confirma o envio.',
+    sem_retorno: 'Nenhum pedido marcado como sem retorno.', respondido: 'Nenhum pedido respondido ainda.', todos: 'Nenhum pedido de cotação enviado ainda.' }[status] || 'Nada aqui.';
+  render(alvo,
+    cabecalho('Cotações', 'Pedidos de cotação enviados aos fornecedores, de todas as oportunidades. Os que aguardam retorno vêm primeiro, pelo prazo das propostas mais próximo.'),
+    h('div', { class: 'linha', style: { margin: '0 0 12px' } },
+      aba('aguardando', 'Aguardando retorno', d.contagem.aguardando), aba('sem_retorno', 'Sem retorno', d.contagem.sem_retorno),
+      aba('respondido', 'Respondidos', d.contagem.respondido), aba('todos', 'Todos', total)),
+    d.pedidos.length ? h('div', { class: 'lista-pedidos-cotacao' }, d.pedidos.map(cartao)) : vazio(vazioTxt));
 }

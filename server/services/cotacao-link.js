@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { registrarCotacoes } from './fornecedores.js';
+import { trechosSensiveis, removerTrechos } from '../../web/js/sigilo.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const assinar = (nonce) => crypto.createHmac('sha256', config.jwtSecret).update(`cotacao-link:${nonce}`).digest('base64url').slice(0, 32);
@@ -87,7 +88,7 @@ function linkDoToken(db, token) {
 export function cotacaoPublica(db, token) {
   const l = linkDoToken(db, token);
   db.prepare("UPDATE cotacao_links SET ultimo_acesso=datetime('now') WHERE id=?").run(l.id);
-  const op = db.prepare(`SELECT l.orgao_nome, l.municipio, l.uf, l.modalidade_nome, l.numero_compra, l.ano, l.data_encerramento_proposta, l.objeto, l.id licitacao_id,
+  const op = db.prepare(`SELECT l.orgao_nome, l.municipio, l.uf, l.modalidade_nome, l.numero_compra, l.ano, l.data_encerramento_proposta, l.objeto, l.unidade_nome, l.id licitacao_id,
       COALESCE(cl.razao_social, cl.nome_fantasia) cliente, cl.cnpj cliente_cnpj, e.nome conta
     FROM oportunidades o JOIN licitacoes l ON l.id = o.licitacao_id LEFT JOIN clientes cl ON cl.id = o.cliente_id JOIN empresas e ON e.id = o.empresa_id
     WHERE o.id=?`).get(l.oportunidade_id);
@@ -102,7 +103,9 @@ export function cotacaoPublica(db, token) {
     solicitante: op.cliente || op.conta, solicitante_cnpj: op.cliente_cnpj || null, fornecedor: forn.nome,
     // Nada da licitação (órgão, número, cidade, objeto, datas) vai para o fornecedor: só os itens
     respondido_em: l.respondido_em,
-    itens: itens.map((i) => ({ ...i, resposta: ja.find((c) => c.numero_item === i.numero_item) || null })),
+    // A descrição vem do edital e pode citar órgão/cidade/convênio: esses trechos saem antes de chegar ao fornecedor
+    itens: itens.map((i) => ({ ...i, descricao: i.descricao ? removerTrechos(i.descricao, trechosSensiveis(i.descricao, op)) : i.descricao,
+      resposta: ja.find((c) => c.numero_item === i.numero_item) || null })),
     resposta_anterior: ja[0] ? { prazo_entrega_dias: ja[0].prazo_entrega_dias, validade: ja[0].validade, frete: fr?.tipo || null,
       condicoes_pagamento: ja[0].condicoes_pagamento, observacoes: ja[0].observacoes, respondente: ja[0].respondente } : null,
   };

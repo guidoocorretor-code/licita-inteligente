@@ -375,3 +375,29 @@ export function mudarStatusPedido(db, empresaId, oportunidadeId, pedidoId, statu
   const n = db.prepare('UPDATE cotacao_pedidos SET status=? WHERE id=? AND oportunidade_id=?').run(status, pedidoId, oportunidadeId).changes;
   if (!n) throw erro(404, 'Pedido não encontrado.');
 }
+
+/**
+ * Pedidos de cotação de todas as oportunidades da conta (página "Cotações").
+ * status: aguardando | sem_retorno | respondido | todos. Com empresa em foco, só os dela.
+ */
+export function listarPedidos(db, empresaId, { clienteId = null, status = 'aguardando' } = {}) {
+  const w = ['o.empresa_id = ?']; const p = [empresaId];
+  if (clienteId) { w.push('o.cliente_id = ?'); p.push(clienteId); }
+  const contagem = { aguardando: 0, sem_retorno: 0, respondido: 0 };
+  for (const r of db.prepare(`SELECT p.status, COUNT(*) n FROM cotacao_pedidos p JOIN oportunidades o ON o.id = p.oportunidade_id WHERE ${w.join(' AND ')} GROUP BY p.status`).all(...p)) contagem[r.status] = r.n;
+  if (status !== 'todos') { w.push('p.status = ?'); p.push(['aguardando', 'sem_retorno', 'respondido'].includes(status) ? status : 'aguardando'); }
+  const pedidos = db.prepare(`SELECT p.id, p.oportunidade_id, p.fornecedor_id, p.itens, p.canal, p.status, p.enviado_em, p.respondido_em,
+      COALESCE(f.nome_fantasia, f.razao_social) fornecedor_nome, f.contato_nome, f.whatsapp, f.telefone, f.email,
+      l.id licitacao_id, l.orgao_nome, l.municipio, l.uf, l.modalidade_nome, l.numero_compra, l.ano, l.objeto, l.data_encerramento_proposta,
+      COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome, u.nome usuario_nome,
+      lk.ultimo_acesso link_acesso, lk.respondido_em link_respondido, lk.revogado link_revogado,
+      (SELECT COUNT(*) FROM licitacao_itens li WHERE li.licitacao_id = l.id) itens_licitacao
+    FROM cotacao_pedidos p JOIN oportunidades o ON o.id = p.oportunidade_id JOIN licitacoes l ON l.id = o.licitacao_id
+    JOIN fornecedores f ON f.id = p.fornecedor_id LEFT JOIN clientes cl ON cl.id = o.cliente_id LEFT JOIN usuarios u ON u.id = p.usuario_id
+    LEFT JOIN cotacao_links lk ON lk.oportunidade_id = p.oportunidade_id AND lk.fornecedor_id = p.fornecedor_id
+    WHERE ${w.join(' AND ')}
+    ORDER BY CASE p.status WHEN 'aguardando' THEN 0 WHEN 'sem_retorno' THEN 1 ELSE 2 END,
+      CASE WHEN l.data_encerramento_proposta IS NULL THEN 1 ELSE 0 END, l.data_encerramento_proposta, p.enviado_em
+    LIMIT 500`).all(...p).map((r) => ({ ...r, itens: JSON.parse(r.itens) }));
+  return { pedidos, contagem };
+}

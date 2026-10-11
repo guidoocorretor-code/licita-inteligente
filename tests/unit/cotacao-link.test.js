@@ -4,7 +4,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { criarFornecedor, cotacoesDaOportunidade, registrarCotacoes, registrarPedido } from '../../server/services/fornecedores.js';
+import { criarFornecedor, cotacoesDaOportunidade, registrarCotacoes, registrarPedido, listarPedidos, mudarStatusPedido } from '../../server/services/fornecedores.js';
 import { linkDoFornecedor, cotacaoPublica, responderCotacao, revogarLink } from '../../server/services/cotacao-link.js';
 
 // Base de TESTE com itens de exemplo
@@ -76,4 +76,30 @@ test('resposta pelo link entra na cotação, marca o pedido como respondido e av
   assert.equal(db.prepare("SELECT COUNT(*) n FROM notificacoes WHERE tipo='cotacao' AND usuario_id=?").get(u).n, 1);
   assert.ok(cotacaoPublica(db, token).respondido_em);
   assert.equal(cotacaoPublica(db, token).itens[0].resposta.preco_unitario, 20.5); // pode corrigir depois
+});
+
+test('página do link tira da descrição os trechos que citam órgão, cidade ou convênio', () => {
+  const { db, emp, u, op, forn } = preparar();
+  db.prepare("UPDATE licitacao_itens SET descricao=? WHERE numero_item=1").run('Papel A4 75g para atender a Prefeitura Municipal de Bernardo Sayão - TO. Convênio nº 980858/2025.');
+  const { token } = linkDoFornecedor(db, emp, op, u, { fornecedor_id: forn, itens: [1] });
+  const desc = cotacaoPublica(db, token).itens[0].descricao;
+  assert.equal(desc, 'Papel A4 75g para atender.');
+});
+
+test('lista de pedidos da conta: filtro por situação, contagem e outra conta', () => {
+  const { db, emp, outra, u, op, forn } = preparar();
+  const f2 = criarFornecedor(db, emp, { razao_social: 'Segundo Fornecedor' });
+  registrarPedido(db, emp, op, u, { fornecedor_id: forn, canal: 'whatsapp', itens: [1, 2] });
+  const p2 = registrarPedido(db, emp, op, u, { fornecedor_id: f2, canal: 'email', itens: [3] });
+  mudarStatusPedido(db, emp, op, p2, 'sem_retorno');
+  const ag = listarPedidos(db, emp, {});
+  assert.deepEqual(ag.contagem, { aguardando: 1, sem_retorno: 1, respondido: 0 });
+  assert.equal(ag.pedidos.length, 1);
+  assert.deepEqual(ag.pedidos[0].itens, [1, 2]);
+  assert.equal(ag.pedidos[0].fornecedor_nome, 'Fornecedor Teste');
+  assert.equal(ag.pedidos[0].itens_licitacao, 3);
+  assert.equal(listarPedidos(db, emp, { status: 'todos' }).pedidos.length, 2);
+  assert.equal(listarPedidos(db, emp, { status: 'sem_retorno' }).pedidos[0].fornecedor_nome, 'Segundo Fornecedor');
+  assert.equal(listarPedidos(db, emp, { clienteId: 999 }).pedidos.length, 0);  // empresa em foco sem pedidos
+  assert.equal(listarPedidos(db, outra, { status: 'todos' }).pedidos.length, 0);
 });
