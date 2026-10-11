@@ -2,6 +2,7 @@
 // Em produção com várias instâncias, rode apenas UMA instância com SCHEDULER=on
 // (ou use o script `npm run sync` em um cron do sistema).
 import { sincronizarFonte, completarItensAbertas } from './sync.js';
+import { atualizarCapag, precisaAtualizarCapag } from './capag.js';
 import { recalcularStatusTemporais } from './repositorio.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { avaliarAlertasAcompanhadas } from './alertas.js';
@@ -15,6 +16,7 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   let ultimoEmail = 0;
   let ultimaVerificacaoCatalogo = 0;
   let ultimoAvisoDisco = 0;
+  let ultimaVerificacaoCapag = 0;
   const tick = async () => {
     // Alertas de prazo/mudança e e-mail rodam antes das sincronizações, que podem demorar
     try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
@@ -40,6 +42,13 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
           sincronizarCatalogo(db).then((r) => console.log('[catalogo]', JSON.stringify(r))).catch((e) => console.error('[catalogo]', e.message));
         }
       } catch (e) { console.error('[catalogo]', e.message); }
+    }
+    // Pagômetro: CAPAG do Tesouro (divulgação quadrimestral); confere a cada 12 h e baixa se tiver mais de 7 dias
+    if (Date.now() - ultimaVerificacaoCapag >= 12 * 3600_000) {
+      ultimaVerificacaoCapag = Date.now();
+      try {
+        if (precisaAtualizarCapag(db)) atualizarCapag(db).then((r) => console.log('[capag]', JSON.stringify(r))).catch((e) => console.error('[capag]', e.message));
+      } catch (e) { console.error('[capag]', e.message); }
     }
     // Itens das licitações abertas (para a busca achar "mouse" dentro de "materiais de informática"): sem esperar o tick
     completarItensAbertas(db).then((r) => { if (r.baixadas || r.falhas) console.log('[itens]', JSON.stringify(r)); })

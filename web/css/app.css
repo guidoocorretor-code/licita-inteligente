@@ -280,3 +280,8 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .aviso-sistema.pago { background: var(--perigo-fundo); border-color: #f6c3bd; color: #7a1a12; }
 .aviso-sistema.gratuito { background: var(--ok-fundo); border-color: #b7e4c7; color: #14532d; }
 .aviso-sistema a { color: inherit; font-weight: 600; }
+.selo-capag { font-weight: 700; }
+.campo-ficha.capag-a { border-left: 3px solid var(--ok); }
+.campo-ficha.capag-c { border-left: 3px solid var(--alerta); }
+.campo-ficha.capag-d { border-left: 3px solid var(--perigo); background: var(--perigo-fundo); }
+.bloco-pagometro .linha { gap: 4px 14px; flex-wrap: wrap; }

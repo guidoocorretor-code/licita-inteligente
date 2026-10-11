@@ -101,6 +101,17 @@ function avisoSistema(l, meta, completo = false) {
     s.fonte ? h('span', {}, ' · ', h('a', { href: s.fonte, target: '_blank', rel: 'noopener noreferrer', class: 'suave' }, 'fonte')) : null);
 }
 
+// Pagômetro: nota CAPAG do Tesouro (A melhor ... D pior). Sem nota = federal, n.d. ou ainda não baixada.
+const COR_CAPAG = { A: 'verde', B: 'azul', C: 'amarela', D: 'vermelha' };
+function seloCapag(n, { longo = false } = {}) {
+  if (!n) return h('span', { class: 'etiqueta', title: 'Sem nota CAPAG (órgão federal, nota não calculada ou dado ainda não baixado)' }, longo ? 'Sem nota' : '—');
+  return h('span', { class: `etiqueta ${COR_CAPAG[n[0]] || ''} selo-capag`, title: 'Capacidade de pagamento do ente (CAPAG/Tesouro Nacional)' }, `CAPAG ${n}`);
+}
+const textoNotaCapag = { A: 'boa capacidade de pagamento', B: 'capacidade de pagamento razoável', C: 'capacidade de pagamento fraca: atenção', D: 'capacidade de pagamento muito fraca: risco alto' };
+const INDICADORES_CAPAG = [['ind1', 'nota1', 'Endividamento', 'Dívida em relação à receita. Quanto menor, melhor.'],
+  ['ind2', 'nota2', 'Poupança corrente', 'Quanto da receita corrente já vai para despesas correntes. Quanto menor, mais folga.'],
+  ['ind3', 'nota3', 'Liquidez', 'Caixa disponível frente às obrigações de curto prazo (contas a pagar). Nota C = obrigações maiores que o caixa.']];
+
 // Um campo da ficha: rótulo pequeno em cima, valor legível embaixo
 const campoFicha = (rotulo, valor, extra = {}) => h('div', { class: 'campo-ficha' + (extra.classe ? ' ' + extra.classe : ''), title: extra.title || '' },
   h('span', { class: 'rotulo' }, rotulo), h('span', { class: 'valor' }, valor));
@@ -122,7 +133,9 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
         campoFicha('Número', l.numero_compra ? `${l.numero_compra}/${l.ano ?? ''}` : naoInformado()),
         campoFicha('Publicação', dataOuNao(l.data_publicacao, false)),
         campoFicha('Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : 'destaque' }),
-        campoFicha('Sistema eletrônico', nomeSistema(l, est.meta), { classe: classeSistema(l, est.meta), title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` })),
+        campoFicha('Sistema eletrônico', nomeSistema(l, est.meta), { classe: classeSistema(l, est.meta), title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
+        campoFicha('Pagômetro', l.esfera === 'F' ? h('span', { class: 'suave' }, 'Federal') : seloCapag(l.capag, { longo: true }),
+          { classe: l.capag ? `capag-${l.capag[0].toLowerCase()}` : '', title: l.capag ? `Nota CAPAG ${l.capag}: ${textoNotaCapag[l.capag[0]]}. Fonte: Tesouro Nacional.` : 'Sem nota CAPAG' })),
       avisoSistema(l, est.meta),
       (l.segmento || l.me_epp_exclusivo === 1) ? h('div', { class: 'linha etiquetas-lic' },
         l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
@@ -178,6 +191,7 @@ export async function buscar(alvo, rota, est) {
       campo('Modalidade', sel('modalidade', Object.entries(meta.modalidades), 'Todas')),
       campo('Segmento (estimado)', sel('segmento', meta.segmentos.map((s) => [s, s]))),
       campo('Sistema eletrônico', sel('sistema', Object.entries(meta.sistemas || {}).map(([k, x]) => [k, `${x.nome}${x.custo === 'pago' ? ' · pago' : x.custo === 'gratuito' ? ' · gratuito' : ''}`]), 'Todos')),
+      campo('Pagômetro (CAPAG)', sel('capag', [['A,B', 'Só A e B (contas saudáveis)'], ['A', 'Só A'], ['B', 'Só B'], ['C', 'Só C'], ['D', 'Só D'], ['sem', 'Sem nota / federal']], 'Todas')),
       campo('Custo do sistema', sel('sistema_custo', [['gratuito', 'Só gratuitos'], ['pago', 'Só pagos'], ['nao_verificado', 'Não verificados']], 'Indiferente')),
       campo('Plataforma de origem (PNCP)', sel('plataforma', meta.plataformas.map((p) => [p, p]), 'Todas')),
       campo('Regime legal', sel('regime_legal', meta.regimes.map((p) => [p, p]))),
@@ -328,6 +342,7 @@ export async function detalhe(alvo, rota, est) {
         linha('Valor homologado', l.valor_homologado == null ? naoInformado() : moeda(l.valor_homologado)),
         linha('Sistema eletrônico', h('div', {}, nomeSistema(l, est.meta), avisoSistema(l, est.meta, true))),
         linha('Publicado no PNCP por', ni(l.plataforma_origem)),
+        linha('Pagômetro', blocoPagometro(d.pagometro)),
         linha('Fontes', d.fontes.map((f) => `${f.fonte_codigo} (desde ${dataUtc(f.primeira_vez)})`).join('; ')),
         linha('Última verificação', dataUtc(l.ultima_verificacao)),
         linha('Itens/documentos sincronizados', l.detalhes_sincronizados_em ? dataUtc(l.detalhes_sincronizados_em) : naoInformado('Ainda não'))))),
@@ -995,4 +1010,57 @@ export function emDesenvolvimento(alvo, titulo, fase) {
       h('h2', {}, `Previsto para a Fase ${fase}`),
       h('p', {}, 'Este módulo ainda não foi implementado. Ele não exibe dados simulados.'),
       h('p', { class: 'suave' }, DESCRICAO_FASE[fase] || '')));
+}
+
+function blocoPagometro(pg) {
+  if (!pg) return naoInformado();
+  if (!pg.aplica) return h('span', { class: 'suave' }, pg.motivo);
+  if (!pg.encontrado) return naoInformado(pg.motivo);
+  return h('div', { class: 'bloco-pagometro' },
+    h('div', {}, seloCapag(pg.capag, { longo: true }), ' ', pg.capag ? h('strong', {}, textoNotaCapag[pg.capag[0]]) : h('span', {}, pg.observacao || 'Nota não calculada pelo Tesouro.')),
+    h('div', { class: 'linha pequeno', style: { marginTop: '4px' } }, INDICADORES_CAPAG.map(([i, n, rot, dica]) => h('span', { title: dica },
+      `${rot}: `, pg[n] ? h('b', {}, pg[n]) : '—', pg[i] != null ? ` (${pg[i].toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)` : ''))),
+    h('div', { class: 'suave pequeno' }, `${pg.esfera === 'M' ? pg.nome + '/' + pg.uf : 'Estado ' + pg.uf} · Tesouro Nacional, ${pg.referencia || 'posição mais recente'} · `,
+      h('a', { href: pg.fonte_pagina, target: '_blank', rel: 'noopener noreferrer' }, 'fonte ↗')));
+}
+
+// ============================ PAGÔMETRO ============================
+export async function pagometro(alvo, rota, est) {
+  render(alvo, carregando());
+  const q = rota.query;
+  const r = await api('/pagometro' + qs({ esfera: q.get('esfera') || '', uf: q.get('uf') || '', q: q.get('q') || '', nota: q.get('nota') || '' }));
+  const ir = (mud) => { const n = new URLSearchParams(q); for (const [k, v] of Object.entries(mud)) { if (v) n.set(k, v); else n.delete(k); } location.hash = `#/pagometro?${n}`; };
+  const contagem = (esfera, nota) => r.resumo.find((x) => x.esfera === esfera && x.nota === nota)?.n || 0;
+  const ref = (e) => r.referencias.find((x) => x.esfera === e);
+  const busca = h('input', { type: 'search', placeholder: 'Nome do município', value: q.get('q') || '', id: 'pg-q' });
+  const uf = h('select', { id: 'pg-uf', onchange: (e) => ir({ uf: e.target.value }) }, h('option', { value: '' }, 'Todas as UFs'), est.meta.ufs.map((u) => h('option', { value: u, selected: q.get('uf') === u }, u)));
+  render(alvo,
+    cabecalho('Pagômetro', 'Capacidade de pagamento de estados e municípios (CAPAG do Tesouro Nacional). Prefira disputar onde a nota é A ou B.',
+      ehAdmin(est) ? h('button', { class: 'btn', onclick: async (ev) => {
+        ev.target.disabled = true; toast('Baixando a CAPAG do Tesouro...', 4000);
+        try { const x = await api('/pagometro/atualizar', { metodo: 'POST', corpo: {} }); toast(Object.entries(x).map(([k, v]) => `${k === 'M' ? 'Municípios' : 'Estados'}: ${v.erro || v.linhas + ' registros'}`).join(' · '), 7000); pagometro(alvo, rota, est); }
+        catch (e) { toast(e.message, 6000); ev.target.disabled = false; }
+      } }, 'Atualizar dados') : null),
+    h('div', { class: 'aviso azul' }, h('strong', {}, 'Como ler: '),
+      'A = boa capacidade de pagamento · B = razoável · C = fraca · D = muito fraca · "+" = boa qualidade da informação contábil. ',
+      'O indicador de ', h('b', {}, 'liquidez'), ' compara o caixa com as contas a pagar de curto prazo: nota C ali indica que o ente deve mais do que tem em caixa. ',
+      h('div', { class: 'pequeno', style: { marginTop: '4px' } }, 'A CAPAG mede a saúde fiscal do município ou do estado inteiro, não o histórico de pagamento de um órgão específico. Órgãos federais não têm CAPAG. ',
+        'Fontes: ', h('a', { href: r.fontes.M.pagina, target: '_blank', rel: 'noopener noreferrer' }, 'CAPAG municípios ↗'), ' · ', h('a', { href: r.fontes.E.pagina, target: '_blank', rel: 'noopener noreferrer' }, 'CAPAG estados ↗'),
+        ref('M') ? ` · Municípios: ${ref('M').referencia || ''}` : ' · Municípios: ainda não baixado', ref('E') ? ` · Estados: ${ref('E').referencia || ''}` : ' · Estados: ainda não baixado')),
+    h('div', { class: 'grade kpis' }, ['A', 'B', 'C', 'D', 'n.d.'].map((n) => h('a', { class: 'cartao kpi', href: `#/pagometro?esfera=M&nota=${n === 'n.d.' ? 'sem' : n}${q.get('uf') ? '&uf=' + q.get('uf') : ''}` },
+      h('div', { class: 'rotulo' }, n === 'n.d.' ? 'Municípios sem nota' : `Municípios nota ${n}`), h('div', { class: 'valor' }, numero(contagem('M', n)))))),
+    h('form', { class: 'cartao linha', style: { marginTop: '14px' }, onsubmit: (e) => { e.preventDefault(); ir({ q: busca.value.trim() }); } },
+      h('select', { onchange: (e) => ir({ esfera: e.target.value }) }, [['', 'Estados e municípios'], ['M', 'Só municípios'], ['E', 'Só estados']].map(([v, t]) => h('option', { value: v, selected: (q.get('esfera') || '') === v }, t))),
+      uf, busca,
+      h('select', { onchange: (e) => ir({ nota: e.target.value }) }, [['', 'Todas as notas'], ['A', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'], ['sem', 'Sem nota']].map(([v, t]) => h('option', { value: v, selected: (q.get('nota') || '') === v }, t))),
+      h('button', { class: 'btn primario' }, 'Filtrar')),
+    r.dados.length ? h('div', { class: 'tabela-wrap', style: { marginTop: '14px' } }, h('table', {},
+      h('thead', {}, h('tr', {}, ['Ente', 'UF', 'CAPAG', 'Endividamento', 'Poupança corrente', 'Liquidez', 'Licitações'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, r.dados.map((c) => h('tr', { class: c.capag && 'CD'.includes(c.capag[0]) ? 'linha-alerta' : '' },
+        h('td', {}, c.esfera === 'E' ? `Estado (${c.uf})` : c.nome, c.observacao ? h('div', { class: 'suave pequeno' }, c.observacao) : null),
+        h('td', {}, c.uf), h('td', {}, seloCapag(c.capag)),
+        ...INDICADORES_CAPAG.map(([i, n]) => h('td', {}, c[n] || '—', c[i] != null ? h('span', { class: 'suave pequeno' }, ` ${c[i].toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`) : null)),
+        h('td', {}, h('a', { href: `#/buscar?visao=abertas&uf=${c.uf}${c.esfera === 'M' ? '&municipio=' + encodeURIComponent(c.nome) + '&esfera=M' : '&esfera=E'}` }, 'Ver abertas')))))))
+      : vazio(ref('M') || ref('E') ? 'Nenhum ente com esses filtros.' : 'Os dados da CAPAG ainda não foram baixados. Eles são baixados automaticamente; o administrador também pode clicar em "Atualizar dados".'),
+    r.total > r.dados.length ? h('p', { class: 'suave pequeno' }, `Mostrando ${r.dados.length} de ${numero(r.total)}. Use os filtros para refinar.`) : null);
 }
