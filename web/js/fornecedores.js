@@ -55,9 +55,20 @@ function formFornecedor(est, f = {}, meta, aoSalvar) {
   const blocoBoleto = h('div', { class: 'bloco-boleto' },
     h('label', { for: 'f-boleto_prazo' }, 'Prazo do boleto'), selPrazo, prazoOutro,
     h('div', { class: 'suave pequeno' }, 'Dias de cada parcela contados da entrega/nota. Ex.: 30/60 = duas parcelas, com 30 e 60 dias.'));
+  // Cartão: em até quantas vezes e se tem juros
+  const selParcelas = h('select', { id: 'f-cartao_parcelas' }, h('option', { value: '' }, 'Não informado'),
+    Array.from({ length: 24 }, (_, i) => i + 1).filter((n) => n <= 12 || n % 6 === 0)
+      .map((n) => h('option', { value: n, selected: f.cartao_parcelas === n }, n === 1 ? 'Só à vista' : `Até ${n}x`)));
+  const selJuros = h('select', { id: 'f-cartao_juros' }, h('option', { value: '' }, 'Não informado'),
+    h('option', { value: '0', selected: f.cartao_juros === 0 }, 'Sem juros'), h('option', { value: '1', selected: f.cartao_juros === 1 }, 'Com juros'));
+  const blocoCartao = h('div', { class: 'bloco-boleto' },
+    h('div', { class: 'filtros' },
+      h('div', {}, h('label', { for: 'f-cartao_parcelas' }, 'Parcelas no cartão'), selParcelas),
+      h('div', {}, h('label', { for: 'f-cartao_juros' }, 'Juros no parcelamento'), selJuros)));
   const mostrarBoleto = () => {
     blocoBoleto.style.display = caixas.find((x) => x.k === 'boleto').cb.checked ? '' : 'none';
     prazoOutro.style.display = selPrazo.value === 'outro' ? '' : 'none';
+    blocoCartao.style.display = caixas.find((x) => x.k === 'cartao').cb.checked ? '' : 'none';
   };
   mostrarBoleto();
   const vendaOrdem = h('select', { id: 'f-venda_a_ordem' }, h('option', { value: '' }, 'Não informado'),
@@ -108,7 +119,7 @@ function formFornecedor(est, f = {}, meta, aoSalvar) {
       h('div', {}, h('label', { for: 'f-frete' }, 'Frete'), c.frete)),
     h('div', { class: 'campo' }, h('label', {}, 'Formas de pagamento aceitas'), h('div', { class: 'linha opcoes-pagamento' }, caixas.map((x) => x.el)),
       f.condicoes_pagamento ? h('div', { class: 'suave pequeno' }, `Anotado antes: "${f.condicoes_pagamento}". Marque as opções acima.`) : null),
-    blocoBoleto,
+    blocoBoleto, blocoCartao,
     h('div', { class: 'campo' }, h('label', { for: 'f-venda_a_ordem' }, 'Faz triangulação (venda à ordem)?'), vendaOrdem,
       h('div', { class: 'suave pequeno' }, 'O fornecedor fatura para a sua empresa e entrega a mercadoria direto no órgão, com nota de remessa "por conta e ordem". Evita frete e manuseio duplos. Confirme com o contador antes de usar.')),
     h('div', { class: 'campo' }, h('label', { for: 'f-observacoes' }, 'Observações'), c.observacoes));
@@ -117,6 +128,7 @@ function formFornecedor(est, f = {}, meta, aoSalvar) {
     corpo.cnpj = soDigitos(corpo.cnpj); corpo.pedido_minimo = lerNum(corpo.pedido_minimo); corpo.cliente_id = Number(corpo.cliente_id);
     corpo.formas_pagamento = caixas.filter((x) => x.cb.checked).map((x) => x.k);
     corpo.boleto_prazo = selPrazo.value === 'outro' ? prazoOutro.value.trim() : selPrazo.value;
+    corpo.cartao_parcelas = selParcelas.value; corpo.cartao_juros = selJuros.value;
     corpo.venda_a_ordem = vendaOrdem.value;
     try {
       const r = f.id ? await api(`/fornecedores/${f.id}`, { metodo: 'PATCH', corpo }) : await api('/fornecedores', { metodo: 'POST', corpo });
@@ -125,10 +137,17 @@ function formFornecedor(est, f = {}, meta, aoSalvar) {
   } }]);
 }
 
+const FORMAS = { boleto: 'Boleto', pix: 'Pix', ted: 'TED', cartao: 'Cartão' };
+// "Cartão até 10x sem juros"
+function textoCartao(f) {
+  if (!f.cartao_parcelas) return f.cartao_juros === 0 ? 'Cartão sem juros' : f.cartao_juros === 1 ? 'Cartão com juros' : 'Cartão';
+  if (f.cartao_parcelas === 1) return 'Cartão só à vista';
+  return `Cartão até ${f.cartao_parcelas}x${f.cartao_juros === 0 ? ' sem juros' : f.cartao_juros === 1 ? ' com juros' : ''}`;
+}
 // "Boleto 30/60 dias, Pix" (ou o texto antigo, se as opções ainda não foram marcadas)
-function textoPagamento(f, formas) {
+function textoPagamento(f, formas = FORMAS) {
   const l = (f.formas_pagamento || '').split(',').filter(Boolean).map((k) =>
-    (k === 'boleto' && f.boleto_prazo ? `Boleto ${f.boleto_prazo === '0' ? 'à vista' : `${f.boleto_prazo} dias`}` : formas[k] || k));
+    (k === 'boleto' && f.boleto_prazo ? `Boleto ${f.boleto_prazo === '0' ? 'à vista' : `${f.boleto_prazo} dias`}` : k === 'cartao' ? textoCartao(f) : formas[k] || k));
   return l.length ? l.join(', ') : f.condicoes_pagamento || 'não informado';
 }
 
@@ -180,56 +199,136 @@ const SITUACAO = {
   sem_referencia: ['Sem valor de referência', ''], sem_cotacao: ['Sem cotação', 'amarela'],
 };
 
-function textoPedido(d, forn, numeros) {
+const qtdTexto = (i) => (i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || 'un.'}` : 'a confirmar');
+const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
+
+// Mensagem do pedido. formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
+function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '') {
   const op = d.oportunidade;
   const itens = d.itens.filter((i) => numeros.includes(i.numero_item));
-  return [
+  const t = (s) => (formato === 'whatsapp' ? `*${s}*` : s);
+  const sep = formato === 'email' ? '------------------------------' : null;
+  const local = op.municipio ? `${op.municipio}/${op.uf}` : '';
+  const linhas = [
     `Olá${forn.contato_nome ? `, ${forn.contato_nome}` : ''}! Tudo bem?`,
-    `${op.cliente_nome ? `Aqui é da ${op.cliente_nome}. ` : ''}Estamos participando de uma licitação${op.orgao_nome ? ` do(a) ${op.orgao_nome}` : ''}${op.municipio ? ` (${op.municipio}/${op.uf})` : ''} e precisamos de cotação para os itens abaixo:`,
     '',
-    ...itens.map((i) => `• Item ${i.numero_item}: ${i.descricao || '(sem descrição)'} — ${i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || 'un.'}` : 'quantidade a confirmar'}`),
+    `${op.cliente_razao || op.cliente_nome ? `Somos da ${op.cliente_razao || op.cliente_nome}. ` : ''}Estamos participando de uma licitação e gostaríamos da sua cotação para ${itens.length === 1 ? 'o item abaixo' : `os ${itens.length} itens abaixo`}.`,
     '',
-    'Por favor, informe para cada item: preço unitário, marca/modelo, prazo de entrega, validade da cotação e se o frete está incluso.',
-    op.data_encerramento_proposta ? `As propostas vão até ${data(op.data_encerramento_proposta)}; se puder responder antes, agradecemos.` : '',
+    t('DADOS DA LICITAÇÃO'),
+    op.orgao_nome ? `Órgão: ${op.orgao_nome}` : '',
+    local ? `Local de entrega: ${local}` : '',
+    numeroLic(op) ? `Licitação: ${numeroLic(op)}` : '',
+    op.data_encerramento_proposta ? `Propostas até: ${data(op.data_encerramento_proposta)}` : '',
+    '',
+    sep,
+    t(`ITENS PARA COTAR (${itens.length})`),
+    sep,
+  ];
+  itens.forEach((i, n) => {
+    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', (i.descricao || '(sem descrição no edital)').trim());
+    if (formato === 'email' && n < itens.length - 1) linhas.push('');
+  });
+  linhas.push('', sep,
+    t('POR FAVOR, INFORME PARA CADA ITEM'), sep,
+    '1. Preço unitário',
+    '2. Marca e modelo',
+    '3. Prazo de entrega (em dias)',
+    '4. Validade da cotação',
+    `5. Frete: incluso (CIF) ou não (FOB)${local ? ` para ${local}` : ''}`,
+    '6. Condições de pagamento',
+    '7. Se pode faturar para nós e entregar direto no órgão (venda à ordem)',
+    '',
+    op.data_encerramento_proposta ? `As propostas encerram em ${data(op.data_encerramento_proposta)}. Quanto antes puder responder, melhor.` : 'Quanto antes puder responder, melhor.',
+    '',
     'Obrigado!',
-  ].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
+    assinatura);
+  return linhas.filter((l) => l != null).filter((l, i, a) => l !== '' || (a[i - 1] !== '' && i > 0)).join('\n').trim();
 }
 
-function pedirCotacao(d, sugeridos) {
+// Itens marcados de início: os sugeridos; senão os que combinam com o fornecedor; senão os ainda sem cotação; senão todos.
+function itensIniciais(d, f, sugeridos) {
+  if (sugeridos?.length) return sugeridos;
+  if (f.combina.length) return f.combina;
+  const sem = d.itens.filter((i) => !i.usada_id).map((i) => i.numero_item);
+  return sem.length ? sem : d.itens.map((i) => i.numero_item);
+}
+
+// Pergunta se o pedido saiu de fato; só então registra "aguardando retorno do fornecedor".
+function confirmarEnvio(d, f, numeros, canal, aoConfirmar) {
+  modal('O pedido foi enviado?', h('p', {}, `Você enviou o pedido de cotação para `, h('strong', {}, nomeF(f)), ` por ${canal === 'email' ? 'e-mail' : 'WhatsApp'} (${numeros.length} item(ns))?`,
+    h('br'), h('span', { class: 'suave pequeno' }, 'Ao confirmar, a página de cotações mostra "Aguardando retorno do fornecedor" até você registrar a resposta.')),
+  [{ texto: 'Sim, enviei', classe: 'primario', acao: async () => {
+    try { await api(`/kanban/${d.oportunidade.id}/pedidos`, { metodo: 'POST', corpo: { fornecedor_id: f.id, canal, itens: numeros } }); toast('Pedido registrado: aguardando retorno do fornecedor.'); aoConfirmar(); }
+    catch (e) { toast(e.message, 5000); return false; }
+  } }], { fechar: 'Não enviei' });
+}
+
+function pedirCotacao(d, sugeridos, recarregar, est) {
   const fs = d.fornecedores;
   if (!fs.length) return toast('Cadastre um fornecedor primeiro (menu Fornecedores).', 5000);
+  const assinatura = [est?.usuario?.nome, d.oportunidade.cliente_nome].filter(Boolean).join(' · ');
   const sel = h('select', {}, fs.map((f) => h('option', { value: f.id }, `${nomeF(f)}${f.combina.length ? ` · combina com ${f.combina.length} item(ns)` : ''}`)));
   const marcar = new Map();
   const lista = h('div', { class: 'lista-itens-pedido' });
-  const texto = h('textarea', { rows: 12, readonly: true });
+  const contagem = h('span', { class: 'suave pequeno' });
+  const formato = h('select', { onchange: () => atualizar() }, h('option', { value: 'whatsapp' }, 'WhatsApp (com negrito)'), h('option', { value: 'email' }, 'E-mail (texto simples)'));
+  const texto = h('textarea', { rows: 14, readonly: true, class: 'texto-pedido' });
   const links = h('div', { class: 'linha' });
+  const atual = () => fs.find((x) => String(x.id) === sel.value);
+  const marcados = () => [...marcar].filter(([, cb]) => cb.checked).map(([n]) => n);
+  const copiar = async (msg) => { try { await navigator.clipboard.writeText(msg); return true; } catch { return false; } };
+  let fecharPedido = () => {};
+  const depoisDeAbrir = (f, numeros, canal) => setTimeout(() => confirmarEnvio(d, f, numeros, canal, () => { fecharPedido(); recarregar?.(); }), 800);
   const atualizar = () => {
-    const f = fs.find((x) => String(x.id) === sel.value);
-    const numeros = [...marcar].filter(([, cb]) => cb.checked).map(([n]) => n);
-    texto.value = textoPedido(d, f, numeros);
-    const w = zap(f.whatsapp || f.telefone, texto.value);
+    const f = atual(); const numeros = marcados();
+    contagem.textContent = `${numeros.length} de ${d.itens.length} marcado(s)`;
+    if (!numeros.length) {
+      texto.value = '';
+      return render(links, h('div', { class: 'aviso amarelo pequeno' }, 'Marque pelo menos um item para montar a mensagem.'));
+    }
+    texto.value = textoPedido(d, f, numeros, formato.value, assinatura);
+    const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura);
+    const msgEmail = textoPedido(d, f, numeros, 'email', assinatura);
+    const w = zap(f.whatsapp || f.telefone, msgZap);
+    const assunto = ['Pedido de cotação', d.oportunidade.orgao_nome, numeroLic(d.oportunidade)].filter(Boolean).join(' – ');
+    // Alguns programas de e-mail cortam links mailto longos: acima do limite, o corpo vai pela área de transferência
+    let mailto = f.email ? `mailto:${encodeURIComponent(f.email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(msgEmail)}` : null;
+    const longo = mailto && mailto.length > 1800;
+    if (longo) mailto = `mailto:${encodeURIComponent(f.email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent('(Cole aqui o texto do pedido: Ctrl+V)\n')}`;
     render(links,
-      h('button', { type: 'button', class: 'btn pequeno', onclick: async () => { try { await navigator.clipboard.writeText(texto.value); toast('Texto copiado.'); } catch { texto.select(); toast('Selecione e copie (Ctrl+C).'); } } }, '📋 Copiar texto'),
-      w ? h('a', { class: 'btn pequeno', href: w, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir no WhatsApp ↗') : h('span', { class: 'suave pequeno' }, 'Sem WhatsApp cadastrado.'),
-      f.email ? h('a', { class: 'btn pequeno', href: `mailto:${f.email}?subject=${encodeURIComponent('Pedido de cotação')}&body=${encodeURIComponent(texto.value)}` }, 'Abrir e-mail ↗') : null);
+      h('button', { type: 'button', class: 'btn pequeno', onclick: async () => { if (await copiar(texto.value)) toast('Texto copiado.'); else { texto.select(); toast('Selecione e copie (Ctrl+C).'); } } }, '📋 Copiar texto'),
+      w ? h('a', { class: 'btn pequeno', href: w, target: '_blank', rel: 'noopener noreferrer', onclick: () => depoisDeAbrir(f, numeros, 'whatsapp') }, '🟢 Abrir no WhatsApp ↗')
+        : h('span', { class: 'suave pequeno' }, 'Sem WhatsApp cadastrado.'),
+      mailto ? h('a', { class: 'btn pequeno', href: mailto, onclick: () => { copiar(msgEmail).then((ok) => longo && toast(ok ? 'Mensagem longa: o texto foi copiado. No e-mail, cole com Ctrl+V.' : 'Mensagem longa: copie o texto acima e cole no e-mail.', 8000)); depoisDeAbrir(f, numeros, 'email'); } }, `✉ Enviar por e-mail (${f.email}) ↗`)
+        : h('span', { class: 'suave pequeno' }, h('a', { href: '#/fornecedores' }, 'Sem e-mail cadastrado'), ' neste fornecedor.'));
   };
   const montarLista = () => {
-    const f = fs.find((x) => String(x.id) === sel.value);
+    const f = atual();
+    const iniciais = itensIniciais(d, f, sugeridos);
+    const aguardando = new Set(d.pedidos.filter((p) => p.status === 'aguardando' && p.fornecedor_id === f.id).flatMap((p) => p.itens));
     marcar.clear();
     render(lista, d.itens.map((i) => {
-      const cb = h('input', { type: 'checkbox', checked: sugeridos?.includes(i.numero_item) || (f.combina.length ? f.combina.includes(i.numero_item) : !i.usada_id), onchange: atualizar });
+      const cb = h('input', { type: 'checkbox', checked: iniciais.includes(i.numero_item), onchange: atualizar });
       marcar.set(i.numero_item, cb);
-      return h('label', { class: 'item-pedido' }, cb, ` Item ${i.numero_item}: ${(i.descricao || '').slice(0, 90)}`);
+      return h('label', { class: 'item-pedido' }, cb, ` Item ${i.numero_item}: ${(i.descricao || '').slice(0, 90)}`,
+        f.combina.includes(i.numero_item) ? h('span', { class: 'etiqueta verde pequena' }, 'combina') : null,
+        i.usada_id ? h('span', { class: 'etiqueta pequena' }, 'já cotado') : null,
+        aguardando.has(i.numero_item) ? h('span', { class: 'etiqueta amarela pequena' }, 'já pedido, aguardando') : null);
     }));
     atualizar();
   };
-  sel.addEventListener('change', montarLista);
-  modal('Pedir cotação', h('div', {},
-    h('div', { class: 'campo' }, h('label', {}, 'Fornecedor'), sel),
-    h('div', { class: 'campo' }, h('label', {}, 'Itens'), lista),
-    h('div', { class: 'campo' }, h('label', {}, 'Mensagem'), texto),
+  const todos = (v) => { marcar.forEach((cb) => { cb.checked = v; }); atualizar(); };
+  sel.addEventListener('change', () => { sugeridos = null; montarLista(); });
+  fecharPedido = modal('Pedir cotação', h('div', { class: 'modal-largo' },
+    h('div', { class: 'filtros' },
+      h('div', { class: 'largo' }, h('label', {}, 'Fornecedor'), sel),
+      h('div', {}, h('label', {}, 'Ver mensagem como'), formato)),
+    h('div', { class: 'campo' }, h('label', {}, 'Itens ', contagem, ' ',
+      h('button', { type: 'button', class: 'btn pequeno', onclick: () => todos(true) }, 'Marcar todos'), ' ',
+      h('button', { type: 'button', class: 'btn pequeno', onclick: () => todos(false) }, 'Nenhum')), lista),
+    h('div', { class: 'campo' }, h('label', {}, 'Mensagem (descrição completa de cada item)'), texto),
     links,
-    h('p', { class: 'suave pequeno' }, 'O sistema não envia nada sozinho: você revisa e manda pelo seu WhatsApp ou e-mail. Quando o fornecedor responder, use "Registrar resposta".')), []);
+    h('p', { class: 'suave pequeno' }, 'O sistema não envia nada sozinho: o WhatsApp ou o seu programa de e-mail (Outlook, se for o padrão do computador) abre com a mensagem pronta e você revisa e envia. Depois o sistema pergunta se foi enviado.')), []);
   montarLista();
 }
 
@@ -283,6 +382,145 @@ function registrarResposta(d, recarregar, fornecedorId) {
   } }]);
 }
 
+const CANAIS = { whatsapp: 'WhatsApp', email: 'e-mail', outro: 'outro meio' };
+
+/** Margem geral se vender pelo estimado, já descontados os impostos informados (mesma conta do servidor por item). */
+function margemResumo(d) {
+  const r = d.resumo;
+  if (!r.estimado_cotados || r.custo_cotados_com_ref == null) return null;
+  return ((r.estimado_cotados * (1 - (d.parametros.impostos_pct || 0) / 100) - r.custo_cotados_com_ref) / r.estimado_cotados) * 100;
+}
+
+// ---------- Impressão / PDF ----------
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const NI = '<span class="ni">não informado</span>';
+const pBrl = (v) => (v == null ? NI : esc(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 }).format(v)));
+const pPct = (v) => (v == null ? '—' : esc(`${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`));
+
+/** Abre uma página de impressão (o navegador salva em PDF em "Destino: Salvar como PDF"). */
+function imprimirCotacoes(d, est) {
+  const op = d.oportunidade; const r = d.resumo; const par = d.parametros;
+  const janela = window.open('', '_blank');
+  if (!janela) return toast('O navegador bloqueou a nova janela. Permita pop-ups para este site e tente de novo.', 7000);
+  const porId = new Map(d.fornecedores_cotados.map((f) => [f.id, f]));
+  const aguardando = d.pedidos.filter((p) => p.status === 'aguardando');
+  const usada = (i) => i.cotacoes.find((c) => c.id === i.usada_id);
+  const prazo = (c) => (c?.prazo_entrega_dias != null ? `${c.prazo_entrega_dias} dia(s)` : NI);
+  const frete = (c) => (c?.frete_incluso === 1 ? 'incluso' : c?.frete_incluso === 0 ? 'não incluso' : NI);
+  const situacao = (i) => {
+    const [rot, cor] = i.situacao === 'sem_cotacao' && aguardando.some((p) => p.itens.includes(i.numero_item)) ? ['Aguardando fornecedor', 'amarela'] : SITUACAO[i.situacao];
+    return `<span class="sit ${cor}">${esc(rot)}</span>`;
+  };
+  const campo = (rot, v) => (v ? `<div><b>${esc(rot)}</b> ${v}</div>` : '');
+  const margem = margemResumo(d);
+  const kpi = (rot, v) => `<div class="kpi"><div class="r">${esc(rot)}</div><div class="v">${v}</div></div>`;
+
+  const linhas = d.itens.map((i) => {
+    const c = usada(i);
+    return `<tr>
+      <td class="c">${esc(i.numero_item)}</td>
+      <td class="desc">${esc(i.descricao || '—')}</td>
+      <td class="n">${esc(i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || ''}` : '—')}</td>
+      <td class="n">${i.orcamento_sigiloso ? 'Sigiloso' : pBrl(i.valor_unitario_estimado)}</td>
+      <td>${c ? `<b>${esc(c.fornecedor_nome)}</b>${c.marca_modelo ? `<div class="s">${esc(c.marca_modelo)}</div>` : ''}` : '<span class="ni">sem cotação</span>'}</td>
+      <td class="n">${c ? pBrl(c.preco_unitario) : '—'}</td>
+      <td class="n">${i.custo_total == null ? '—' : pBrl(i.custo_total)}</td>
+      <td class="n">${c ? prazo(c) : '—'}</td>
+      <td class="n">${pPct(i.margem_estimado_pct)}</td>
+      <td class="n">${i.preco_minimo == null ? '—' : pBrl(i.preco_minimo)}</td>
+      <td class="n">${i.preco_minimo_total == null ? '—' : pBrl(i.preco_minimo_total)}</td>
+      <td>${situacao(i)}</td></tr>`;
+  }).join('');
+
+  const comparativo = d.itens.filter((i) => i.cotacoes.length).map((i) => `
+    <div class="bloco-item"><div class="titulo-item">Item ${esc(i.numero_item)} · ${esc((i.descricao || '').slice(0, 140))}${(i.descricao || '').length > 140 ? '…' : ''}</div>
+    <table class="mini"><thead><tr><th>Fornecedor</th><th>Marca / modelo</th><th class="n">Preço unit.</th><th class="n">Prazo de entrega</th><th>Frete</th><th>Validade</th><th></th></tr></thead><tbody>
+    ${i.cotacoes.map((c) => `<tr class="${c.id === i.usada_id ? 'usada' : ''}"><td>${esc(c.fornecedor_nome)}</td><td>${c.marca_modelo ? esc(c.marca_modelo) : NI}</td>
+      <td class="n">${pBrl(c.preco_unitario)}</td><td class="n">${prazo(c)}</td><td>${frete(c)}</td><td>${c.validade ? esc(data(c.validade, false)) : NI}</td>
+      <td>${c.id === i.usada_id ? (c.escolhida ? '✔ escolhida' : '✔ mais barata') : ''}</td></tr>`).join('')}
+    </tbody></table></div>`).join('');
+
+  const fornecedores = d.fornecedores_cotados.map((f) => `
+    <div class="forn"><div class="nome">${esc(nomeF(f))}</div>
+      ${campo('CNPJ', f.cnpj ? esc(fmtCnpj(f.cnpj)) : NI)}
+      ${campo('Local', esc([f.municipio, f.uf].filter(Boolean).join('/')) || NI)}
+      ${campo('Contato', esc([f.contato_nome, f.whatsapp || f.telefone, f.email].filter(Boolean).join(' · ')) || NI)}
+      ${campo('Pagamento', esc(textoPagamento(f)))}
+      ${campo('Frete', f.frete ? esc(f.frete) : NI)}
+      ${campo('Pedido mínimo', f.pedido_minimo != null ? pBrl(f.pedido_minimo) : NI)}
+      ${campo('Venda à ordem', f.venda_a_ordem === 1 ? 'faz (entrega direta no órgão)' : f.venda_a_ordem === 0 ? 'não faz' : NI)}
+    </div>`).join('');
+
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cotações · ${esc(op.cliente_nome || '')} · ${esc(op.orgao_nome || '')}</title>
+<style>
+  @page { size: A4 landscape; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font: 12px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1f2933; margin: 0; padding: 18px; background: #fff; }
+  .barra { display: flex; gap: 10px; align-items: center; background: #eef4fb; border: 1px solid #c9dcf0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
+  .barra button { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 6px; border: 0; background: #1d4ed8; color: #fff; cursor: pointer; }
+  h1 { font-size: 20px; margin: 0; } h2 { font-size: 14px; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #1d4ed8; color: #1d4ed8; text-transform: uppercase; letter-spacing: .03em; }
+  .topo { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; border-bottom: 1px solid #d5dbe1; padding-bottom: 10px; }
+  .empresa { text-align: right; } .empresa .nome { font-size: 15px; font-weight: 700; }
+  .s, .ni { color: #6b7785; font-size: 11px; } .ni { font-style: italic; }
+  .licit { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 18px; margin-top: 10px; }
+  .licit .objeto { grid-column: 1 / -1; }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; }
+  .kpi { border: 1px solid #d5dbe1; border-radius: 6px; padding: 6px 8px; } .kpi .r { font-size: 10px; color: #6b7785; text-transform: uppercase; } .kpi .v { font-size: 15px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; } th, td { border-bottom: 1px solid #e3e7eb; padding: 5px 6px; vertical-align: top; text-align: left; }
+  th { background: #f3f5f7; font-size: 10.5px; text-transform: uppercase; color: #4a5562; }
+  tbody tr:nth-child(even) td { background: #fafbfc; }
+  td.n, th.n { text-align: right; white-space: nowrap; } td.c { text-align: center; font-weight: 700; }
+  td.desc { max-width: 280px; font-size: 11px; }
+  .sit { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10.5px; background: #eef0f2; white-space: nowrap; }
+  .sit.verde { background: #dcfce7; color: #166534; } .sit.vermelha { background: #fee2e2; color: #991b1b; } .sit.amarela { background: #fef3c7; color: #92400e; }
+  .bloco-item { margin-bottom: 10px; page-break-inside: avoid; } .titulo-item { font-weight: 700; margin-bottom: 3px; }
+  table.mini td, table.mini th { padding: 3px 6px; } tr.usada td { background: #ecfdf5 !important; font-weight: 600; }
+  .fornecedores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .forn { border: 1px solid #d5dbe1; border-radius: 6px; padding: 8px 10px; page-break-inside: avoid; } .forn .nome { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .rodape { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d5dbe1; font-size: 10.5px; color: #6b7785; }
+  thead { display: table-header-group; } tr { page-break-inside: avoid; }
+  @media print { body { padding: 0; } .barra { display: none; } }
+  @media (max-width: 700px) { .licit, .kpis, .fornecedores { grid-template-columns: 1fr 1fr; } .topo { flex-direction: column; } .empresa { text-align: left; } }
+</style></head><body>
+<div class="barra"><button onclick="print()">🖨 Imprimir / Salvar em PDF</button><span>Para gerar o PDF, escolha <b>“Salvar como PDF”</b> no destino da impressão.</span></div>
+<div class="topo">
+  <div><h1>Mapa de cotações</h1><div class="s">Gerado em ${esc(new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}${est?.usuario?.nome ? ` por ${esc(est.usuario.nome)}` : ''}</div></div>
+  <div class="empresa"><div class="s">Empresa participante</div><div class="nome">${esc(op.cliente_razao || op.cliente_nome || 'Empresa não vinculada')}</div>${op.cliente_cnpj ? `<div>CNPJ ${esc(fmtCnpj(op.cliente_cnpj))}</div>` : ''}</div>
+</div>
+<div class="licit">
+  ${campo('Órgão:', op.orgao_nome ? esc(op.orgao_nome) : NI)}
+  ${campo('Local:', op.municipio ? esc(`${op.municipio}/${op.uf}`) : NI)}
+  ${campo('Licitação:', numeroLic(op) ? esc(numeroLic(op)) : NI)}
+  ${campo('Unidade:', op.unidade_nome ? esc(op.unidade_nome) : '')}
+  ${campo('Processo:', op.processo ? esc(op.processo) : '')}
+  ${campo('Propostas até:', op.data_encerramento_proposta ? esc(data(op.data_encerramento_proposta)) : NI)}
+  <div class="objeto"><b>Objeto:</b> ${esc(op.objeto || '—')}</div>
+</div>
+<div class="kpis">
+  ${kpi('Itens cotados', esc(`${r.cotados} de ${r.itens}`))}
+  ${kpi('Custo de compra', r.custo_total == null ? '—' : pBrl(r.custo_total))}
+  ${kpi('Preço mínimo total', r.preco_minimo_total == null ? '—' : pBrl(r.preco_minimo_total))}
+  ${kpi('Estimado (itens cotados)', r.estimado_cotados == null ? '—' : pBrl(r.estimado_cotados))}
+  ${kpi(par.impostos_pct == null ? 'Margem no estimado' : 'Margem no estimado (líq. impostos)', pPct(margem))}
+  ${kpi('Itens acima do estimado', esc(String(r.acima)))}
+</div>
+<div class="s" style="margin-top:6px">Parâmetros: impostos ${par.impostos_pct == null ? 'não informados' : esc(`${String(par.impostos_pct).replace('.', ',')}%`)} · margem desejada ${par.margem_pct == null ? 'não informada' : esc(`${String(par.margem_pct).replace('.', ',')}%`)} · preço mínimo = custo ÷ (1 − impostos − margem).</div>
+
+<h2>Itens e cotação usada</h2>
+<table><thead><tr><th>Nº</th><th>Descrição</th><th class="n">Qtd.</th><th class="n">Estimado unit.</th><th>Fornecedor / marca</th><th class="n">Custo unit.</th><th class="n">Custo total</th><th class="n">Prazo de entrega</th><th class="n">Margem no estimado</th><th class="n">Preço mín. unit.</th><th class="n">Preço mín. total</th><th>Situação</th></tr></thead>
+<tbody>${linhas}</tbody></table>
+
+${comparativo ? `<h2>Comparativo de cotações por item</h2>${comparativo}` : ''}
+${fornecedores ? `<h2>Condições dos fornecedores cotados</h2><div class="fornecedores">${fornecedores}</div>` : ''}
+${aguardando.length ? `<h2>Aguardando retorno do fornecedor</h2><ul>${aguardando.map((p) => `<li><b>${esc(p.fornecedor_nome)}</b> · itens ${esc(p.itens.join(', '))} · pedido por ${esc(CANAIS[p.canal] || p.canal)} em ${esc(dataUtc(p.enviado_em))}</li>`).join('')}</ul>` : ''}
+
+<div class="rodape">Valores digitados pela equipe a partir das respostas dos fornecedores; confira antes de usar na proposta. "Não informado" = o fornecedor ou o edital não trouxe o dado. Licita Inteligente.</div>
+<script>setTimeout(() => print(), 400);</script>
+</body></html>`;
+  janela.document.open(); janela.document.write(html); janela.document.close();
+}
+
 export async function cotacao(alvo, rota, est) {
   render(alvo, carregando());
   const id = rota.args[0];
@@ -306,17 +544,22 @@ export async function cotacao(alvo, rota, est) {
     d.parametros.impostos_pct == null && d.parametros.margem_pct == null ? h('div', { class: 'aviso amarelo pequeno' }, 'Impostos e margem não informados: o "preço mínimo" abaixo é só o custo de compra.') : null);
 
   const total = (rot, val, dica) => h('div', { class: 'cartao kpi', title: dica || '' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val));
-  const margemGeral = r.estimado_cotados && r.custo_cotados_com_ref != null ? ((r.estimado_cotados - r.custo_cotados_com_ref) / r.estimado_cotados) * 100 : null;
+  const margemGeral = margemResumo(d);
+  const semImpostos = d.parametros.impostos_pct == null;
   const resumo = h('div', { class: 'grade kpis' },
     total('Itens cotados', `${r.cotados} de ${r.itens}`),
     total('Custo de compra', r.custo_total == null ? (r.cotados ? 's/ qtd.' : '—') : moeda(r.custo_total), 'Soma de preço × quantidade da cotação usada em cada item'),
     total('Preço mínimo total', r.preco_minimo_total == null ? '—' : moeda(r.preco_minimo_total), 'Com impostos e margem informados acima'),
     total('Estimado dos itens cotados', r.estimado_cotados == null ? '—' : moeda(r.estimado_cotados), `Valor de referência do órgão, só dos ${r.itens_com_ref} item(ns) cotados que têm valor`),
-    total('Margem bruta sobre o estimado', margemGeral == null ? '—' : pct(margemGeral), 'Antes de impostos e frete: (estimado − custo) ÷ estimado'),
+    total(semImpostos ? 'Margem no estimado (sem impostos informados)' : 'Margem no estimado, líquida de impostos', margemGeral == null ? '—' : pct(margemGeral),
+      'Quanto sobra se vender pelo valor estimado do órgão: (estimado × (1 − impostos) − custo) ÷ estimado. Compare com a margem desejada. Frete não incluso precisa entrar no custo.'),
     total('Itens acima do estimado', String(r.acima), 'O preço mínimo passa do valor unitário estimado: risco de desclassificação ou prejuízo'));
 
+  const aguardando = d.pedidos.filter((p) => p.status === 'aguardando');
   const linhaItem = (i) => {
-    const [rot, cor] = SITUACAO[i.situacao];
+    // só os que ainda não cotaram este item
+    const esperando = aguardando.filter((p) => p.itens.includes(i.numero_item) && !i.cotacoes.some((c) => c.fornecedor_id === p.fornecedor_id));
+    const [rot, cor] = i.situacao === 'sem_cotacao' && esperando.length ? ['Aguardando fornecedor', 'amarela'] : SITUACAO[i.situacao];
     const detalhes = i.cotacoes.length ? h('details', { class: 'cotacoes-item' }, h('summary', {}, `${i.cotacoes.length} cotação(ões)`),
       h('ul', {}, i.cotacoes.map((c) => h('li', {},
         h('strong', {}, c.fornecedor_nome), ` · ${brl(c.preco_unitario)}`, c.marca_modelo ? ` · ${c.marca_modelo}` : '',
@@ -331,32 +574,56 @@ export async function cotacao(alvo, rota, est) {
       h('td', { class: 'num' }, i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || ''}` : naoInformado()),
       h('td', { class: 'num' }, i.orcamento_sigiloso ? 'Sigiloso' : brl(i.valor_unitario_estimado)),
       h('td', { class: 'num' }, i.custo_unitario == null ? '—' : brl(i.custo_unitario), i.usada_id ? h('div', { class: 'suave pequeno' }, i.cotacoes.find((c) => c.id === i.usada_id)?.fornecedor_nome) : null),
-      h('td', { class: 'num' }, pct(i.margem_bruta_pct)),
+      h('td', { class: 'num' }, pct(i.margem_estimado_pct)),
       h('td', { class: 'num' }, i.preco_minimo == null ? '—' : brl(i.preco_minimo)),
       h('td', { class: 'num' }, i.preco_minimo_total == null ? '—' : moeda(i.preco_minimo_total)),
-      h('td', {}, h('span', { class: `etiqueta ${cor}` }, rot)));
+      h('td', {}, h('span', { class: `etiqueta ${cor}` }, rot),
+        esperando.length ? h('div', { class: 'suave pequeno' }, `aguardando: ${esperando.map((p) => p.fornecedor_nome).join(', ')}`) : null));
   };
+
+  const diasDesde = (iso) => Math.max(0, Math.floor((Date.now() - new Date(String(iso).replace(' ', 'T') + 'Z')) / 86400000));
+  const blocoPedidos = !d.pedidos.length ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } },
+    h('h2', {}, `Aguardando retorno do fornecedor (${aguardando.length})`),
+    aguardando.length ? h('ul', { class: 'lista-pedidos' }, aguardando.map((p) => {
+      const dias = diasDesde(p.enviado_em);
+      return h('li', {},
+        h('span', { class: 'etiqueta amarela pequena' }, '⏳ Aguardando retorno do fornecedor'), ' ',
+        h('strong', {}, p.fornecedor_nome), ` · itens ${p.itens.join(', ')} · pedido por ${CANAIS[p.canal] || p.canal} em ${dataUtc(p.enviado_em)}`,
+        h('span', { class: dias >= 3 ? 'texto-perigo' : 'suave' }, ` · ${dias === 0 ? 'hoje' : `há ${dias} dia(s)`}`),
+        p.usuario_nome ? h('span', { class: 'suave' }, ` · ${p.usuario_nome}`) : '',
+        editar ? [' ', h('button', { class: 'btn pequeno', onclick: () => registrarResposta(d, recarregar, p.fornecedor_id) }, 'Registrar resposta'),
+          ' ', h('button', { class: 'btn pequeno', title: 'O fornecedor não respondeu: tira da lista de espera', onclick: async () => {
+            try { await api(`/kanban/${id}/pedidos/${p.id}`, { metodo: 'PATCH', corpo: { status: 'sem_retorno' } }); recarregar(); } catch (e) { toast(e.message); } } }, 'Sem retorno')] : null);
+    })) : h('p', { class: 'suave pequeno' }, 'Nenhum pedido aguardando resposta.'),
+    d.pedidos.length > aguardando.length ? h('details', { class: 'pequeno' }, h('summary', {}, 'Pedidos anteriores'),
+      h('ul', {}, d.pedidos.filter((p) => p.status !== 'aguardando').map((p) => h('li', {},
+        `${p.fornecedor_nome} · itens ${p.itens.join(', ')} · ${CANAIS[p.canal] || p.canal} em ${dataUtc(p.enviado_em)} · `,
+        p.status === 'respondido' ? `respondido em ${dataUtc(p.respondido_em)}` : 'sem retorno',
+        editar && p.status === 'sem_retorno' ? [' ', h('button', { class: 'btn pequeno', onclick: async () => {
+          try { await api(`/kanban/${id}/pedidos/${p.id}`, { metodo: 'PATCH', corpo: { status: 'aguardando' } }); recarregar(); } catch (e) { toast(e.message); } } }, 'Voltar a aguardar')] : null)))) : null);
 
   const semItens = !d.itens.length;
   render(alvo,
     h('button', { class: 'btn pequeno', onclick: () => history.back() }, '← Voltar'),
     cabecalho('Cotações', [op.cliente_nome ? `🏢 ${op.cliente_nome} · ` : '', (op.objeto || '').slice(0, 160)].join(''),
       h('a', { class: 'btn', href: `#/licitacao/${op.licitacao_id}` }, 'Abrir licitação'),
-      editar && !semItens ? h('button', { class: 'btn', onclick: () => pedirCotacao(d) }, '✉ Pedir cotação') : null,
+      !semItens ? h('button', { class: 'btn', onclick: () => imprimirCotacoes(d, est) }, '🖨 Imprimir / PDF') : null,
+      editar && !semItens ? h('button', { class: 'btn', onclick: () => pedirCotacao(d, null, recarregar, est) }, '✉ Pedir cotação') : null,
       editar && !semItens ? h('button', { class: 'btn primario', onclick: () => registrarResposta(d, recarregar) }, '+ Registrar resposta') : null),
     h('div', { class: 'suave pequeno', style: { marginBottom: '10px' } }, [op.orgao_nome, op.municipio && `${op.municipio}/${op.uf}`, op.data_encerramento_proposta && `propostas até ${data(op.data_encerramento_proposta)}`].filter(Boolean).join(' · ')),
     semItens ? h('div', { class: 'aviso amarelo' }, op.detalhes_sincronizados_em ? 'A fonte não informou itens para esta licitação. Sem itens não há como cotar por item.' : 'Os itens desta licitação ainda não foram baixados do PNCP. ',
       !op.detalhes_sincronizados_em && editar ? h('button', { class: 'btn pequeno', onclick: async (e) => { e.target.disabled = true; try { const x = await api(`/licitacoes/${op.licitacao_id}/atualizar`, { metodo: 'POST', corpo: {} }); toast(x.ok ? `${x.itens} itens baixados.` : x.mensagem, 5000); recarregar(); } catch (er) { toast(er.message, 6000); e.target.disabled = false; } } }, '↻ Baixar itens agora') : null) : null,
     !d.fornecedores.length ? h('div', { class: 'aviso azul' }, 'Nenhum fornecedor ativo cadastrado. ', h('a', { href: '#/fornecedores' }, 'Cadastre em Fornecedores'), ' e informe os produtos que ele vende para ver sugestões aqui.') : null,
     semItens ? null : resumo,
+    semItens ? null : blocoPedidos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-cotacao' },
-        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', 'Margem bruta', 'Preço mínimo (unit.)', 'Preço mínimo (total)', 'Situação'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', semImpostos ? 'Margem no estimado' : 'Margem no estimado (líquida de impostos)', 'Preço mínimo (unit.)', 'Preço mínimo (total)', 'Situação'].map((t) => h('th', {}, t)))),
         h('tbody', {}, d.itens.map(linhaItem))))),
     semItens ? null : h('div', { style: { marginTop: '14px' } }, parametros),
     semItens || !d.fornecedores.some((f) => f.combina.length) ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Fornecedores que combinam com os itens'),
       h('ul', {}, d.fornecedores.filter((f) => f.combina.length).map((f) => h('li', {}, h('strong', {}, nomeF(f)), ` · itens ${f.combina.join(', ')}`,
-        editar ? [' ', h('button', { class: 'btn pequeno', onclick: () => pedirCotacao({ ...d, fornecedores: [f, ...d.fornecedores.filter((x) => x !== f)] }, f.combina) }, 'Pedir cotação'),
+        editar ? [' ', h('button', { class: 'btn pequeno', onclick: () => pedirCotacao({ ...d, fornecedores: [f, ...d.fornecedores.filter((x) => x !== f)] }, f.combina, recarregar, est) }, 'Pedir cotação'),
           ' ', h('button', { class: 'btn pequeno', onclick: () => registrarResposta(d, recarregar, f.id) }, 'Registrar resposta')] : null)))),
     semItens || !editar || r.preco_minimo_total == null || r.cotados < r.itens ? null : h('div', { class: 'aviso azul', style: { marginTop: '14px' } },
       `Todos os itens cotados. Preço mínimo total: ${moeda(r.preco_minimo_total)}${op.valor_proposta != null ? ` (valor da proposta no card hoje: ${moeda(op.valor_proposta)})` : ''}. `,

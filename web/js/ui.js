@@ -77,14 +77,14 @@ export function vazio(txt) { return h('div', { class: 'vazio' }, txt); }
 
 export function confirmar(msg) { return window.confirm(msg); }
 
-export function modal(titulo, conteudo, acoes = []) {
+export function modal(titulo, conteudo, acoes = [], { fechar: rotuloFechar = 'Fechar' } = {}) {
   const fundo = h('div', { class: 'modal-fundo', role: 'dialog', 'aria-modal': 'true' });
   const fechar = () => fundo.remove();
   fundo.addEventListener('click', (e) => { if (e.target === fundo) fechar(); });
   fundo.append(h('div', { class: 'modal' }, h('h2', {}, titulo), conteudo,
     h('div', { class: 'linha', style: { justifyContent: 'flex-end', marginTop: '14px' } },
       ...acoes.map((a) => h('button', { class: `btn ${a.classe || ''}`, onclick: async () => { if ((await a.acao?.()) !== false) fechar(); } }, a.texto)),
-      h('button', { class: 'btn', onclick: fechar }, 'Fechar'))));
+      h('button', { class: 'btn', onclick: fechar }, rotuloFechar))));
   document.body.append(fundo);
   return fechar;
 }
