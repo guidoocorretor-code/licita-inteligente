@@ -150,7 +150,7 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   return { where: w.length ? `WHERE ${w.join(' AND ')}` : '', params: p };
 }
 
-export const COLUNAS_LISTA = `l.id, l.numero_controle_pncp, l.numero_compra, l.ano, l.processo, l.orgao_nome, l.orgao_cnpj, l.esfera,
+export const COLUNAS_LISTA = `l.id, l.numero_controle_pncp, l.numero_compra, l.ano, l.processo, l.orgao_nome, l.orgao_cnpj, l.esfera, l.unidade_codigo,
   l.uf, l.municipio, l.modalidade_nome, l.objeto, l.segmento, l.valor_estimado, l.valor_estimado_situacao, l.valor_homologado,
   l.data_publicacao, l.data_abertura_proposta, l.data_encerramento_proposta, l.status_calculado, l.status_motivo,
   l.situacao_oficial_nome, l.plataforma_origem, l.sistema_eletronico, l.link_origem, l.link_pncp, l.ultima_verificacao, l.me_epp_exclusivo,

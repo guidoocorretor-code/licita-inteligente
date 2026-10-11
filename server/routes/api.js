@@ -245,6 +245,7 @@ r.get('/kanban', (req, res) => {
   const etapas = db().prepare('SELECT * FROM kanban_etapas WHERE empresa_id=? ORDER BY ordem').all(emp);
   const c = doCliente(req, 'o.cliente_id');
   const cards = db().prepare(`SELECT o.*, l.objeto, l.orgao_nome, l.uf, l.status_calculado, l.data_encerramento_proposta, l.valor_estimado, l.valor_estimado_situacao,
+      l.numero_compra, l.ano, l.modalidade_nome, l.link_origem, l.unidade_codigo, l.sistema_eletronico,
       u.nome responsavel_nome, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome
       FROM oportunidades o JOIN licitacoes l ON l.id=o.licitacao_id LEFT JOIN usuarios u ON u.id=o.responsavel_id LEFT JOIN clientes cl ON cl.id=o.cliente_id
       WHERE o.empresa_id=?${c.sql} ORDER BY o.posicao, o.id`).all(emp, ...c.p);

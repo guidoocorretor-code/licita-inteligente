@@ -1,8 +1,7 @@
 import { api, qs, clienteSelecionado } from './api.js';
 import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
-  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render,
-} from './ui.js';
+  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render, faixaGoverno } from './ui.js';
 import { painelEmpresas, painelFornecedores, abasDashboard } from './painel.js';
 
 const ehAdmin = (e) => ['admin', 'superadmin'].includes(e.usuario.papel);
@@ -142,6 +141,7 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
       h('div', { class: 'orgao-local' },
         h('span', { class: 'orgao' }, '🏛 ', l.orgao_nome || naoInformado()),
         h('span', { class: 'local' }, '📍 ', [l.municipio, l.uf].filter(Boolean).join(' / ') || naoInformado())),
+      faixaGoverno(l, { compacta: true }),
       h('div', { class: 'ficha' },
         campoFicha('Modalidade', l.modalidade_nome || naoInformado()),
         campoFicha('Número', l.numero_compra ? `${l.numero_compra}/${l.ano ?? ''}` : naoInformado()),
@@ -332,6 +332,7 @@ export async function detalhe(alvo, rota, est) {
     h('div', { class: 'aviso azul' }, h('strong', {}, 'Status: '), etiquetaStatus(l.status_calculado, est.meta), ' ', l.status_motivo || '',
       h('div', { class: 'pequeno', style: { marginTop: '4px' } }, `Situação oficial na fonte: ${l.situacao_oficial_nome || 'não informada'}. `,
         d.oportunidade ? `Etapa interna${emFoco ? ` (${nomeEmpresa(emFoco)})` : ''}: ${d.oportunidade.etapa_nome}.` : `Ainda não acompanhada no Kanban${emFoco ? ` de ${nomeEmpresa(emFoco)}` : ''}.`), empresasDaLic),
+    faixaGoverno(l),
     h('div', { class: 'grade duas' },
       h('div', { class: 'cartao' }, h('h2', {}, 'Dados da contratação'), h('dl', { class: 'detalhes' },
         linha('Objeto', ni(l.objeto)),
@@ -663,6 +664,7 @@ export async function kanban(alvo, _r, est) {
     modal(c.objeto?.slice(0, 90) || 'Oportunidade', h('div', {},
       h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · ', h('a', { href: `#/cotacao/${c.id}`, title: 'Cotações dos fornecedores, custo, margem e preço mínimo por item' }, '💲 Cotações'),
         ' · Situação oficial: ', etiquetaStatus(c.status_calculado, est.meta)),
+      faixaGoverno(c),
       h('div', { class: 'campo' }, h('label', {}, 'Responsável'), resp),
       h('div', { class: 'campo' }, h('label', {}, 'Prazo interno'), prazo),
       execucao.el,

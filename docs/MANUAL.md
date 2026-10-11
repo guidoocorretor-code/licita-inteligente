@@ -84,3 +84,7 @@ Aba ao lado de "Empresas": pedidos aguardando retorno, prazo apertado (propostas
 ## Menu
 
 Seções destacadas: **Cadastro** (Empresa), **Oportunidades** (Dashboard, buscas, Kanban, alertas), **Gestão**, **Inteligência** e **Administração**.
+
+## UASG e número para o sistema do governo
+
+Em Buscar licitações, no detalhe da licitação e ao abrir o card do Kanban aparece uma faixa amarela com **UASG** e **nº da dispensa/pregão**. Um clique copia o valor para colar no Compras.gov.br. A UASG vem do código da compra no link do Compras.gov.br (UASG + modalidade + número + ano); quando a licitação está em outro sistema (BLL, Licitanet, Portal de Compras Públicas…), não existe UASG e só o número aparece.

@@ -176,3 +176,37 @@ export function rosca(itens, { max = 5, rotulo = (i) => i.rotulo, aoClicar } = {
     h('span', { class: 'pct' }, pct(f.n)))));
   return h('div', { class: 'rosca' }, svg, legenda);
 }
+
+// ---------- UASG e número para colar no sistema do governo ----------
+// No Compras.gov.br o link da compra traz o código "compra=" com 17 dígitos:
+// UASG (6) + modalidade (2) + número (5) + ano (4). Ex.: 15842606001622026 → UASG 158426, nº 00162/2026.
+export function identificacaoGoverno(l = {}) {
+  const m = String(l.link_origem || '').match(/[?&]compra=(\d{6})(\d{2})(\d{5})(\d{4})(?:\D|$)/);
+  if (m) return { uasg: m[1], numero: `${m[3]}/${m[4]}`, comprasgov: true };
+  const num = l.numero_compra ? (String(l.numero_compra).includes('/') ? String(l.numero_compra) : `${l.numero_compra}${l.ano ? `/${l.ano}` : ''}`) : null;
+  // Sem o link, a UASG só é confiável quando o sistema identificado é o Compras.gov.br (código da unidade no PNCP)
+  if (l.sistema_eletronico === 'comprasgov' && /^\d{6}$/.test(String(l.unidade_codigo || ''))) {
+    return { uasg: String(l.unidade_codigo), numero: l.numero_compra && l.ano && !String(l.numero_compra).includes('/') ? `${String(l.numero_compra).padStart(5, '0')}/${l.ano}` : num, comprasgov: true };
+  }
+  return { uasg: null, numero: num, comprasgov: l.sistema_eletronico === 'comprasgov' };
+}
+
+/** Botão que copia um valor com um clique. */
+export function botaoCopiar(valor, rotulo) {
+  return h('button', { type: 'button', class: 'copiar', title: `Copiar ${rotulo}: ${valor}`, onclick: async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try { await navigator.clipboard.writeText(valor); toast(`${rotulo} copiado: ${valor}`); }
+    catch { toast(`Não consegui copiar. Selecione e copie: ${valor}`, 6000); }
+  } }, h('span', { class: 'valor-copiar' }, valor), h('span', { class: 'icone-copiar', 'aria-hidden': 'true' }, '📋'));
+}
+
+/** Faixa destacada "UASG 158426 📋 · Dispensa nº 00162/2026 📋" (o que se digita no sistema do governo). */
+export function faixaGoverno(l, { compacta = false } = {}) {
+  const id = identificacaoGoverno(l);
+  if (!id.uasg && !id.numero) return null;
+  const tipo = /dispensa/i.test(l.modalidade_nome || '') ? 'Dispensa' : /preg/i.test(l.modalidade_nome || '') ? 'Pregão' : 'Compra';
+  return h('div', { class: `faixa-governo${compacta ? ' compacta' : ''}` },
+    id.uasg ? h('span', { class: 'par' }, h('span', { class: 'rot' }, 'UASG'), botaoCopiar(id.uasg, 'UASG'))
+      : compacta ? null : h('span', { class: 'par suave pequeno', title: 'UASG é o código da unidade no Compras.gov.br; este órgão usa outro sistema' }, 'Sem UASG (outro sistema)'),
+    id.numero ? h('span', { class: 'par' }, h('span', { class: 'rot' }, `${tipo} nº`), botaoCopiar(id.numero, `Nº da ${tipo.toLowerCase()}`)) : null);
+}
