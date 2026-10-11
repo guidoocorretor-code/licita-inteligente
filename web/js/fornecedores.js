@@ -521,7 +521,7 @@ function imprimirCotacoes(d, est) {
   @media print { body { padding: 0; } .barra { display: none; } }
   @media (max-width: 700px) { .licit, .kpis, .fornecedores { grid-template-columns: 1fr 1fr; } .topo { flex-direction: column; } .empresa { text-align: left; } }
 </style></head><body>
-<div class="barra"><button onclick="print()">🖨 Imprimir / Salvar em PDF</button><span>Para gerar o PDF, escolha <b>“Salvar como PDF”</b> no destino da impressão.</span></div>
+<div class="barra"><button id="btn-imprimir" type="button">🖨 Imprimir / Salvar em PDF</button><span>Para gerar o PDF, escolha <b>“Salvar como PDF”</b> no destino da impressão.</span></div>
 <div class="topo">
   <div><h1>Mapa de cotações</h1><div class="s">Gerado em ${esc(new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))}${est?.usuario?.nome ? ` por ${esc(est.usuario.nome)}` : ''}</div></div>
   <div class="empresa"><div class="s">Empresa participante</div><div class="nome">${esc(op.cliente_razao || op.cliente_nome || 'Empresa não vinculada')}</div>${op.cliente_cnpj ? `<div>CNPJ ${esc(fmtCnpj(op.cliente_cnpj))}</div>` : ''}</div>
@@ -538,15 +538,15 @@ function imprimirCotacoes(d, est) {
 <div class="kpis">
   ${kpi('Itens cotados', esc(`${r.cotados} de ${r.itens}`))}
   ${kpi('Custo de compra', r.custo_total == null ? '—' : pBrl(r.custo_total))}
-  ${kpi('Preço mínimo total', r.preco_minimo_total == null ? '—' : pBrl(r.preco_minimo_total))}
+  ${kpi('Preço mínimo de venda (total)', r.preco_minimo_total == null ? '—' : pBrl(r.preco_minimo_total))}
   ${kpi('Estimado (itens cotados)', r.estimado_cotados == null ? '—' : pBrl(r.estimado_cotados))}
-  ${kpi(par.impostos_pct == null ? 'Margem no estimado' : 'Margem no estimado (líq. impostos)', pPct(margem))}
+  ${kpi('Margem líquida vendendo pelo estimado', pPct(margem))}
   ${kpi('Itens acima do estimado', esc(String(r.acima)))}
 </div>
 <div class="s" style="margin-top:6px">Parâmetros: ${par.tributos?.regime ? `${esc(REGIMES[par.tributos.regime] || '')}${par.tributos.regime === 'simples' ? ` (Anexo ${esc(par.tributos.anexo)})` : ''} · ` : ''}${r.frete_total ? `frete FOB ${pBrl(r.frete_total)} incluído no custo · ` : ''}impostos ${par.impostos_pct == null ? 'não informados' : esc(`${String(par.impostos_pct).replace('.', ',')}%`)} · margem desejada ${par.margem_pct == null ? 'não informada' : esc(`${String(par.margem_pct).replace('.', ',')}%`)} · preço mínimo = custo ÷ (1 − impostos − margem).</div>
 
 <h2>Itens e cotação usada</h2>
-<table><thead><tr><th>Nº</th><th>Descrição</th><th class="n">Qtd.</th><th class="n">Estimado unit.</th><th>Fornecedor / marca</th><th class="n">Preço fornecedor</th><th>Frete</th><th class="n">Custo total (c/ frete)</th><th class="n">Prazo de entrega</th><th class="n">Margem no estimado</th><th class="n">Preço mín. unit.</th><th class="n">Preço mín. total</th><th>Situação</th></tr></thead>
+<table><thead><tr><th>Nº</th><th>Descrição</th><th class="n">Qtd.</th><th class="n">Estimado unit.</th><th>Fornecedor / marca</th><th class="n">Preço fornecedor</th><th>Frete</th><th class="n">Custo total (c/ frete)</th><th class="n">Prazo de entrega</th><th class="n">Margem líquida no estimado</th><th class="n">Preço mín. de venda unit.</th><th class="n">Preço mín. de venda total</th><th>Situação</th></tr></thead>
 <tbody>${linhas}</tbody></table>
 
 ${comparativo ? `<h2>Comparativo de cotações por item</h2>${comparativo}` : ''}
@@ -554,9 +554,11 @@ ${fornecedores ? `<h2>Condições dos fornecedores cotados</h2><div class="forne
 ${aguardando.length ? `<h2>Aguardando retorno do fornecedor</h2><ul>${aguardando.map((p) => `<li><b>${esc(p.fornecedor_nome)}</b> · itens ${esc(p.itens.join(', '))} · pedido por ${esc(CANAIS[p.canal] || p.canal)} em ${esc(dataUtc(p.enviado_em))}</li>`).join('')}</ul>` : ''}
 
 <div class="rodape">Valores digitados pela equipe a partir das respostas dos fornecedores; confira antes de usar na proposta. "Não informado" = o fornecedor ou o edital não trouxe o dado. Licita Inteligente.</div>
-<script>setTimeout(() => print(), 400);</script>
 </body></html>`;
   janela.document.open(); janela.document.write(html); janela.document.close();
+  // A política de segurança do site bloqueia script dentro da página impressa: o botão e a impressão são ligados daqui
+  janela.document.getElementById('btn-imprimir').addEventListener('click', () => { janela.focus(); janela.print(); });
+  setTimeout(() => { janela.focus(); janela.print(); }, 500);
 }
 
 // "CIF", "FOB + R$ 2,00/un" ou "FOB sem valor"
@@ -628,7 +630,8 @@ export async function cotacao(alvo, rota, est) {
           toast(`Salvo. Impostos: ${pct(x.impostos_pct)}.${op.cliente_id && corpo.tributos ? ' Regime guardado na empresa para as próximas cotações.' : ''}`, 5000); recarregar();
         } catch (e) { toast(e.message, 5000); }
       } }, 'Salvar e recalcular') : null),
-    h('p', { class: 'suave pequeno' }, 'Preço mínimo = custo ÷ (1 − impostos − margem). Ex.: custo R$ 80, impostos 8% e margem 15% → 80 ÷ 0,77 = R$ 103,90. ',
+    h('p', { class: 'suave pequeno' }, 'Preço mínimo de venda = custo ÷ (1 − impostos − margem): vendendo por ele, sobra exatamente a margem desejada. A "margem líquida" do quadro acima é o que sobra vendendo pelo valor estimado do órgão (o teto). ',
+      'Ex.: custo R$ 80, impostos 8% e margem 15% → 80 ÷ 0,77 = R$ 103,90. ',
       'O custo já inclui o frete FOB informado na resposta do fornecedor. A alíquota é estimativa para formar preço: confirme com o contador.'),
     d.parametros.impostos_pct == null && d.parametros.margem_pct == null ? h('div', { class: 'aviso amarelo pequeno' }, 'Impostos e margem não informados: o "preço mínimo" abaixo é só o custo de compra.') : null);
 
@@ -638,9 +641,9 @@ export async function cotacao(alvo, rota, est) {
   const resumo = h('div', { class: 'grade kpis' },
     total('Itens cotados', `${r.cotados} de ${r.itens}`),
     total('Custo de compra', r.custo_total == null ? (r.cotados ? 's/ qtd.' : '—') : moeda(r.custo_total), `Soma de preço × quantidade da cotação usada em cada item${r.frete_total ? `, com ${moeda(r.frete_total)} de frete FOB` : ''}`),
-    total('Preço mínimo total', r.preco_minimo_total == null ? '—' : moeda(r.preco_minimo_total), 'Com impostos e margem informados acima'),
+    total('Preço mínimo de venda (total)', r.preco_minimo_total == null ? '—' : moeda(r.preco_minimo_total), 'Menor preço para vender ao órgão e ainda ter a margem desejada, já pagando os impostos: custo ÷ (1 − impostos − margem)'),
     total('Estimado dos itens cotados', r.estimado_cotados == null ? '—' : moeda(r.estimado_cotados), `Valor de referência do órgão, só dos ${r.itens_com_ref} item(ns) cotados que têm valor`),
-    total(semImpostos ? 'Margem no estimado (sem impostos informados)' : 'Margem no estimado, líquida de impostos', margemGeral == null ? '—' : pct(margemGeral),
+    total(semImpostos ? 'Margem líquida (impostos não informados)' : 'Margem líquida vendendo pelo estimado', margemGeral == null ? '—' : pct(margemGeral),
       'Quanto sobra se vender pelo valor estimado do órgão: (estimado × (1 − impostos) − custo) ÷ estimado. Compare com a margem desejada. Frete não incluso precisa entrar no custo.'),
     total('Itens acima do estimado', String(r.acima), 'O preço mínimo passa do valor unitário estimado: risco de desclassificação ou prejuízo'));
 
@@ -709,11 +712,17 @@ export async function cotacao(alvo, rota, est) {
       !op.detalhes_sincronizados_em && editar ? h('button', { class: 'btn pequeno', onclick: async (e) => { e.target.disabled = true; try { const x = await api(`/licitacoes/${op.licitacao_id}/atualizar`, { metodo: 'POST', corpo: {} }); toast(x.ok ? `${x.itens} itens baixados.` : x.mensagem, 5000); recarregar(); } catch (er) { toast(er.message, 6000); e.target.disabled = false; } } }, '↻ Baixar itens agora') : null) : null,
     !d.fornecedores.length ? h('div', { class: 'aviso azul' }, 'Nenhum fornecedor ativo cadastrado. ', h('a', { href: '#/fornecedores' }, 'Cadastre em Fornecedores'), ' e informe os produtos que ele vende para ver sugestões aqui.') : null,
     semItens ? null : resumo,
+    // Margem desejada não cabe no estimado: diz quanto falta e qual a margem máxima pelo teto
+    !semItens && r.cotados === r.itens && r.preco_minimo_total != null && r.estimado_cotados != null && r.itens_com_ref === r.cotados && d.parametros.margem_pct != null && r.preco_minimo_total > r.estimado_cotados
+      ? h('div', { class: 'aviso amarelo', style: { marginTop: '10px' } },
+        h('strong', {}, `A margem desejada de ${pct(d.parametros.margem_pct)} não cabe no valor estimado. `),
+        `Para ter essa margem, o preço mínimo de venda seria ${moeda(r.preco_minimo_total)}, ${moeda(r.preco_minimo_total - r.estimado_cotados)} acima do estimado (${moeda(r.estimado_cotados)}). `,
+        `Vendendo pelo estimado, a margem líquida máxima é ${pct(margemGeral)}. Para melhorar: negociar o custo com o fornecedor ou aceitar margem menor.`) : null,
     !semItens && r.fretes_pendentes ? h('div', { class: 'aviso amarelo', style: { marginTop: '10px' } }, `${r.fretes_pendentes} item(ns) com frete FOB sem valor: o custo e o preço mínimo deles ainda não incluem o frete. Informe o valor em "Registrar resposta" do fornecedor.`) : null,
     semItens ? null : blocoPedidos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-cotacao' },
-        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', 'Frete', semImpostos ? 'Margem no estimado' : 'Margem no estimado (líquida de impostos)', 'Preço mínimo (unit.)', 'Preço mínimo (total)', 'Situação'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', 'Frete', 'Margem líquida no estimado', 'Preço mínimo de venda (unit.)', 'Preço mínimo de venda (total)', 'Situação'].map((t) => h('th', {}, t)))),
         h('tbody', {}, d.itens.map(linhaItem))))),
     semItens ? null : h('div', { style: { marginTop: '14px' } }, parametros),
     semItens || !d.fornecedores.some((f) => f.combina.length) ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Fornecedores que combinam com os itens'),
@@ -721,7 +730,7 @@ export async function cotacao(alvo, rota, est) {
         editar ? [' ', h('button', { class: 'btn pequeno', onclick: () => pedirCotacao({ ...d, fornecedores: [f, ...d.fornecedores.filter((x) => x !== f)] }, f.combina, recarregar, est) }, 'Pedir cotação'),
           ' ', h('button', { class: 'btn pequeno', onclick: () => registrarResposta(d, recarregar, f.id) }, 'Registrar resposta')] : null)))),
     semItens || !editar || r.preco_minimo_total == null || r.cotados < r.itens ? null : h('div', { class: 'aviso azul', style: { marginTop: '14px' } },
-      `Todos os itens cotados. Preço mínimo total: ${moeda(r.preco_minimo_total)}${op.valor_proposta != null ? ` (valor da proposta no card hoje: ${moeda(op.valor_proposta)})` : ''}. `,
+      `Todos os itens cotados. Preço mínimo de venda total: ${moeda(r.preco_minimo_total)}${op.valor_proposta != null ? ` (valor da proposta no card hoje: ${moeda(op.valor_proposta)})` : ''}. `,
       h('button', { class: 'btn pequeno', onclick: async () => {
         if (!confirmar(`Gravar ${moeda(r.preco_minimo_total)} como "Valor da proposta" no card do Kanban? Você pode mudar depois.`)) return;
         try { await api(`/kanban/${id}`, { metodo: 'PATCH', corpo: { valor_proposta: r.preco_minimo_total } }); toast('Valor da proposta gravado no card.'); recarregar(); } catch (e) { toast(e.message); }
