@@ -204,33 +204,29 @@ const qtdTexto = (i) => (i.quantidade != null ? `${String(i.quantidade).replace(
 const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
 
 // Mensagem do pedido. formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
+// Mensagem do pedido. Leva só a descrição dos itens: nada de órgão, número, cidade ou data da licitação,
+// para o fornecedor não descobrir a disputa e entrar nela como concorrente.
+// formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
 function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', link = null) {
   const op = d.oportunidade;
   const itens = d.itens.filter((i) => numeros.includes(i.numero_item));
   const t = (s) => (formato === 'whatsapp' ? `*${s}*` : s);
   const sep = formato === 'email' ? '------------------------------' : null;
-  const local = op.municipio ? `${op.municipio}/${op.uf}` : '';
   const linhas = [
     `Olá${forn.contato_nome ? `, ${forn.contato_nome}` : ''}! Tudo bem?`,
     '',
-    `${op.cliente_razao || op.cliente_nome ? `Somos da ${op.cliente_razao || op.cliente_nome}. ` : ''}Estamos participando de uma licitação e gostaríamos da sua cotação para ${itens.length === 1 ? 'o item abaixo' : `os ${itens.length} itens abaixo`}.`,
+    `${op.cliente_razao || op.cliente_nome ? `Somos da ${op.cliente_razao || op.cliente_nome}. ` : ''}Gostaríamos da sua cotação para ${itens.length === 1 ? 'o item abaixo' : `os ${itens.length} itens abaixo`}.`,
     '',
     link ? t('RESPONDA PELO LINK (mais rápido):') : null,
     link || null,
     link ? 'É só preencher preço, marca e prazo de cada item. Se preferir, responda por aqui mesmo.' : null,
     link ? '' : null,
-    t('DADOS DA LICITAÇÃO'),
-    op.orgao_nome ? `Órgão: ${op.orgao_nome}` : '',
-    local ? `Local de entrega: ${local}` : '',
-    numeroLic(op) ? `Licitação: ${numeroLic(op)}` : '',
-    op.data_encerramento_proposta ? `Propostas até: ${data(op.data_encerramento_proposta)}` : '',
-    '',
     sep,
     t(`ITENS PARA COTAR (${itens.length})`),
     sep,
   ];
   itens.forEach((i, n) => {
-    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', (i.descricao || '(sem descrição no edital)').trim());
+    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', (i.descricao || '(sem descrição)').trim());
     if (formato === 'email' && n < itens.length - 1) linhas.push('');
   });
   linhas.push('', sep,
@@ -239,11 +235,11 @@ function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', li
     '2. Marca e modelo',
     '3. Prazo de entrega (em dias)',
     '4. Validade da cotação',
-    `5. Frete: incluso (CIF) ou não (FOB)${local ? ` para ${local}` : ''}`,
+    '5. Frete: incluso (CIF) ou não (FOB)',
     '6. Condições de pagamento',
-    '7. Se pode faturar para nós e entregar direto no órgão (venda à ordem)',
+    '7. Se pode faturar para nós e entregar direto ao nosso cliente (venda à ordem)',
     '',
-    op.data_encerramento_proposta ? `As propostas encerram em ${data(op.data_encerramento_proposta)}. Quanto antes puder responder, melhor.` : 'Quanto antes puder responder, melhor.',
+    'Quanto antes puder responder, melhor.',
     '',
     'Obrigado!',
     assinatura);
@@ -314,7 +310,7 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
     const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura, link);
     const msgEmail = textoPedido(d, f, numeros, 'email', assinatura, link);
     const w = zap(f.whatsapp || f.telefone, msgZap);
-    const assunto = ['Pedido de cotação', d.oportunidade.orgao_nome, numeroLic(d.oportunidade)].filter(Boolean).join(' – ');
+    const assunto = ['Pedido de cotação', d.oportunidade.cliente_nome].filter(Boolean).join(' – '); // sem órgão/licitação no assunto
     // Alguns programas de e-mail cortam links mailto longos: acima do limite, o corpo vai pela área de transferência
     let mailto = f.email ? `mailto:${encodeURIComponent(f.email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(msgEmail)}` : null;
     const longo = mailto && mailto.length > 1800;
@@ -452,22 +448,24 @@ function imprimirCotacoes(d, est) {
   const margem = margemResumo(d);
   const kpi = (rot, v) => `<div class="kpi"><div class="r">${esc(rot)}</div><div class="v">${v}</div></div>`;
 
+  // Uma ficha por item: descrição inteira em largura total e os valores em grade embaixo (não espreme o texto)
+  const campoV = (rot, v, cls = '') => `<div class="v ${cls}"><div class="r">${esc(rot)}</div><div>${v}</div></div>`;
   const linhas = d.itens.map((i) => {
     const c = usada(i);
-    return `<tr>
-      <td class="c">${esc(i.numero_item)}</td>
-      <td class="desc">${esc(i.descricao || '—')}</td>
-      <td class="n">${esc(i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || ''}` : '—')}</td>
-      <td class="n">${i.orcamento_sigiloso ? 'Sigiloso' : pBrl(i.valor_unitario_estimado)}</td>
-      <td>${c ? `<b>${esc(c.fornecedor_nome)}</b>${c.marca_modelo ? `<div class="s">${esc(c.marca_modelo)}</div>` : ''}` : '<span class="ni">sem cotação</span>'}</td>
-      <td class="n">${c ? pBrl(c.preco_unitario) : '—'}</td>
-      <td>${!c ? '—' : i.frete === 'CIF' ? 'CIF' : i.frete === 'FOB' ? (i.frete_pendente ? 'FOB <span class="ni">sem valor</span>' : `FOB +${pBrl(i.frete_unitario)}/un`) : NI}</td>
-      <td class="n">${i.custo_total == null ? '—' : pBrl(i.custo_total)}</td>
-      <td class="n">${c ? prazo(c) : '—'}</td>
-      <td class="n">${pPct(i.margem_estimado_pct)}</td>
-      <td class="n">${i.preco_minimo == null ? '—' : pBrl(i.preco_minimo)}</td>
-      <td class="n">${i.preco_minimo_total == null ? '—' : pBrl(i.preco_minimo_total)}</td>
-      <td>${situacao(i)}</td></tr>`;
+    return `<div class="item-ficha">
+      <div class="cab"><b>Item ${esc(i.numero_item)}</b><span>${esc(i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || ''}` : 'quantidade não informada')}</span>${situacao(i)}</div>
+      <div class="desc">${esc(i.descricao || '—')}</div>
+      <div class="valores">
+        ${campoV('Estimado unit.', i.orcamento_sigiloso ? 'Sigiloso' : pBrl(i.valor_unitario_estimado))}
+        ${campoV('Fornecedor / marca', c ? `<b>${esc(c.fornecedor_nome)}</b>${c.marca_modelo ? ` · ${esc(c.marca_modelo)}` : ''}` : '<span class="ni">sem cotação</span>', 'largo')}
+        ${campoV('Preço do fornecedor', c ? pBrl(c.preco_unitario) : '—')}
+        ${campoV('Frete', !c ? '—' : i.frete === 'CIF' ? 'CIF' : i.frete === 'FOB' ? (i.frete_pendente ? 'FOB <span class="ni">sem valor</span>' : `FOB +${pBrl(i.frete_unitario)}/un`) : NI)}
+        ${campoV('Custo total (c/ frete)', i.custo_total == null ? '—' : pBrl(i.custo_total))}
+        ${campoV('Prazo de entrega', c ? prazo(c) : '—')}
+        ${campoV('Margem líquida no estimado', pPct(i.margem_estimado_pct))}
+        ${campoV('Preço mín. de venda unit.', i.preco_minimo == null ? '—' : pBrl(i.preco_minimo), 'destaque')}
+        ${campoV('Preço mín. de venda total', i.preco_minimo_total == null ? '—' : pBrl(i.preco_minimo_total), 'destaque')}
+      </div></div>`;
   }).join('');
 
   const comparativo = d.itens.filter((i) => i.cotacoes.length).map((i) => `
@@ -492,7 +490,7 @@ function imprimirCotacoes(d, est) {
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cotações · ${esc(op.cliente_nome || '')} · ${esc(op.orgao_nome || '')}</title>
 <style>
-  @page { size: A4 landscape; margin: 12mm; }
+  @page { size: A4 portrait; margin: 12mm; }
   * { box-sizing: border-box; }
   body { font: 12px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1f2933; margin: 0; padding: 18px; background: #fff; }
   .barra { display: flex; gap: 10px; align-items: center; background: #eef4fb; border: 1px solid #c9dcf0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
@@ -509,7 +507,11 @@ function imprimirCotacoes(d, est) {
   th { background: #f3f5f7; font-size: 10.5px; text-transform: uppercase; color: #4a5562; }
   tbody tr:nth-child(even) td { background: #fafbfc; }
   td.n, th.n { text-align: right; white-space: nowrap; } td.c { text-align: center; font-weight: 700; }
-  td.desc { max-width: 280px; font-size: 11px; }
+  .item-ficha { border: 1px solid #d5dbe1; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; page-break-inside: avoid; }
+  .item-ficha .cab { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; } .item-ficha .cab .sit { margin-left: auto; }
+  .item-ficha .desc { font-size: 11.5px; margin-bottom: 6px; text-align: justify; }
+  .valores { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px 10px; border-top: 1px dashed #d5dbe1; padding-top: 6px; }
+  .valores .v .r { font-size: 9.5px; color: #6b7785; text-transform: uppercase; } .valores .v.largo { grid-column: span 2; } .valores .v.destaque div:last-child { font-weight: 700; }
   .sit { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10.5px; background: #eef0f2; white-space: nowrap; }
   .sit.verde { background: #dcfce7; color: #166534; } .sit.vermelha { background: #fee2e2; color: #991b1b; } .sit.amarela { background: #fef3c7; color: #92400e; }
   .bloco-item { margin-bottom: 10px; page-break-inside: avoid; } .titulo-item { font-weight: 700; margin-bottom: 3px; }
@@ -519,7 +521,7 @@ function imprimirCotacoes(d, est) {
   .rodape { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d5dbe1; font-size: 10.5px; color: #6b7785; }
   thead { display: table-header-group; } tr { page-break-inside: avoid; }
   @media print { body { padding: 0; } .barra { display: none; } }
-  @media (max-width: 700px) { .licit, .kpis, .fornecedores { grid-template-columns: 1fr 1fr; } .topo { flex-direction: column; } .empresa { text-align: left; } }
+  @media (max-width: 700px) { .valores { grid-template-columns: 1fr 1fr; } .licit, .kpis, .fornecedores { grid-template-columns: 1fr 1fr; } .topo { flex-direction: column; } .empresa { text-align: left; } }
 </style></head><body>
 <div class="barra"><button id="btn-imprimir" type="button">🖨 Imprimir / Salvar em PDF</button><span>Para gerar o PDF, escolha <b>“Salvar como PDF”</b> no destino da impressão.</span></div>
 <div class="topo">
@@ -546,8 +548,7 @@ function imprimirCotacoes(d, est) {
 <div class="s" style="margin-top:6px">Parâmetros: ${par.tributos?.regime ? `${esc(REGIMES[par.tributos.regime] || '')}${par.tributos.regime === 'simples' ? ` (Anexo ${esc(par.tributos.anexo)})` : ''} · ` : ''}${r.frete_total ? `frete FOB ${pBrl(r.frete_total)} incluído no custo · ` : ''}impostos ${par.impostos_pct == null ? 'não informados' : esc(`${String(par.impostos_pct).replace('.', ',')}%`)} · margem desejada ${par.margem_pct == null ? 'não informada' : esc(`${String(par.margem_pct).replace('.', ',')}%`)} · preço mínimo = custo ÷ (1 − impostos − margem).</div>
 
 <h2>Itens e cotação usada</h2>
-<table><thead><tr><th>Nº</th><th>Descrição</th><th class="n">Qtd.</th><th class="n">Estimado unit.</th><th>Fornecedor / marca</th><th class="n">Preço fornecedor</th><th>Frete</th><th class="n">Custo total (c/ frete)</th><th class="n">Prazo de entrega</th><th class="n">Margem líquida no estimado</th><th class="n">Preço mín. de venda unit.</th><th class="n">Preço mín. de venda total</th><th>Situação</th></tr></thead>
-<tbody>${linhas}</tbody></table>
+${linhas}
 
 ${comparativo ? `<h2>Comparativo de cotações por item</h2>${comparativo}` : ''}
 ${fornecedores ? `<h2>Condições dos fornecedores cotados</h2><div class="fornecedores">${fornecedores}</div>` : ''}
@@ -718,6 +719,11 @@ export async function cotacao(alvo, rota, est) {
         h('strong', {}, `A margem desejada de ${pct(d.parametros.margem_pct)} não cabe no valor estimado. `),
         `Para ter essa margem, o preço mínimo de venda seria ${moeda(r.preco_minimo_total)}, ${moeda(r.preco_minimo_total - r.estimado_cotados)} acima do estimado (${moeda(r.estimado_cotados)}). `,
         `Vendendo pelo estimado, a margem líquida máxima é ${pct(margemGeral)}. Para melhorar: negociar o custo com o fornecedor ou aceitar margem menor.`) : null,
+    // Margem desejada cabe: mostra a faixa de preço em que dá para disputar
+    !semItens && r.cotados === r.itens && r.preco_minimo_total != null && r.estimado_cotados != null && r.itens_com_ref === r.cotados && d.parametros.margem_pct != null && r.preco_minimo_total <= r.estimado_cotados
+      ? h('div', { class: 'aviso azul', style: { marginTop: '10px' } },
+        h('strong', {}, `Faixa para disputar: de ${moeda(r.preco_minimo_total)} a ${moeda(r.estimado_cotados)}. `),
+        `No preço mínimo de venda sobra a margem desejada (${pct(d.parametros.margem_pct)}); no valor estimado (o teto) sobra ${pct(margemGeral)}. Abaixo de ${moeda(r.preco_minimo_total)} a margem fica menor que a desejada.`) : null,
     !semItens && r.fretes_pendentes ? h('div', { class: 'aviso amarelo', style: { marginTop: '10px' } }, `${r.fretes_pendentes} item(ns) com frete FOB sem valor: o custo e o preço mínimo deles ainda não incluem o frete. Informe o valor em "Registrar resposta" do fornecedor.`) : null,
     semItens ? null : blocoPedidos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),

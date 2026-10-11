@@ -21,7 +21,6 @@ async function carregar() {
     d = await r.json();
     if (!r.ok) return mostrarErro(d.erro || 'Link inválido.');
   } catch { return mostrarErro('Não foi possível carregar. Verifique a internet e tente de novo.'); }
-  const L = d.licitacao;
   sub.textContent = `${d.solicitante} pede cotação a ${d.fornecedor}`;
   const ant = d.resposta_anterior || {};
   const linhas = d.itens.map((i) => {
@@ -53,7 +52,7 @@ async function carregar() {
       const x = await r.json();
       if (!r.ok) throw new Error(x.erro || 'Não foi possível enviar.');
       conteudo.replaceChildren(el('div', { class: 'aviso ok' }, el('strong', {}, 'Cotação enviada. Obrigado!'), el('br'),
-        `${x.gravados} item(ns) recebido(s) por ${d.solicitante}. Para corrigir, abra o mesmo link de novo${L.propostas_ate ? ` até ${dataBr(L.propostas_ate)}` : ''}.`));
+        `${x.gravados} item(ns) recebido(s) por ${d.solicitante}. Para corrigir, abra o mesmo link de novo.`));
       window.scrollTo(0, 0);
     } catch (e) { msg.replaceChildren(el('div', { class: 'aviso erro' }, e.message)); botao.disabled = false; }
   } },
@@ -69,13 +68,6 @@ async function carregar() {
   msg, botao);
   conteudo.replaceChildren(...[
     d.respondido_em ? el('div', { class: 'aviso info' }, 'Você já respondeu esta cotação. Pode corrigir e enviar de novo.') : null,
-    el('div', { class: 'cartao' }, el('h2', {}, 'Licitação'),
-      el('dl', {},
-        L.orgao ? [el('dt', {}, 'Órgão'), el('dd', {}, L.orgao)] : null,
-        L.local ? [el('dt', {}, 'Local de entrega'), el('dd', {}, L.local)] : null,
-        L.modalidade || L.numero ? [el('dt', {}, 'Licitação'), el('dd', {}, [L.modalidade, L.numero ? `nº ${L.numero}${L.ano && !String(L.numero).includes('/') ? `/${L.ano}` : ''}` : ''].filter(Boolean).join(' '))] : null,
-        L.propostas_ate ? [el('dt', {}, 'Propostas até'), el('dd', {}, dataBr(L.propostas_ate))] : null,
-        L.objeto ? [el('dt', {}, 'Objeto'), el('dd', {}, L.objeto)] : null)),
     form,
     el('p', { class: 'suave' }, `Os dados vão direto para ${d.solicitante}${d.solicitante_cnpj ? ` (CNPJ ${d.solicitante_cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')})` : ''}. Este link é pessoal: não compartilhe.`)].filter(Boolean));
 }
