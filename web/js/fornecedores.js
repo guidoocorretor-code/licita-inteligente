@@ -29,7 +29,8 @@ function cabecalho(titulo, subtitulo, ...acoes) {
 }
 
 // ---------- Cadastro ----------
-function formFornecedor(est, f = {}, fretes, aoSalvar) {
+function formFornecedor(est, f = {}, meta, aoSalvar) {
+  const { fretes } = meta;
   const c = {};
   const inp = (nome, rot, attrs = {}, largo = false) => {
     c[nome] = h('input', { id: `f-${nome}`, value: f[nome] ?? '', ...attrs });
@@ -38,6 +39,29 @@ function formFornecedor(est, f = {}, fretes, aoSalvar) {
   c.cliente_id = h('select', { id: 'f-cliente_id' }, h('option', { value: '0' }, 'Todas as empresas'),
     est.clientes.filter((x) => x.ativo || x.id === f.cliente_id).map((x) => h('option', { value: x.id, selected: x.id === f.cliente_id }, x.nome_fantasia || x.razao_social)));
   c.frete = h('select', { id: 'f-frete' }, h('option', { value: '' }, 'Não informado'), Object.entries(fretes).map(([k, v]) => h('option', { value: k, selected: f.frete === k }, v)));
+  // Pagamento: formas aceitas (marcar) e, no boleto, os dias das parcelas
+  const formasAtuais = (f.formas_pagamento || '').split(',').filter(Boolean);
+  const caixas = Object.entries(meta.formas).map(([k, rot]) => {
+    const cb = h('input', { type: 'checkbox', value: k, checked: formasAtuais.includes(k), onchange: () => mostrarBoleto() });
+    return { k, cb, el: h('label', { class: 'opcao-check' }, cb, ` ${rot}`) };
+  });
+  const prazoAtual = f.boleto_prazo || '';
+  const personalizado = prazoAtual && !meta.prazos_boleto.includes(prazoAtual);
+  const rotPrazo = (p) => (p === '0' ? 'À vista' : `${p} dias`);
+  const selPrazo = h('select', { id: 'f-boleto_prazo', onchange: () => mostrarBoleto() }, h('option', { value: '' }, 'Não informado'),
+    meta.prazos_boleto.map((p) => h('option', { value: p, selected: p === prazoAtual }, rotPrazo(p))),
+    h('option', { value: 'outro', selected: !!personalizado }, 'Personalizar…'));
+  const prazoOutro = h('input', { id: 'f-boleto_outro', placeholder: 'ex.: 28/56/84', value: personalizado ? prazoAtual : '', inputmode: 'numeric' });
+  const blocoBoleto = h('div', { class: 'bloco-boleto' },
+    h('label', { for: 'f-boleto_prazo' }, 'Prazo do boleto'), selPrazo, prazoOutro,
+    h('div', { class: 'suave pequeno' }, 'Dias de cada parcela contados da entrega/nota. Ex.: 30/60 = duas parcelas, com 30 e 60 dias.'));
+  const mostrarBoleto = () => {
+    blocoBoleto.style.display = caixas.find((x) => x.k === 'boleto').cb.checked ? '' : 'none';
+    prazoOutro.style.display = selPrazo.value === 'outro' ? '' : 'none';
+  };
+  mostrarBoleto();
+  const vendaOrdem = h('select', { id: 'f-venda_a_ordem' }, h('option', { value: '' }, 'Não informado'),
+    h('option', { value: '1', selected: f.venda_a_ordem === 1 }, 'Sim, entrega direto no órgão'), h('option', { value: '0', selected: f.venda_a_ordem === 0 }, 'Não'));
   c.produtos = h('textarea', { id: 'f-produtos', rows: 2, placeholder: 'ex.: papel A4; toner; cartucho HP; notebook Dell' }, f.produtos || '');
   c.observacoes = h('textarea', { id: 'f-observacoes', rows: 2 }, f.observacoes || '');
   const status = h('div', {});
@@ -81,17 +105,31 @@ function formFornecedor(est, f = {}, fretes, aoSalvar) {
     h('div', { class: 'filtros' },
       inp('prazo_entrega_dias', 'Prazo de entrega (dias)', { type: 'number', min: 0, step: 1 }),
       inp('pedido_minimo', 'Pedido mínimo (R$)', { inputmode: 'decimal', value: num(f.pedido_minimo) }),
-      inp('condicoes_pagamento', 'Pagamento', { placeholder: 'ex.: 28 dias, boleto' }),
       h('div', {}, h('label', { for: 'f-frete' }, 'Frete'), c.frete)),
+    h('div', { class: 'campo' }, h('label', {}, 'Formas de pagamento aceitas'), h('div', { class: 'linha opcoes-pagamento' }, caixas.map((x) => x.el)),
+      f.condicoes_pagamento ? h('div', { class: 'suave pequeno' }, `Anotado antes: "${f.condicoes_pagamento}". Marque as opções acima.`) : null),
+    blocoBoleto,
+    h('div', { class: 'campo' }, h('label', { for: 'f-venda_a_ordem' }, 'Faz triangulação (venda à ordem)?'), vendaOrdem,
+      h('div', { class: 'suave pequeno' }, 'O fornecedor fatura para a sua empresa e entrega a mercadoria direto no órgão, com nota de remessa "por conta e ordem". Evita frete e manuseio duplos. Confirme com o contador antes de usar.')),
     h('div', { class: 'campo' }, h('label', { for: 'f-observacoes' }, 'Observações'), c.observacoes));
   modal(f.id ? `Editar ${nomeF(f)}` : 'Novo fornecedor', conteudo, [{ texto: 'Salvar', classe: 'primario', acao: async () => {
     const corpo = Object.fromEntries(Object.entries(c).map(([k, el]) => [k, el.value.trim()]));
     corpo.cnpj = soDigitos(corpo.cnpj); corpo.pedido_minimo = lerNum(corpo.pedido_minimo); corpo.cliente_id = Number(corpo.cliente_id);
+    corpo.formas_pagamento = caixas.filter((x) => x.cb.checked).map((x) => x.k);
+    corpo.boleto_prazo = selPrazo.value === 'outro' ? prazoOutro.value.trim() : selPrazo.value;
+    corpo.venda_a_ordem = vendaOrdem.value;
     try {
       const r = f.id ? await api(`/fornecedores/${f.id}`, { metodo: 'PATCH', corpo }) : await api('/fornecedores', { metodo: 'POST', corpo });
       toast('Fornecedor salvo.'); aoSalvar?.(f.id || r.id);
     } catch (e) { toast(e.message, 5000); return false; }
   } }]);
+}
+
+// "Boleto 30/60 dias, Pix" (ou o texto antigo, se as opções ainda não foram marcadas)
+function textoPagamento(f, formas) {
+  const l = (f.formas_pagamento || '').split(',').filter(Boolean).map((k) =>
+    (k === 'boleto' && f.boleto_prazo ? `Boleto ${f.boleto_prazo === '0' ? 'à vista' : `${f.boleto_prazo} dias`}` : formas[k] || k));
+  return l.length ? l.join(', ') : f.condicoes_pagamento || 'não informado';
 }
 
 // ---------- Página Fornecedores ----------
@@ -111,13 +149,15 @@ export async function fornecedores(alvo, rota, est) {
       f.contato_nome ? `👤 ${f.contato_nome} ` : '', f.whatsapp || f.telefone ? `📞 ${f.whatsapp || f.telefone} ` : '', f.email ? `✉ ${f.email}` : ''),
     h('div', { class: 'suave pequeno' },
       `Entrega: ${f.prazo_entrega_dias != null ? `${f.prazo_entrega_dias} dia(s)` : 'não informada'} · Frete: ${f.frete || 'não informado'}`,
-      f.pedido_minimo != null ? ` · Pedido mínimo: ${moeda(f.pedido_minimo)}` : '', f.condicoes_pagamento ? ` · Pagamento: ${f.condicoes_pagamento}` : ''),
+      f.pedido_minimo != null ? ` · Pedido mínimo: ${moeda(f.pedido_minimo)}` : ''),
+    h('div', { class: 'suave pequeno' }, `Pagamento: ${textoPagamento(f, d.formas)}`,
+      f.venda_a_ordem === 1 ? h('span', { class: 'etiqueta verde pequena', style: { marginLeft: '6px' } }, 'Faz venda à ordem') : f.venda_a_ordem === 0 ? ' · Não faz venda à ordem' : ''),
     h('div', { class: 'suave pequeno' }, f.cotacoes ? `${f.cotacoes} cotação(ões) registrada(s) · última em ${dataUtc(f.ultima_cotacao)}` : 'Nenhuma cotação registrada ainda.'),
     h('div', { class: 'linha', style: { marginTop: '10px' } },
       zap(f.whatsapp) ? h('a', { class: 'btn pequeno', href: zap(f.whatsapp), target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp ↗') : null,
       f.email ? h('a', { class: 'btn pequeno', href: `mailto:${f.email}` }, 'E-mail ↗') : null,
       f.site ? h('a', { class: 'btn pequeno', href: /^https?:\/\//.test(f.site) ? f.site : `https://${f.site}`, target: '_blank', rel: 'noopener noreferrer' }, 'Site ↗') : null,
-      podeEditar(est) ? h('button', { class: 'btn pequeno', onclick: () => formFornecedor(est, f, d.fretes, recarregar) }, 'Editar') : null,
+      podeEditar(est) ? h('button', { class: 'btn pequeno', onclick: () => formFornecedor(est, f, d, recarregar) }, 'Editar') : null,
       podeEditar(est) ? h('button', { class: 'btn pequeno', onclick: async () => {
         try { await api(`/fornecedores/${f.id}`, { metodo: 'PATCH', corpo: { ativo: !f.ativo } }); recarregar(); } catch (e) { toast(e.message); }
       } }, f.ativo ? 'Desativar' : 'Reativar') : null,
@@ -127,7 +167,7 @@ export async function fornecedores(alvo, rota, est) {
       } }, 'Excluir') : null));
   render(alvo,
     cabecalho('Fornecedores', 'De quem as empresas compram para revender ao governo. As cotações ficam em cada oportunidade do Kanban (botão 💲 Cotações).',
-      podeEditar(est) ? h('button', { class: 'btn primario', onclick: () => formFornecedor(est, {}, d.fretes, recarregar) }, '+ Novo fornecedor') : null),
+      podeEditar(est) ? h('button', { class: 'btn primario', onclick: () => formFornecedor(est, {}, d, recarregar) }, '+ Novo fornecedor') : null),
     h('form', { class: 'linha busca-fornecedores', style: { margin: '0 0 12px' }, onsubmit: (e) => { e.preventDefault(); location.hash = `#/fornecedores${qs({ q: busca.value.trim() })}`; } },
       busca, h('button', { class: 'btn', type: 'submit' }, 'Buscar')),
     d.fornecedores.length ? h('div', { class: 'grade-empresas' }, d.fornecedores.map(cartao))

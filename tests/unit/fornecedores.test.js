@@ -123,3 +123,21 @@ test('API: cotações e fornecedores ficam na conta de quem cadastrou', async ()
     assert.match(hist[0].texto, /Papelaria Teste: 1 item/);
   } finally { servidor.close(); }
 });
+
+test('pagamento: formas marcadas, prazo do boleto só com boleto e venda à ordem', () => {
+  const { db, emp } = preparar();
+  const ler = (id) => db.prepare('SELECT formas_pagamento, boleto_prazo, venda_a_ordem, condicoes_pagamento FROM fornecedores WHERE id=?').get(id);
+  const a = criarFornecedor(db, emp, { razao_social: 'A', formas_pagamento: ['pix', 'boleto'], boleto_prazo: '30 / 60 / 90', venda_a_ordem: '1' });
+  assert.deepEqual({ ...ler(a) }, { formas_pagamento: 'boleto,pix', boleto_prazo: '30/60/90', venda_a_ordem: 1, condicoes_pagamento: null });
+  const b = criarFornecedor(db, emp, { razao_social: 'B', formas_pagamento: ['pix'], boleto_prazo: '30' });
+  assert.equal(ler(b).boleto_prazo, null);                         // sem boleto marcado, prazo não vale
+  assert.equal(ler(b).venda_a_ordem, null);                        // não informado, não "não"
+  assert.equal(ler(criarFornecedor(db, emp, { razao_social: 'C', formas_pagamento: 'boleto', boleto_prazo: '28 dias' })).boleto_prazo, '28');
+  assert.equal(ler(criarFornecedor(db, emp, { razao_social: 'D', formas_pagamento: 'boleto', boleto_prazo: 'à vista' })).boleto_prazo, '0');
+  assert.throws(() => criarFornecedor(db, emp, { razao_social: 'E', formas_pagamento: 'boleto', boleto_prazo: '60/30' }), /depois da anterior/);
+  assert.throws(() => criarFornecedor(db, emp, { razao_social: 'F', formas_pagamento: ['cheque'] }), /inválida/);
+  // edição mantém o texto antigo e troca as opções
+  db.prepare("UPDATE fornecedores SET condicoes_pagamento='28 DIAS' WHERE id=?").run(b);
+  atualizarFornecedor(db, emp, b, { formas_pagamento: ['boleto', 'cartao'], boleto_prazo: '30/60', venda_a_ordem: '0' });
+  assert.deepEqual({ ...ler(b) }, { formas_pagamento: 'boleto,cartao', boleto_prazo: '30/60', venda_a_ordem: 0, condicoes_pagamento: '28 DIAS' });
+});

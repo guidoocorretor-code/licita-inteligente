@@ -75,7 +75,7 @@ h3 { font-size: 1rem; margin: 0 0 8px; }
 .btn.perigo { color: var(--perigo); }
 .btn.pequeno { padding: 4px 9px; font-size: .82rem; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
-input[type=text], input[type=email], input[type=password], input[type=number], input[type=date], input[type=search], select, textarea {
+input:not([type]), input[type=text], input[type=tel], input[type=url], input[type=email], input[type=password], input[type=number], input[type=date], input[type=search], select, textarea {
   border: 1px solid var(--borda); border-radius: 8px; padding: 7px 10px; background: #fff; color: var(--texto); min-width: 0; width: 100%;
 }
 input:focus, select:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
@@ -451,3 +451,8 @@ body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-o
 .lista-itens-pedido { max-height: 220px; overflow: auto; border: 1px solid var(--borda, #e5e7eb); border-radius: 8px; padding: 6px 8px; }
 .item-pedido { display: block; font-size: .85rem; padding: 3px 0; font-weight: 400; }
 .texto-perigo { color: var(--perigo); }
+
+.opcoes-pagamento { gap: 14px; }
+.opcao-check { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; cursor: pointer; }
+.bloco-boleto { margin: 0 0 12px; padding: 10px 12px; background: var(--neutro-fundo); border-radius: 8px; }
+.bloco-boleto select, .bloco-boleto input { max-width: 240px; margin-right: 8px; display: inline-block; }

@@ -7,12 +7,36 @@ const texto = (v, max = 200) => (v == null || String(v).trim() === '' ? null : S
 const dataOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(v));
 const colunas = (conn, t) => conn.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
 export const FRETES = { CIF: 'CIF (frete por conta do fornecedor)', FOB: 'FOB (frete por nossa conta)' };
+export const FORMAS_PAGAMENTO = { boleto: 'Boleto', pix: 'Pix', ted: 'TED', cartao: 'Cartão' };
+export const PRAZOS_BOLETO = ['0', '30', '30/60', '30/60/90', '30/60/90/120', '30/60/90/120/150'];
 
 /** Bancos antigos: parâmetros de preço (impostos e margem) na oportunidade. */
 export function migrarFornecedores(conn) {
   const op = colunas(conn, 'oportunidades');
   for (const c of ['cot_impostos_pct', 'cot_margem_pct']) if (!op.includes(c)) conn.exec(`ALTER TABLE oportunidades ADD COLUMN ${c} REAL`);
+  const fo = colunas(conn, 'fornecedores');
+  for (const [c, t] of [['formas_pagamento', 'TEXT'], ['boleto_prazo', 'TEXT'], ['venda_a_ordem', 'INTEGER']]) if (!fo.includes(c)) conn.exec(`ALTER TABLE fornecedores ADD COLUMN ${c} ${t}`);
 }
+
+/** Formas aceitas, na ordem fixa: ["pix","boleto"] -> "boleto,pix"; nenhuma marcada = NULL (não informado). */
+function formasPagamento(v) {
+  const l = (Array.isArray(v) ? v : String(v ?? '').split(',')).map((x) => String(x).trim()).filter(Boolean);
+  const invalida = l.find((x) => !FORMAS_PAGAMENTO[x]);
+  if (invalida) throw erro(400, `Forma de pagamento inválida: ${invalida}.`);
+  const ok = Object.keys(FORMAS_PAGAMENTO).filter((k) => l.includes(k));
+  return ok.length ? ok.join(',') : null;
+}
+/** Prazo do boleto em dias por parcela: "30/60/90". "à vista" = "0". Cada parcela depois da anterior, até 720 dias. */
+function prazoBoleto(v) {
+  const t = String(v ?? '').trim().replace(/\s+/g, '').replace(/[-,;]/g, '/').replace(/dias?$/i, '');
+  if (!t) return null;
+  if (/^(a|à)vista$/i.test(t)) return '0';
+  if (!/^\d{1,3}(\/\d{1,3}){0,11}$/.test(t)) throw erro(400, 'Prazo do boleto inválido. Use os dias das parcelas, ex.: 30/60/90.');
+  const d = t.split('/').map(Number);
+  if (d.some((x, i) => x > 720 || (i && x <= d[i - 1]))) throw erro(400, 'Prazo do boleto inválido: cada parcela precisa vencer depois da anterior.');
+  return d.join('/');
+}
+const simNao = (v) => (v === true || v === 1 || v === '1' ? 1 : v === false || v === 0 || v === '0' ? 0 : null);
 
 // Número opcional: vazio = não informado (NULL); negativo ou absurdo = erro
 function numeroOuNulo(v, rotulo, { max = 1e12, inteiro = false } = {}) {
@@ -38,6 +62,7 @@ function dadosFornecedor(db, empresaId, b) {
   if (!razao) throw erro(400, 'Informe o nome do fornecedor.');
   if (b.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.email)) throw erro(400, 'E-mail inválido.');
   if (b.frete && !FRETES[b.frete]) throw erro(400, 'Frete inválido.');
+  const formas = formasPagamento(b.formas_pagamento);
   const clienteId = Number(b.cliente_id) || 0;
   if (clienteId && !db.prepare('SELECT 1 FROM clientes WHERE id=? AND empresa_id=?').get(clienteId, empresaId)) throw erro(400, 'Empresa inválida.');
   return {
@@ -48,6 +73,9 @@ function dadosFornecedor(db, empresaId, b) {
     prazo_entrega_dias: numeroOuNulo(b.prazo_entrega_dias, 'Prazo de entrega', { max: 3650, inteiro: true }),
     pedido_minimo: numeroOuNulo(b.pedido_minimo, 'Pedido mínimo'),
     condicoes_pagamento: texto(b.condicoes_pagamento, 150), frete: b.frete || null,
+    formas_pagamento: formas,
+    boleto_prazo: formas?.split(',').includes('boleto') ? prazoBoleto(b.boleto_prazo) : null,
+    venda_a_ordem: simNao(b.venda_a_ordem),
     observacoes: texto(b.observacoes, 2000),
   };
 }

@@ -553,7 +553,10 @@ CREATE TABLE IF NOT EXISTS fornecedores (
   produtos TEXT,                           -- o que vende (produtos, marcas), separado por ";"
   prazo_entrega_dias INTEGER,
   pedido_minimo REAL,
-  condicoes_pagamento TEXT,
+  condicoes_pagamento TEXT,                -- texto livre antigo (antes das opções abaixo)
+  formas_pagamento TEXT,                   -- "boleto,pix,ted,cartao" (as que o fornecedor aceita); NULL = não informado
+  boleto_prazo TEXT,                       -- dias das parcelas do boleto: "0" à vista, "30", "30/60", "28/56"...
+  venda_a_ordem INTEGER,                   -- faz triangulação (venda à ordem, entrega direta ao órgão): 1 sim, 0 não, NULL não informado
   frete TEXT,                              -- CIF | FOB | NULL (não informado)
   observacoes TEXT,
   ativo INTEGER NOT NULL DEFAULT 1,
