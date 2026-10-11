@@ -89,7 +89,7 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 - Módulos das Fases 4 a 6 ainda não construídos aparecem no menu marcados com a fase e não exibem dados simulados.
 
 ## Fase 3: fornecedores e cotações
-- **Fornecedores** (`server/services/fornecedores.js`, tabela `fornecedores`): cadastro por conta, com `cliente_id` (0 = vale para todas as empresas assessoradas), CNPJ opcional e validado, produtos/marcas separados por ";", prazo, pedido mínimo, pagamento e frete (CIF/FOB). Excluir só sem cotações; com cotações, desativar.
+- **Fornecedores** (`server/services/fornecedores.js`, tabela `fornecedores`): cadastro por conta, com `cliente_id` (0 = vale para todas as empresas assessoradas), CNPJ opcional e validado, produtos/marcas separados por ";", prazo, pedido mínimo, frete (CIF/FOB), formas de pagamento aceitas (`formas_pagamento`: boleto, pix, ted, cartao), dias das parcelas do boleto (`boleto_prazo`, ex.: 30/60; 0 = à vista) e se faz venda à ordem/triangulação (`venda_a_ordem`: 1, 0 ou NULL = não informado). Excluir só sem cotações; com cotações, desativar.
 - **Cotações** (tabela `cotacoes`, por oportunidade do Kanban + número do item + fornecedor): preço unitário digitado pelo usuário, marca, prazo, validade e frete. Vale a cotação escolhida ou, sem escolha, a mais barata.
 - **Cálculo**: margem bruta = (estimado − custo) ÷ estimado; preço mínimo = custo ÷ (1 − impostos − margem), com impostos e margem por oportunidade (`cot_impostos_pct`, `cot_margem_pct`). Item sem valor estimado (ou sigiloso) fica "sem referência", nunca comparado com zero.
 - **Pedido de cotação**: texto montado com os itens marcados, para o usuário copiar ou abrir no WhatsApp (wa.me) ou e-mail (mailto). O sistema não envia nada sozinho.

@@ -24,7 +24,7 @@ import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
-import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, cotacoesDaOportunidade,
+import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, FORMAS_PAGAMENTO, PRAZOS_BOLETO, cotacoesDaOportunidade,
   registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros } from '../services/fornecedores.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -474,7 +474,7 @@ r.get('/vencimentos', (req, res) => res.json({ documentos: listarDocumentos(db()
 // ---------------- Fornecedores e cotações (Fase 3) ----------------
 const falha = (res, e) => erro(res, e.status || 500, e.status ? e.message : 'Erro interno.');
 r.get('/fornecedores', (req, res) => res.json({
-  fornecedores: listarFornecedores(db(), req.usuario.empresa_id, { clienteId: req.clienteId, q: req.query.q, ativos: req.query.ativos === '1' }), fretes: FRETES }));
+  fornecedores: listarFornecedores(db(), req.usuario.empresa_id, { clienteId: req.clienteId, q: req.query.q, ativos: req.query.ativos === '1' }), fretes: FRETES, formas: FORMAS_PAGAMENTO, prazos_boleto: PRAZOS_BOLETO }));
 r.post('/fornecedores', exigirPapel('analista'), (req, res) => {
   try { const id = criarFornecedor(db(), req.usuario.empresa_id, req.body || {}); auditar(req, 'fornecedor_criar', 'fornecedor', id); res.status(201).json({ id }); }
   catch (e) { falha(res, e); }
