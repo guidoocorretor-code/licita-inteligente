@@ -11,7 +11,7 @@ const { criarApp } = await import('../../server/app.js');
 const { criarUsuario } = await import('../../server/lib/auth.js');
 const { abrirBanco } = await import('../../server/db/index.js');
 const { resumir } = await import('../../server/services/painel-empresas.js');
-const { sugerirPalavras, deBrasilApi, deCnpjWs, fmtCnae } = await import('../../server/services/cnpj.js');
+const { sugerirPalavras, sugerirRamo, deBrasilApi, deCnpjWs, fmtCnae } = await import('../../server/services/cnpj.js');
 const { agoraBrasilia } = await import('../../server/services/status.js');
 
 // DADOS DE TESTE: empresas e licitações fictícias
@@ -51,8 +51,17 @@ test('CNAEs da Receita e palavras do ramo sugeridas', () => {
   assert.deepEqual(a.cnaes.map((c) => [c.codigo, c.principal]), [['4751-2/01', true], ['4761-0/03', false]]);
   const b = deCnpjWs({ razao_social: 'Y', estabelecimento: { atividade_principal: { id: '8121400', descricao: 'Limpeza em prédios e em domicílios' }, atividades_secundarias: [] } });
   assert.equal(b.cnaes[0].codigo, '8121-4/00');
-  assert.deepEqual(sugerirPalavras(a.cnaes), ['informática', 'papelaria']);
-  assert.deepEqual(sugerirPalavras([{ descricao: 'Comércio atacadista de material elétrico' }]), ['material elétrico']);
+  // Principal sempre entra; secundário só se ligado ao nome da empresa ("Papéis" → papelaria), senão vira opcional
+  assert.deepEqual(sugerirPalavras(a.cnaes).slice(0, 2), ['informática', 'computador']);
+  assert.ok(!sugerirPalavras(a.cnaes).includes('papelaria'));
+  const r = sugerirRamo(a.cnaes, 'INFOPEL INFORMATICA & PAPEIS LTDA');
+  assert.ok(r.palavras.includes('papelaria'));
+  const muitos = [...a.cnaes, { codigo: '4713-0/02', descricao: 'Lojas de variedades, exceto lojas de departamentos ou magazines' },
+    { codigo: '4752-1/00', descricao: 'Comércio varejista especializado de equipamentos de telefonia e comunicação' }];
+  const r2 = sugerirRamo(muitos, 'INFOPEL INFORMATICA & PAPEIS LTDA');
+  assert.ok(!r2.palavras.some((p) => /lojas|comunica|telefonia/.test(p)));     // genéricas e secundários soltos ficam fora
+  assert.ok(r2.opcionais.includes('telefonia') && !r2.opcionais.includes('lojas'));
+  assert.deepEqual(sugerirPalavras([{ descricao: 'Comércio atacadista de material elétrico', principal: true }]), ['material elétrico']);
 });
 
 test('banco antigo: Kanban ganha as 5 etapas de execução depois de "Vencida", com a fase de cada etapa', () => {

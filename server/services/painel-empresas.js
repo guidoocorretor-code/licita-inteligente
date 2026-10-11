@@ -4,6 +4,7 @@
 import { FASES_GANHAS, valorDe } from './execucao.js';
 import { montarFiltro, expressoesRamo } from './busca.js';
 import { listarClientes, listarDocumentos } from './clientes.js';
+import { sugerirRamo } from './cnpj.js';
 
 const diasEntre = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 const somaDias = (iso, d) => new Date(Date.parse(iso) + d * 86400000).toISOString().slice(0, 10);
@@ -88,7 +89,7 @@ function proximos(ops, docs, hoje, agora) {
 }
 
 /** Licitações abertas (e novas em 7 dias) compatíveis com as palavras do ramo da empresa. */
-function ramoDaEmpresa(db, palavras, hoje, agora) {
+function ramoDaEmpresa(db, palavras, uf, hoje, agora) {
   if (!expressoesRamo(palavras).length) return null;
   const conta = (f) => {
     const { where, params } = montarFiltro(f, agora);
@@ -96,7 +97,9 @@ function ramoDaEmpresa(db, palavras, hoje, agora) {
   };
   const abertas = conta({ visao: 'abertas', ramo: palavras });
   const novas = conta({ ramo: palavras, publicacao_de: somaDias(hoje, -7) });
-  return { palavras, abertas: abertas.n, valor_abertas: abertas.v, abertas_com_valor: abertas.com_valor, novas_7d: novas.n };
+  const naUf = uf ? conta({ visao: 'abertas', ramo: palavras, uf }) : null;
+  return { palavras, abertas: abertas.n, valor_abertas: abertas.v, abertas_com_valor: abertas.com_valor, novas_7d: novas.n,
+    uf: uf || null, abertas_uf: naUf ? naUf.n : null, valor_abertas_uf: naUf ? naUf.v : null };
 }
 
 export function painelEmpresas(db, empresaId, { clienteId = null, hoje, agora }) {
@@ -115,7 +118,8 @@ export function painelEmpresas(db, empresaId, { clienteId = null, hoje, agora })
       id: c.id, nome: c.nome_fantasia || c.razao_social, razao_social: c.razao_social, cnpj: c.cnpj, porte: c.porte, uf: c.uf, municipio: c.municipio,
       cnaes, palavras_chave: c.palavras_chave,
       documentos: { total: c.documentos, vencidos: c.vencidos, vencendo: c.vencendo, proximo: c.proximo_vencimento ? { tipo: c.proximo_vencimento.tipo_nome, validade: c.proximo_vencimento.validade, dias: c.proximo_vencimento.dias } : null },
-      ramo: ramoDaEmpresa(db, c.palavras_chave, hoje, agora),
+      ramo: ramoDaEmpresa(db, c.palavras_chave, c.uf, hoje, agora),
+      ramo_sugerido: cnaes.length ? sugerirRamo(cnaes, c.razao_social) : null,
       oportunidades: meus.length,
       ...resumir(meus, hoje),
       proximos: proximos(meus, docs.filter((d) => d.cliente_id === c.id), hoje, agora),
