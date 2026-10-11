@@ -1,6 +1,7 @@
 // Fornecedores (de quem as empresas assessoradas compram para revender ao governo) e cotações por item.
 // Tudo aqui é digitado pelo usuário: nada é inventado. Preço não informado fica NULL, nunca zero.
 import { validarCnpj } from './clientes.js';
+import { calcularTributos } from '../../web/js/tributos.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const texto = (v, max = 200) => (v == null || String(v).trim() === '' ? null : String(v).trim().slice(0, max));
@@ -14,8 +15,10 @@ export const PRAZOS_BOLETO = ['0', '30', '30/60', '30/60/90', '30/60/90/120', '3
 export function migrarFornecedores(conn) {
   const op = colunas(conn, 'oportunidades');
   for (const c of ['cot_impostos_pct', 'cot_margem_pct']) if (!op.includes(c)) conn.exec(`ALTER TABLE oportunidades ADD COLUMN ${c} REAL`);
+  if (!op.includes('cot_tributos')) conn.exec('ALTER TABLE oportunidades ADD COLUMN cot_tributos TEXT');
+  if (!colunas(conn, 'clientes').includes('tributos_json')) conn.exec('ALTER TABLE clientes ADD COLUMN tributos_json TEXT');
   const fo = colunas(conn, 'fornecedores');
-  for (const [c, t] of [['formas_pagamento', 'TEXT'], ['boleto_prazo', 'TEXT'], ['venda_a_ordem', 'INTEGER']]) if (!fo.includes(c)) conn.exec(`ALTER TABLE fornecedores ADD COLUMN ${c} ${t}`);
+  for (const [c, t] of [['formas_pagamento', 'TEXT'], ['boleto_prazo', 'TEXT'], ['venda_a_ordem', 'INTEGER'], ['cartao_parcelas', 'INTEGER'], ['cartao_juros', 'INTEGER']]) if (!fo.includes(c)) conn.exec(`ALTER TABLE fornecedores ADD COLUMN ${c} ${t}`);
 }
 
 /** Formas aceitas, na ordem fixa: ["pix","boleto"] -> "boleto,pix"; nenhuma marcada = NULL (não informado). */
@@ -75,6 +78,8 @@ function dadosFornecedor(db, empresaId, b) {
     condicoes_pagamento: texto(b.condicoes_pagamento, 150), frete: b.frete || null,
     formas_pagamento: formas,
     boleto_prazo: formas?.split(',').includes('boleto') ? prazoBoleto(b.boleto_prazo) : null,
+    cartao_parcelas: formas?.split(',').includes('cartao') ? numeroOuNulo(b.cartao_parcelas, 'Parcelas do cartão', { max: 24, inteiro: true }) || null : null,
+    cartao_juros: formas?.split(',').includes('cartao') ? simNao(b.cartao_juros) : null,
     venda_a_ordem: simNao(b.venda_a_ordem),
     observacoes: texto(b.observacoes, 2000),
   };
@@ -146,9 +151,10 @@ export function itensQueCombinam(produtos, itens) {
 
 // ---------- Cotações ----------
 function oportunidadeDaConta(db, empresaId, id) {
-  const op = db.prepare(`SELECT o.id, o.licitacao_id, o.cliente_id, o.cot_impostos_pct, o.cot_margem_pct, o.valor_proposta,
+  const op = db.prepare(`SELECT o.id, o.licitacao_id, o.cliente_id, o.cot_impostos_pct, o.cot_margem_pct, o.cot_tributos, cl.tributos_json cliente_tributos, o.valor_proposta,
       l.objeto, l.orgao_nome, l.municipio, l.uf, l.numero_compra, l.ano, l.data_encerramento_proposta, l.detalhes_sincronizados_em, l.numero_controle_pncp,
-      COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome
+      l.modalidade_nome, l.link_pncp, l.processo, l.unidade_nome,
+      COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome, cl.razao_social cliente_razao, cl.cnpj cliente_cnpj
     FROM oportunidades o JOIN licitacoes l ON l.id = o.licitacao_id LEFT JOIN clientes cl ON cl.id = o.cliente_id
     WHERE o.id=? AND o.empresa_id=?`).get(id, empresaId);
   if (!op) throw erro(404, 'Oportunidade não encontrada.');
@@ -178,18 +184,48 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
     .map((f) => ({ ...f, combina: itensQueCombinam(f.produtos, itens) }))
     .sort((a, b) => b.combina.length - a.combina.length);
   const imp = op.cot_impostos_pct; const mar = op.cot_margem_pct;
-  const linhas = itens.map((i) => {
+  const pedidos = db.prepare(`SELECT p.*, COALESCE(f.nome_fantasia, f.razao_social) fornecedor_nome, u.nome usuario_nome
+    FROM cotacao_pedidos p JOIN fornecedores f ON f.id = p.fornecedor_id LEFT JOIN usuarios u ON u.id = p.usuario_id
+    WHERE p.oportunidade_id=? ORDER BY p.enviado_em DESC, p.id DESC`).all(id).map((p) => ({ ...p, itens: JSON.parse(p.itens) }));
+  // Dados completos dos fornecedores que cotaram (também os desativados), para a impressão
+  const idsCotados = [...new Set(cot.map((c) => c.fornecedor_id))];
+  const fornecedoresCotados = idsCotados.length
+    ? db.prepare(`SELECT * FROM fornecedores WHERE id IN (${idsCotados.map(() => '?').join(',')})`).all(...idsCotados) : [];
+  const fretes = db.prepare(`SELECT fr.*, COALESCE(f.nome_fantasia, f.razao_social) fornecedor_nome FROM cotacao_fretes fr JOIN fornecedores f ON f.id = fr.fornecedor_id
+    WHERE fr.oportunidade_id=?`).all(id);
+  const freteDe = new Map(fretes.map((f) => [f.fornecedor_id, f]));
+  const usadas = itens.map((i) => {
     const doItem = cot.filter((c) => c.numero_item === i.numero_item);
-    const usada = doItem.find((c) => c.escolhida) || doItem[0] || null; // escolhida pelo usuário ou a mais barata
+    return { i, doItem, usada: doItem.find((c) => c.escolhida) || doItem[0] || null }; // escolhida pelo usuário ou a mais barata
+  });
+  // Frete FOB: o valor informado é rateado entre os itens em que aquele fornecedor é o usado, pelo valor de cada item
+  const baseFrete = new Map();
+  for (const { i, usada } of usadas) {
+    if (usada && i.quantidade != null && freteDe.get(usada.fornecedor_id)?.tipo === 'FOB' && freteDe.get(usada.fornecedor_id).valor != null) baseFrete.set(usada.fornecedor_id, (baseFrete.get(usada.fornecedor_id) || 0) + usada.preco_unitario * i.quantidade);
+  }
+  const linhas = usadas.map(({ i, doItem, usada }) => {
     const estimado = i.orcamento_sigiloso ? null : i.valor_unitario_estimado;
-    const minimo = usada ? precoMinimo(usada.preco_unitario, imp, mar) : null;
     const qtd = i.quantidade;
+    // cotação antiga, sem frete por fornecedor: usa o "frete incluso" do item (FOB sem valor fica pendente)
+    const fr = !usada ? null : freteDe.get(usada.fornecedor_id) || (usada.frete_incluso === 1 ? { tipo: 'CIF' } : usada.frete_incluso === 0 ? { tipo: 'FOB', valor: null } : null);
+    let freteUnit = 0; let fretePendente = false;
+    if (fr?.tipo === 'FOB') {
+      if (fr.valor == null || qtd == null) fretePendente = true;
+      else freteUnit = (fr.valor * (usada.preco_unitario * qtd) / baseFrete.get(usada.fornecedor_id)) / qtd;
+    }
+    const custo = usada ? round4(usada.preco_unitario + freteUnit) : null;
+    const minimo = usada ? precoMinimo(custo, imp, mar) : null;
     let situacao = 'sem_cotacao';
-    if (usada) situacao = estimado == null ? 'sem_referencia' : (minimo ?? usada.preco_unitario) > estimado ? 'acima' : 'ok';
+    if (usada) situacao = estimado == null ? 'sem_referencia' : (minimo ?? custo) > estimado ? 'acima' : 'ok';
     return {
-      ...i, cotacoes: doItem, usada_id: usada?.id ?? null, custo_unitario: usada?.preco_unitario ?? null,
-      custo_total: usada && qtd != null ? round2(usada.preco_unitario * qtd) : null,
-      margem_bruta_pct: usada && estimado ? round2(((estimado - usada.preco_unitario) / estimado) * 100) : null,
+      ...i, cotacoes: doItem, usada_id: usada?.id ?? null,
+      preco_fornecedor: usada?.preco_unitario ?? null,
+      frete: usada ? (fr?.tipo || null) : null, frete_unitario: freteUnit ? round4(freteUnit) : (fr?.tipo === 'CIF' ? 0 : null), frete_pendente: fretePendente,
+      custo_unitario: custo, // preço do fornecedor + frete FOB rateado
+      custo_total: usada && qtd != null ? round2((usada.preco_unitario + freteUnit) * qtd) : null,
+      // Margem que sobra se vender pelo valor estimado, já descontados os impostos informados:
+      // (estimado × (1 − impostos) − custo) ÷ estimado. É comparável com a margem desejada.
+      margem_estimado_pct: usada && estimado ? round2(margemNoPreco(estimado, custo, imp)) : null,
       preco_minimo: minimo, preco_minimo_total: minimo != null && qtd != null ? round2(minimo * qtd) : null, situacao,
     };
   });
@@ -198,7 +234,8 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
   const comRef = cotados.filter((l) => l.valor_unitario_estimado != null && !l.orcamento_sigiloso && l.quantidade != null);
   return {
     oportunidade: op, itens: linhas, fornecedores, fretes: FRETES,
-    parametros: { impostos_pct: imp, margem_pct: mar },
+    parametros: { impostos_pct: imp, margem_pct: mar, tributos: lerJson(op.cot_tributos) || lerJson(op.cliente_tributos) },
+    fretes_fornecedor: fretes,
     resumo: {
       itens: linhas.length, cotados: cotados.length, acima: linhas.filter((l) => l.situacao === 'acima').length,
       custo_total: cotados.length ? soma('custo_total') : null,
@@ -207,29 +244,44 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
       estimado_cotados: comRef.length ? round2(comRef.reduce((s, l) => s + l.valor_unitario_estimado * l.quantidade, 0)) : null,
       custo_cotados_com_ref: comRef.length ? soma('custo_total', comRef) : null,
       itens_com_ref: comRef.length,
+      frete_total: round2(linhas.reduce((s, l) => s + (l.frete_unitario && l.quantidade != null ? l.frete_unitario * l.quantidade : 0), 0)),
+      fretes_pendentes: linhas.filter((l) => l.frete_pendente).length,
     },
+    pedidos, fornecedores_cotados: fornecedoresCotados,
+    links: db.prepare('SELECT fornecedor_id, ultimo_acesso, respondido_em, expira_em, revogado FROM cotacao_links WHERE oportunidade_id=?').all(id),
   };
 }
 const round2 = (v) => Math.round(v * 100) / 100;
+const lerJson = (t) => { try { return t ? JSON.parse(t) : null; } catch { return null; } };
+/** Margem (%) de vender a `preco` com `custo`, descontando os impostos sobre a venda. */
+export const margemNoPreco = (preco, custo, impostosPct) => ((preco * (1 - (impostosPct || 0) / 100) - custo) / preco) * 100;
 
 /** Grava a resposta de um fornecedor para um ou mais itens (preço vazio = remove a cotação daquele item). */
-export function registrarCotacoes(db, empresaId, oportunidadeId, usuarioId, b) {
+export function registrarCotacoes(db, empresaId, oportunidadeId, usuarioId, b, extra = {}) {
   const op = oportunidadeDaConta(db, empresaId, oportunidadeId);
   const forn = db.prepare('SELECT id FROM fornecedores WHERE id=? AND empresa_id=?').get(Number(b.fornecedor_id), empresaId);
   if (!forn) throw erro(400, 'Escolha um fornecedor cadastrado.');
   if (b.validade && !dataOk(b.validade)) throw erro(400, 'Validade da cotação inválida.');
-  const frete = b.frete_incluso === true || b.frete_incluso === 1 || b.frete_incluso === '1' ? 1
-    : b.frete_incluso === false || b.frete_incluso === 0 || b.frete_incluso === '0' ? 0 : null;
+  // Frete: 'CIF' (incluso) ou 'FOB' (por nossa conta, com transportadora e valor); aceita o antigo frete_incluso
+  const tipoFrete = b.frete === 'CIF' || b.frete === 'FOB' ? b.frete
+    : b.frete_incluso === true || b.frete_incluso === 1 || b.frete_incluso === '1' ? 'CIF'
+      : b.frete_incluso === false || b.frete_incluso === 0 || b.frete_incluso === '0' ? 'FOB' : null;
+  if (b.frete && !tipoFrete) throw erro(400, 'Frete inválido: use CIF ou FOB.');
+  const frete = tipoFrete === 'CIF' ? 1 : tipoFrete === 'FOB' ? 0 : null;
+  const valorFrete = tipoFrete === 'FOB' ? numeroOuNulo(b.valor_frete, 'Valor do frete') : null;
   const prazo = numeroOuNulo(b.prazo_entrega_dias, 'Prazo de entrega', { max: 3650, inteiro: true });
   const itens = Array.isArray(b.itens) ? b.itens.slice(0, 2000) : [];
   if (!itens.length) throw erro(400, 'Informe o preço de pelo menos um item.');
   const existe = new Set(db.prepare('SELECT numero_item FROM licitacao_itens WHERE licitacao_id=?').all(op.licitacao_id).map((r) => r.numero_item));
   let gravados = 0; let removidos = 0;
-  const up = db.prepare(`INSERT INTO cotacoes (oportunidade_id, numero_item, fornecedor_id, preco_unitario, marca_modelo, prazo_entrega_dias, validade, frete_incluso, observacoes, criado_por)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
+  // origem 'fornecedor' = respondida pelo próprio fornecedor no link (fica marcada mesmo se a equipe ajustar depois)
+  const up = db.prepare(`INSERT INTO cotacoes (oportunidade_id, numero_item, fornecedor_id, preco_unitario, marca_modelo, prazo_entrega_dias, validade, frete_incluso, observacoes, criado_por,
+      origem, condicoes_pagamento, respondente)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT (oportunidade_id, numero_item, fornecedor_id) DO UPDATE SET preco_unitario=excluded.preco_unitario, marca_modelo=excluded.marca_modelo,
       prazo_entrega_dias=excluded.prazo_entrega_dias, validade=excluded.validade, frete_incluso=excluded.frete_incluso, observacoes=excluded.observacoes,
-      atualizado_em=datetime('now')`);
+      origem=COALESCE(excluded.origem, cotacoes.origem), condicoes_pagamento=COALESCE(excluded.condicoes_pagamento, cotacoes.condicoes_pagamento),
+      respondente=COALESCE(excluded.respondente, cotacoes.respondente), atualizado_em=datetime('now')`);
   const del = db.prepare('DELETE FROM cotacoes WHERE oportunidade_id=? AND numero_item=? AND fornecedor_id=?');
   db.exec('BEGIN');
   try {
@@ -239,9 +291,19 @@ export function registrarCotacoes(db, empresaId, oportunidadeId, usuarioId, b) {
       const preco = numeroOuNulo(it.preco_unitario, `Preço do item ${n}`);
       if (preco == null) { removidos += Number(del.run(op.id, n, forn.id).changes); continue; }
       if (preco === 0) throw erro(400, `Preço do item ${n}: zero não é cotação. Deixe em branco se o fornecedor não cotou.`);
-      up.run(op.id, n, forn.id, round4(preco), texto(it.marca_modelo, 150), prazo, b.validade || null, frete, texto(it.observacoes ?? b.observacoes, 500), usuarioId);
+      up.run(op.id, n, forn.id, round4(preco), texto(it.marca_modelo, 150), prazo, b.validade || null, frete, texto(it.observacoes ?? b.observacoes, 500), usuarioId,
+        extra.origem || null, extra.condicoes_pagamento || null, extra.respondente || null);
       gravados++;
     }
+    if (tipoFrete) {
+      // Sem transportadora/valor no pedido (ex.: resposta do fornecedor), mantém o que a equipe já informou
+      const antes = db.prepare('SELECT * FROM cotacao_fretes WHERE oportunidade_id=? AND fornecedor_id=?').get(op.id, forn.id);
+      const manter = b.transportadora === undefined && b.valor_frete === undefined && antes?.tipo === tipoFrete;
+      db.prepare(`INSERT INTO cotacao_fretes (oportunidade_id, fornecedor_id, tipo, transportadora, valor) VALUES (?,?,?,?,?)
+        ON CONFLICT (oportunidade_id, fornecedor_id) DO UPDATE SET tipo=excluded.tipo, transportadora=excluded.transportadora, valor=excluded.valor, atualizado_em=datetime('now')`)
+        .run(op.id, forn.id, tipoFrete, manter ? antes.transportadora : tipoFrete === 'FOB' ? texto(b.transportadora, 150) : null, manter ? antes.valor : valorFrete);
+    } else if (b.frete === '' || b.frete_incluso === '') db.prepare('DELETE FROM cotacao_fretes WHERE oportunidade_id=? AND fornecedor_id=?').run(op.id, forn.id);
+    if (gravados) db.prepare("UPDATE cotacao_pedidos SET status='respondido', respondido_em=datetime('now') WHERE oportunidade_id=? AND fornecedor_id=? AND status='aguardando'").run(op.id, forn.id);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   return { gravados, removidos };
@@ -262,9 +324,54 @@ export function excluirCotacao(db, empresaId, oportunidadeId, cotacaoId) {
 }
 
 export function salvarParametros(db, empresaId, oportunidadeId, b) {
-  oportunidadeDaConta(db, empresaId, oportunidadeId);
-  const imp = numeroOuNulo(b.impostos_pct, 'Impostos (%)', { max: 99 });
+  const op = oportunidadeDaConta(db, empresaId, oportunidadeId);
+  let imp = numeroOuNulo(b.impostos_pct, 'Impostos (%)', { max: 99 });
+  let tributos = null;
+  if (b.tributos && typeof b.tributos === 'object') {
+    const t = b.tributos;
+    tributos = { regime: t.regime, anexo: t.anexo, atividade: t.atividade };
+    for (const k of ['rbt12', 'icms', 'iss', 'pis_cofins', 'ir_csll', 'aliquota']) tributos[k] = numeroOuNulo(t[k], `Campo ${k}`, { max: k === 'rbt12' ? 1e10 : 99 });
+    const c = calcularTributos(tributos);
+    if (c.erro) throw erro(400, c.erro);
+    imp = c.aliquota; // a alíquota vem do regime; o servidor refaz a conta
+    if (op.cliente_id) db.prepare('UPDATE clientes SET tributos_json=? WHERE id=? AND empresa_id=?').run(JSON.stringify(tributos), op.cliente_id, empresaId);
+  }
   const mar = numeroOuNulo(b.margem_pct, 'Margem (%)', { max: 99 });
   if ((imp || 0) + (mar || 0) >= 100) throw erro(400, 'Impostos + margem precisam somar menos de 100%.');
-  db.prepare('UPDATE oportunidades SET cot_impostos_pct=?, cot_margem_pct=? WHERE id=?').run(imp, mar, oportunidadeId);
+  db.prepare('UPDATE oportunidades SET cot_impostos_pct=?, cot_margem_pct=?, cot_tributos=? WHERE id=?').run(imp, mar, tributos ? JSON.stringify(tributos) : null, oportunidadeId);
+  return { impostos_pct: imp };
+}
+
+// ---------- Pedidos de cotação (enviados pelo usuário fora do sistema) ----------
+export const CANAIS_PEDIDO = { whatsapp: 'WhatsApp', email: 'e-mail', outro: 'outro meio' };
+
+/** Registra que o usuário confirmou ter enviado o pedido: a cotação fica "aguardando retorno do fornecedor". */
+export function registrarPedido(db, empresaId, oportunidadeId, usuarioId, b) {
+  const op = oportunidadeDaConta(db, empresaId, oportunidadeId);
+  const forn = db.prepare('SELECT id, COALESCE(nome_fantasia, razao_social) nome FROM fornecedores WHERE id=? AND empresa_id=?').get(Number(b.fornecedor_id), empresaId);
+  if (!forn) throw erro(400, 'Escolha um fornecedor cadastrado.');
+  if (!CANAIS_PEDIDO[b.canal]) throw erro(400, 'Canal inválido.');
+  const existe = new Set(db.prepare('SELECT numero_item FROM licitacao_itens WHERE licitacao_id=?').all(op.licitacao_id).map((r) => r.numero_item));
+  const itens = [...new Set((Array.isArray(b.itens) ? b.itens : []).map(Number))].filter((n) => existe.has(n)).sort((x, y) => x - y);
+  if (!itens.length) throw erro(400, 'Marque pelo menos um item.');
+  db.prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'cotacao',?)")
+    .run(op.id, usuarioId, `Pedido de cotação enviado para ${forn.nome} por ${CANAIS_PEDIDO[b.canal]} (${itens.length} item(ns))`);
+  // Reenvio ao mesmo fornecedor ainda sem resposta: junta os itens no pedido aberto (uma linha por fornecedor na espera)
+  const aberto = db.prepare("SELECT id, itens FROM cotacao_pedidos WHERE oportunidade_id=? AND fornecedor_id=? AND status='aguardando' ORDER BY id DESC LIMIT 1").get(op.id, forn.id);
+  if (aberto) {
+    const todos = [...new Set([...JSON.parse(aberto.itens), ...itens])].sort((x, y) => x - y);
+    db.prepare("UPDATE cotacao_pedidos SET itens=?, canal=?, enviado_em=datetime('now'), usuario_id=? WHERE id=?").run(JSON.stringify(todos), b.canal, usuarioId, aberto.id);
+    return aberto.id;
+  }
+  const out = db.prepare('INSERT INTO cotacao_pedidos (oportunidade_id, fornecedor_id, itens, canal, usuario_id) VALUES (?,?,?,?,?)')
+    .run(op.id, forn.id, JSON.stringify(itens), b.canal, usuarioId);
+  return Number(out.lastInsertRowid);
+}
+
+/** "Sem retorno" (desistiu de esperar) ou volta para "aguardando". */
+export function mudarStatusPedido(db, empresaId, oportunidadeId, pedidoId, status) {
+  oportunidadeDaConta(db, empresaId, oportunidadeId);
+  if (!['sem_retorno', 'aguardando'].includes(status)) throw erro(400, 'Situação inválida.');
+  const n = db.prepare('UPDATE cotacao_pedidos SET status=? WHERE id=? AND oportunidade_id=?').run(status, pedidoId, oportunidadeId).changes;
+  if (!n) throw erro(404, 'Pedido não encontrado.');
 }

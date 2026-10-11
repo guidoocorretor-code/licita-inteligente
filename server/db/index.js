@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { FONTES_PADRAO } from '../connectors/catalogo.js';
 import { migrarExecucao } from '../services/execucao.js';
 import { migrarFornecedores } from '../services/fornecedores.js';
+import { migrarCotacaoLinks } from '../services/cotacao-link.js';
 
 let db;
 
@@ -18,6 +19,7 @@ export function abrirBanco(caminho = config.dbPath) {
   migrarSistemas(conn);
   migrarExecucao(conn);
   migrarFornecedores(conn);
+  migrarCotacaoLinks(conn);
   semearFontes(conn);
   return conn;
 }

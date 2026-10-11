@@ -25,7 +25,8 @@ import { painelEmpresas } from '../services/painel-empresas.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, FORMAS_PAGAMENTO, PRAZOS_BOLETO, cotacoesDaOportunidade,
-  registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros } from '../services/fornecedores.js';
+  registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros, registrarPedido, mudarStatusPedido } from '../services/fornecedores.js';
+import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -511,8 +512,21 @@ r.delete('/kanban/:id/cotacoes/:cid', exigirPapel('analista'), (req, res) => {
   try { if (!excluirCotacao(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.cid))) return erro(res, 404, 'Cotação não encontrada.'); res.json({ ok: true }); }
   catch (e) { falha(res, e); }
 });
+r.post('/kanban/:id/pedidos', exigirPapel('analista'), (req, res) => {
+  try { res.status(201).json({ id: registrarPedido(db(), req.usuario.empresa_id, inteiro(req.params.id), req.usuario.id, req.body || {}) }); } catch (e) { falha(res, e); }
+});
+r.post('/kanban/:id/links', exigirPapel('analista'), (req, res) => {
+  try { const x = linkDoFornecedor(db(), req.usuario.empresa_id, inteiro(req.params.id), req.usuario.id, req.body || {}); res.json({ url: `${urlBase(req)}/cotar/${x.token}`, expira_em: x.expira_em }); }
+  catch (e) { falha(res, e); }
+});
+r.delete('/kanban/:id/links/:fid', exigirPapel('analista'), (req, res) => {
+  try { res.json({ ok: revogarLink(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.fid)) }); } catch (e) { falha(res, e); }
+});
+r.patch('/kanban/:id/pedidos/:pid', exigirPapel('analista'), (req, res) => {
+  try { mudarStatusPedido(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.pid), req.body?.status); res.json({ ok: true }); } catch (e) { falha(res, e); }
+});
 r.patch('/kanban/:id/cotacoes/parametros', exigirPapel('analista'), (req, res) => {
-  try { salvarParametros(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {}); res.json({ ok: true }); } catch (e) { falha(res, e); }
+  try { res.json({ ok: true, ...salvarParametros(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {}) }); } catch (e) { falha(res, e); }
 });
 
 // ---------------- Preferências de alerta e e-mail (Fase 3) ----------------

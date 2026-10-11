@@ -456,3 +456,9 @@ body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-o
 .opcao-check { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; cursor: pointer; }
 .bloco-boleto { margin: 0 0 12px; padding: 10px 12px; background: var(--neutro-fundo); border-radius: 8px; }
 .bloco-boleto select, .bloco-boleto input { max-width: 240px; margin-right: 8px; display: inline-block; }
+.lista-pedidos { list-style: none; padding: 0; margin: 0; }
+.lista-pedidos li { padding: 8px 0; border-bottom: 1px solid var(--borda, #e3e7eb); }
+.lista-pedidos li:last-child { border-bottom: 0; }
+textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
+.item-pedido .etiqueta { margin-left: 6px; }
+.resultado-tributos { margin-top: 6px; }

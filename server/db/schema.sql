@@ -556,6 +556,8 @@ CREATE TABLE IF NOT EXISTS fornecedores (
   condicoes_pagamento TEXT,                -- texto livre antigo (antes das opções abaixo)
   formas_pagamento TEXT,                   -- "boleto,pix,ted,cartao" (as que o fornecedor aceita); NULL = não informado
   boleto_prazo TEXT,                       -- dias das parcelas do boleto: "0" à vista, "30", "30/60", "28/56"...
+  cartao_parcelas INTEGER,                 -- cartão: até quantas parcelas (1 = só à vista)
+  cartao_juros INTEGER,                    -- cartão: 0 sem juros, 1 com juros, NULL não informado
   venda_a_ordem INTEGER,                   -- faz triangulação (venda à ordem, entrega direta ao órgão): 1 sim, 0 não, NULL não informado
   frete TEXT,                              -- CIF | FOB | NULL (não informado)
   observacoes TEXT,
@@ -584,3 +586,28 @@ CREATE TABLE IF NOT EXISTS cotacoes (
   UNIQUE (oportunidade_id, numero_item, fornecedor_id)
 );
 CREATE INDEX IF NOT EXISTS ix_cot_forn ON cotacoes(fornecedor_id);
+
+-- Pedidos de cotação enviados pelo usuário (WhatsApp/e-mail, fora do sistema): "aguardando retorno do fornecedor"
+CREATE TABLE IF NOT EXISTS cotacao_pedidos (
+  id INTEGER PRIMARY KEY,
+  oportunidade_id INTEGER NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+  fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id) ON DELETE CASCADE,
+  itens TEXT NOT NULL,                     -- JSON com os números dos itens pedidos
+  canal TEXT NOT NULL,                     -- whatsapp | email | outro
+  status TEXT NOT NULL DEFAULT 'aguardando', -- aguardando | respondido | sem_retorno
+  enviado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  respondido_em TEXT,
+  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS ix_cotped_op ON cotacao_pedidos(oportunidade_id, status);
+
+-- Frete por fornecedor em cada oportunidade: CIF (entrega inclusa) ou FOB (nós pagamos a transportadora; valor entra no custo)
+CREATE TABLE IF NOT EXISTS cotacao_fretes (
+  oportunidade_id INTEGER NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+  fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,                      -- CIF | FOB
+  transportadora TEXT,
+  valor REAL,                              -- FOB: valor total do frete (NULL = ainda não informado)
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (oportunidade_id, fornecedor_id)
+);

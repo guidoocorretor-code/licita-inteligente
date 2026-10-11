@@ -6,7 +6,7 @@ import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
 import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, itensQueCombinam, precoMinimo,
-  cotacoesDaOportunidade, registrarCotacoes, escolherCotacao, salvarParametros } from '../../server/services/fornecedores.js';
+  cotacoesDaOportunidade, registrarCotacoes, escolherCotacao, salvarParametros, margemNoPreco, registrarPedido, mudarStatusPedido } from '../../server/services/fornecedores.js';
 
 // Base de TESTE: registro real do PNCP com itens de exemplo (identificados como dados de teste)
 function preparar() {
@@ -71,11 +71,11 @@ test('cotações: usa a escolhida ou a mais barata, compara com o estimado e nã
   let r = cotacoesDaOportunidade(db, emp, op);
   const [i1, i2, i3] = r.itens;
   assert.equal(i1.custo_unitario, 22);                    // B é mais barato
-  assert.equal(i1.margem_bruta_pct, 26.67);               // (30 − 22) ÷ 30
+  assert.equal(i1.margem_estimado_pct, 26.67);               // (30 − 22) ÷ 30
   assert.equal(i1.situacao, 'ok');
   assert.equal(i2.situacao, 'acima');                     // 260 > 250
   assert.equal(i3.situacao, 'sem_referencia');            // item sem valor estimado
-  assert.equal(i3.margem_bruta_pct, null);
+  assert.equal(i3.margem_estimado_pct, null);
   assert.equal(r.resumo.cotados, 3);
   assert.equal(r.resumo.custo_total, 22 * 100 + 260 * 10 + 0.8 * 500);
   assert.equal(r.resumo.estimado_cotados, 30 * 100 + 250 * 10);   // só itens com referência
@@ -140,4 +140,86 @@ test('pagamento: formas marcadas, prazo do boleto só com boleto e venda à orde
   db.prepare("UPDATE fornecedores SET condicoes_pagamento='28 DIAS' WHERE id=?").run(b);
   atualizarFornecedor(db, emp, b, { formas_pagamento: ['boleto', 'cartao'], boleto_prazo: '30/60', venda_a_ordem: '0' });
   assert.deepEqual({ ...ler(b) }, { formas_pagamento: 'boleto,cartao', boleto_prazo: '30/60', venda_a_ordem: 0, condicoes_pagamento: '28 DIAS' });
+});
+
+test('cartão: parcelas e juros só valem com cartão marcado', () => {
+  const { db, emp } = preparar();
+  const ler = (id) => ({ ...db.prepare('SELECT cartao_parcelas, cartao_juros FROM fornecedores WHERE id=?').get(id) });
+  assert.deepEqual(ler(criarFornecedor(db, emp, { razao_social: 'A', formas_pagamento: ['cartao'], cartao_parcelas: '10', cartao_juros: '0' })), { cartao_parcelas: 10, cartao_juros: 0 });
+  assert.deepEqual(ler(criarFornecedor(db, emp, { razao_social: 'B', formas_pagamento: ['pix'], cartao_parcelas: '10', cartao_juros: '1' })), { cartao_parcelas: null, cartao_juros: null });
+  assert.deepEqual(ler(criarFornecedor(db, emp, { razao_social: 'C', formas_pagamento: ['cartao'] })), { cartao_parcelas: null, cartao_juros: null }); // não informado
+  assert.throws(() => criarFornecedor(db, emp, { razao_social: 'D', formas_pagamento: ['cartao'], cartao_parcelas: '30' }), /Parcelas do cartão/);
+});
+
+test('margem no estimado desconta os impostos e é comparável com a margem desejada', () => {
+  // Caso real do Guido: estimado 479.810,45, custo 380.000, impostos 5% -> ~15,8% (e não 20,8% bruto)
+  assert.equal(Math.round(margemNoPreco(479810.45, 380000, 5) * 10) / 10, 15.8);
+  assert.equal(Math.round(margemNoPreco(479810.45, 380000, null) * 10) / 10, 20.8);
+  // vendendo exatamente pelo preço mínimo, a margem é a desejada
+  const min = precoMinimo(80, 8, 15);
+  assert.equal(Math.round(margemNoPreco(min, 80, 8) * 100) / 100, 15);
+  const { db, emp, u, op } = preparar();
+  const a = criarFornecedor(db, emp, { razao_social: 'A' });
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  salvarParametros(db, emp, op, { impostos_pct: '10', margem_pct: '15' });
+  assert.equal(cotacoesDaOportunidade(db, emp, op).itens[0].margem_estimado_pct, 23.33); // (30×0,9 − 20) ÷ 30
+});
+
+test('pedido de cotação: aguardando até a resposta, sem retorno e isolado por conta', () => {
+  const { db, emp, outra, u, op } = preparar();
+  const a = criarFornecedor(db, emp, { razao_social: 'A' });
+  const b = criarFornecedor(db, outra, { razao_social: 'De outra conta' });
+  assert.throws(() => registrarPedido(db, emp, op, u, { fornecedor_id: a, canal: 'whatsapp', itens: [] }), /pelo menos um item/);
+  assert.throws(() => registrarPedido(db, emp, op, u, { fornecedor_id: a, canal: 'pombo', itens: [1] }), /Canal/);
+  assert.throws(() => registrarPedido(db, emp, op, u, { fornecedor_id: b, canal: 'email', itens: [1] }), /fornecedor/);
+  assert.throws(() => registrarPedido(db, outra, op, u, { fornecedor_id: b, canal: 'email', itens: [1] }), /não encontrada/);
+  const p1 = registrarPedido(db, emp, op, u, { fornecedor_id: a, canal: 'email', itens: [2, 1, 99, 1] });
+  let d = cotacoesDaOportunidade(db, emp, op);
+  assert.deepEqual(d.pedidos[0].itens, [1, 2]);                       // item inexistente sai, repetido sai
+  assert.equal(d.pedidos[0].status, 'aguardando');
+  assert.match(db.prepare("SELECT texto FROM oportunidade_historico WHERE tipo='cotacao'").get().texto, /e-mail \(2 item/);
+  assert.equal(registrarPedido(db, emp, op, u, { fornecedor_id: a, canal: 'whatsapp', itens: [3] }), p1); // reenvio junta no pedido aberto
+  assert.deepEqual(cotacoesDaOportunidade(db, emp, op).pedidos.map((p) => p.itens), [[1, 2, 3]]);
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.pedidos[0].status, 'respondido');
+  assert.ok(d.pedidos[0].respondido_em);
+  assert.equal(d.fornecedores_cotados[0].id, a);
+  const p2 = registrarPedido(db, emp, op, u, { fornecedor_id: a, canal: 'whatsapp', itens: [3] });
+  mudarStatusPedido(db, emp, op, p2, 'sem_retorno');
+  assert.equal(cotacoesDaOportunidade(db, emp, op).pedidos.find((p) => p.id === p2).status, 'sem_retorno');
+  assert.throws(() => mudarStatusPedido(db, emp, op, p1, 'respondido'), /inválida/);
+  assert.throws(() => mudarStatusPedido(db, outra, op, p2, 'aguardando'), /não encontrada/);
+});
+
+test('frete FOB entra no custo, rateado pelo valor dos itens; FOB sem valor fica pendente', () => {
+  const { db, emp, u, op } = preparar();
+  const a = criarFornecedor(db, emp, { razao_social: 'A' });
+  // itens 1 (100 × 20 = 2.000) e 2 (10 × 200 = 2.000): frete 400 → 200 para cada → +2,00/un no item 1 e +20,00/un no item 2
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', transportadora: 'Transp X', valor_frete: '400', itens: [{ numero_item: 1, preco_unitario: '20' }, { numero_item: 2, preco_unitario: '200' }] });
+  let d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.itens[0].custo_unitario, 22); assert.equal(d.itens[0].preco_fornecedor, 20); assert.equal(d.itens[0].frete, 'FOB');
+  assert.equal(d.itens[1].custo_unitario, 220);
+  assert.equal(d.resumo.frete_total, 400);
+  assert.equal(d.resumo.custo_total, 4400);
+  assert.equal(d.fretes_fornecedor[0].transportadora, 'Transp X');
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', itens: [{ numero_item: 1, preco_unitario: '21' }] });
+  assert.equal(cotacoesDaOportunidade(db, emp, op).resumo.frete_total, 400);      // sem transportadora/valor no envio: mantém o informado
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', transportadora: '', valor_frete: '', itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.itens[0].frete_pendente, true);                     // FOB sem valor: avisa, não inventa zero
+  assert.equal(d.resumo.fretes_pendentes, 2);
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'CIF', itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.itens[0].custo_unitario, 20); assert.equal(d.itens[0].frete_unitario, 0); assert.equal(d.itens[0].frete_pendente, false);
+  assert.throws(() => registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'XYZ', itens: [{ numero_item: 1, preco_unitario: '20' }] }), /CIF ou FOB/);
+});
+
+test('regime tributário calcula os impostos no servidor', () => {
+  const { db, emp, op } = preparar();
+  assert.deepEqual(salvarParametros(db, emp, op, { margem_pct: '15', tributos: { regime: 'simples', anexo: 'I', rbt12: '500000', impostos_pct: '99' } }), { impostos_pct: 6.73 });
+  const d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.parametros.impostos_pct, 6.73);
+  assert.equal(d.parametros.tributos.regime, 'simples');
+  assert.throws(() => salvarParametros(db, emp, op, { tributos: { regime: 'simples', anexo: 'I', rbt12: '9000000' } }), /sai do Simples/);
 });
