@@ -53,7 +53,7 @@ export async function dashboard(alvo, rota, est) {
     h('div', { class: 'grade kpis' },
       kpi('Licitações monitoradas', numero(d.total)),
       kpi('Abertas', numero(d.por_visao.abertas), '#/buscar?visao=abertas'),
-      kpi('Encerram em até 7 dias', numero(d.sessoes_proximas), '#/buscar?sessao_proxima=1', 'Prazo final de propostas nos próximos 7 dias (o PNCP não informa a data da sessão de disputa separadamente).'),
+      kpi('Encerram em até 7 dias', numero(d.sessoes_proximas), '#/buscar?sessao_dias=7', 'Prazo final de propostas nos próximos 7 dias (o PNCP não informa a data da sessão de disputa separadamente).'),
       kpi('Em disputa / aguardando resultado', numero(d.por_visao.em_disputa), '#/buscar?visao=em_disputa'),
       kpi('Encerradas', numero(d.por_visao.encerradas), '#/buscar?visao=encerradas'),
       kpi('Desertas ou fracassadas', numero(d.por_visao.desertas_fracassadas), '#/buscar?visao=desertas_fracassadas', 'Somente com situação oficial informada pela fonte nos itens.'),
@@ -176,7 +176,8 @@ function avisoCoberturaItens(c, filtros) {
 export async function buscar(alvo, rota, est) {
   const meta = est.meta;
   const filtros = { ...FILTROS_PADRAO, ...Object.fromEntries(rota.query.entries()) };
-  if (rota.query.get('q') || rota.query.get('sessao_proxima')) { if (!rota.query.get('visao')) filtros.visao = ''; }
+  if (filtros.sessao_proxima === '1') { delete filtros.sessao_proxima; filtros.sessao_dias = '7'; }
+  if (rota.query.get('q') || rota.query.get('sessao_proxima') || rota.query.get('sessao_dias')) { if (!rota.query.get('visao')) filtros.visao = ''; }
   const campos = {};
   const inp = (nome, attrs = {}) => (campos[nome] = h('input', { type: 'text', value: filtros[nome] || '', id: `f-${nome}`, ...attrs }));
   const sel = (nome, opcoes, vazioTxt = 'Todos') => (campos[nome] = h('select', { id: `f-${nome}` }, h('option', { value: '' }, vazioTxt),
@@ -212,7 +213,8 @@ export async function buscar(alvo, rota, est) {
       campo('Exclusiva ME/EPP', sel('me_epp', [['1', 'Sim'], ['0', 'Não']], 'Indiferente')),
       campo('Registro de preços (SRP)', sel('srp', [['1', 'Sim']], 'Indiferente')),
       campo('Com documentos', sel('com_documentos', [['1', 'Sim']], 'Indiferente')),
-      campo('Encerra em até 7 dias', sel('sessao_proxima', [['1', 'Sim']], 'Indiferente')),
+      campo('Abertura da sessão nos próximos', sel('sessao_dias', [['7', '7 dias'], ['15', '15 dias'], ['30', '30 dias']], 'Qualquer data')),
+      campo('Publicadas nos últimos', sel('publicadas_dias', [['7', '7 dias'], ['15', '15 dias'], ['30', '30 dias']], 'Qualquer data')),
       campo('Código CATMAT/CATSER', inp('catalogo')),
       campo('Ordenar por', sel('ordenar', [['encerramento_asc', 'Prazo mais próximo'], ['publicacao_desc', 'Mais recentes'], ['valor_desc', 'Maior valor'], ['valor_asc', 'Menor valor'], ['atualizacao_desc', 'Atualização mais recente']], 'Padrão'))),
     h('div', { class: 'linha', style: { marginTop: '10px' } },
