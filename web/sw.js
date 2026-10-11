@@ -1,6 +1,6 @@
 // Service worker: cache da "casca" do app para funcionar como PWA instalável.
 // Dados da API NUNCA são servidos do cache (evita exibir informação desatualizada como atual).
-const CACHE = 'licita-v20';
+const CACHE = 'licita-v21';
 const CASCA = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/api.js', '/js/ui.js', '/js/paginas.js', '/js/empresas.js', '/js/painel.js', '/manifest.webmanifest', '/icons/icon.svg'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CASCA))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {

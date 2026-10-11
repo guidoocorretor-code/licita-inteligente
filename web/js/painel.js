@@ -70,9 +70,10 @@ function barrasEtapas(r) {
     class: `pe-barra${l.n ? '' : ' zerada'}`,
     title: `${l.rot}: ${numero(l.n)} oportunidade(s) · ${moeda(l.valor)}${l.sem_valor ? ` · ${l.sem_valor} sem valor informado` : ''}` },
   h('span', { class: 'rot' }, l.rot),
-  h('span', { class: 'trilho' }, h('span', { class: 'preench', style: { width: `${l.valor ? Math.max(2, (l.valor / maior) * 100) : 0}%`, background: l.cor } })),
-  h('span', { class: 'val' }, l.n ? curto(l.valor) : '—'),
-  h('span', { class: 'qtd' }, l.n ? `${numero(l.n)}${l.sem_valor ? '*' : ''}` : ''))));
+  h('span', { class: 'trilho' }, l.valor ? h('span', { class: 'preench', style: { width: `${Math.max(2, (l.valor / maior) * 100)}%`, background: l.cor } })
+    : l.n ? h('span', { class: 'preench sem-valor', style: { width: '8%', background: l.cor } }) : null),
+  h('span', { class: `val${l.n && !l.valor ? ' falta' : ''}` }, l.n ? (l.valor ? curto(l.valor) : 's/ valor') : '—'),
+  h('span', { class: 'qtd' }, l.n ? `${numero(l.n)}${l.sem_valor && l.valor ? '*' : ''}` : ''))));
 }
 
 /** Barra empilhada da projeção: a faturar + a receber (garantido) + provável das disputas. */
@@ -104,6 +105,7 @@ const resultado = (r) => {
 };
 
 // ---------- Indicadores ----------
+const semV = (x) => (x?.sem_valor ? ` · ${x.sem_valor} sem valor` : '');
 const kpi = (rot, valor, apoio, { dica: d = '', classe = '', cor } = {}) => h('div', { class: `cartao pe-kpi ${classe}`, title: d, style: cor ? { borderTopColor: cor } : null },
   h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, valor), apoio ? h('div', { class: 'apoio' }, apoio) : null);
 
@@ -112,12 +114,13 @@ function kpis(r) {
   return h('div', { class: 'pe-kpis' },
     kpi('Projeção de faturamento', curto(p.garantido + (p.potencial || 0)), p.potencial != null ? `${curto(p.garantido)} garantido + ${curto(p.potencial)} provável` : `${curto(p.garantido)} garantido`,
       { classe: 'destaque', dica: 'Garantido = vencidas ainda não recebidas. Provável = valor em disputa × taxa de vitória (só com 5 resultados registrados).' }),
-    kpi('Em disputa', curto(r.disputa.valor), `${numero(r.disputa.n)} disputa(s)${r.disputa.pelo_edital ? ` · ${r.disputa.pelo_edital} pelo valor do edital` : ''}`,
+    kpi('Em disputa', curto(r.disputa.valor), `${numero(r.disputa.n)} disputa(s)${r.disputa.pelo_edital ? ` · ${r.disputa.pelo_edital} pelo valor do edital` : ''}${semV(r.disputa)}`,
       { cor: COR.disputa, dica: 'Valor da proposta informado no card; sem ele, o valor estimado do edital inteiro (pode incluir lotes que a empresa não disputa).' }),
-    kpi('A faturar', curto(r.a_faturar.valor), `${numero(r.a_faturar.n)} vencida(s) sem nota`, { cor: COR.ganho, dica: 'Vencidas, aguardando empenho, empenhadas e entregues: dinheiro ganho que ainda não virou nota fiscal.' }),
-    kpi('A receber', curto(x.a_receber.valor), x.a_receber.mais_30d.n ? `⚠ ${curto(x.a_receber.mais_30d.valor)} há mais de 30 dias` : `${numero(x.a_receber.n)} nota(s) emitida(s)`,
+    kpi('A faturar', curto(r.a_faturar.valor), `${numero(r.a_faturar.n)} vencida(s) sem nota${semV(r.a_faturar)}`, { cor: COR.ganho, dica: 'Vencidas, aguardando empenho, empenhadas e entregues: dinheiro ganho que ainda não virou nota fiscal.' }),
+    kpi('A receber', curto(x.a_receber.valor), x.a_receber.mais_30d.n ? `⚠ ${curto(x.a_receber.mais_30d.valor)} há mais de 30 dias` : `${numero(x.a_receber.n)} nota(s) emitida(s)${semV(x.a_receber)}`,
       { cor: COR.receber, classe: x.a_receber.mais_30d.n ? 'alerta' : '', dica: 'Notas fiscais emitidas ainda não pagas pelo órgão.' }),
-    kpi('Recebido em 12 meses', curto(x.recebido_12m.valor), `${numero(x.recebido_12m.n)} pagamento(s)`, { cor: COR.recebido }));
+    kpi('Recebido em 12 meses', curto(x.recebido_12m.valor), `${numero(x.recebido_12m.n)} pagamento(s)${x.recebido_sem_data ? ` · ${x.recebido_sem_data} sem data` : ''}${semV(x.recebido_total)}`,
+      { cor: COR.recebido, dica: 'Pagamentos com data de recebimento nos últimos 12 meses. Recebido sem data informada não entra.' }));
 }
 
 // Quatro blocos em grade 2×2: onde está o dinheiro, resultado das disputas, faturamento previsto e um bloco extra
