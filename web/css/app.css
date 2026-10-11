@@ -488,3 +488,13 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .pf-alerta.urgente { border-left-color: var(--perigo); background: #fff6f4; }
 @media (max-width: 600px) { .pf-barras .pe-barra { grid-template-columns: 90px minmax(0, 1fr) 70px; } .pf-barras .pe-barra .qtd { display: none; } }
 .pf-painel { container-type: inline-size; }
+
+/* UASG e número com botão de copiar */
+.faixa-governo { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: #fff8e6; border: 1px solid #f2d48a; border-radius: 8px; padding: 6px 10px; margin: 8px 0; }
+.faixa-governo.compacta { padding: 4px 8px; margin: 6px 0 0; }
+.faixa-governo .par { display: inline-flex; align-items: center; gap: 6px; }
+.faixa-governo .rot { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--alerta); }
+.faixa-governo .copiar { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #e3c46f; background: #fff; border-radius: 6px; padding: 2px 8px; cursor: pointer; font: inherit; }
+.faixa-governo .copiar:hover { background: #fdf1d0; }
+.faixa-governo .valor-copiar { font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; letter-spacing: .02em; color: var(--texto); }
+.faixa-governo .icone-copiar { font-size: .85rem; }
