@@ -600,3 +600,14 @@ CREATE TABLE IF NOT EXISTS cotacao_pedidos (
   usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS ix_cotped_op ON cotacao_pedidos(oportunidade_id, status);
+
+-- Frete por fornecedor em cada oportunidade: CIF (entrega inclusa) ou FOB (nós pagamos a transportadora; valor entra no custo)
+CREATE TABLE IF NOT EXISTS cotacao_fretes (
+  oportunidade_id INTEGER NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+  fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL,                      -- CIF | FOB
+  transportadora TEXT,
+  valor REAL,                              -- FOB: valor total do frete (NULL = ainda não informado)
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (oportunidade_id, fornecedor_id)
+);

@@ -1,6 +1,7 @@
 // Fornecedores (Fase 3) e cotações por item da licitação, com custo, margem e preço mínimo de venda.
 // Nada é enviado sozinho: o pedido de cotação é um texto que o usuário copia ou abre no WhatsApp/e-mail.
 import { api, qs } from './api.js';
+import { REGIMES, ANEXOS_SIMPLES, PRESUMIDO, calcularTributos } from './tributos.js';
 import { h, toast, carregando, vazio, confirmar, modal, render, data, dataUtc, naoInformado, moeda } from './ui.js';
 
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
@@ -338,7 +339,14 @@ function registrarResposta(d, recarregar, fornecedorId) {
   const sel = h('select', {}, fs.map((f) => h('option', { value: f.id, selected: f.id === fornecedorId }, nomeF(f))));
   const prazo = h('input', { type: 'number', min: 0, step: 1, placeholder: 'dias' });
   const validade = h('input', { type: 'date' });
-  const frete = h('select', {}, h('option', { value: '' }, 'Não informado'), h('option', { value: '1' }, 'Sim, incluso'), h('option', { value: '0' }, 'Não incluso'));
+  const frete = h('select', { onchange: () => mostrarFob() }, h('option', { value: '' }, 'Não informado'), h('option', { value: 'CIF' }, 'CIF · entrega inclusa'), h('option', { value: 'FOB' }, 'FOB · nós pagamos o frete'));
+  const transportadora = h('input', { placeholder: 'nome da transportadora' });
+  const valorFrete = h('input', { inputmode: 'decimal', placeholder: '0,00' });
+  const blocoFob = h('div', { class: 'filtros bloco-boleto' },
+    h('div', {}, h('label', {}, 'Transportadora'), transportadora),
+    h('div', {}, h('label', {}, 'Valor total do frete (R$)'), valorFrete),
+    h('div', { class: 'largo suave pequeno' }, 'O valor entra no custo dos itens deste fornecedor, dividido pelo valor de cada item. Sem o valor, a cotação fica marcada "FOB sem valor de frete".'));
+  const mostrarFob = () => { blocoFob.style.display = frete.value === 'FOB' ? '' : 'none'; };
   const linhas = new Map();
   const corpoTabela = h('tbody', {});
   const montar = () => {
@@ -346,7 +354,11 @@ function registrarResposta(d, recarregar, fornecedorId) {
     const ja = d.itens.flatMap((i) => i.cotacoes).filter((c) => c.fornecedor_id === fid);
     const uma = ja[0];
     prazo.value = uma?.prazo_entrega_dias ?? f.prazo_entrega_dias ?? '';
-    validade.value = uma?.validade || ''; frete.value = uma?.frete_incluso == null ? (f.frete === 'CIF' ? '1' : f.frete === 'FOB' ? '0' : '') : String(uma.frete_incluso);
+    validade.value = uma?.validade || '';
+    const fr = d.fretes_fornecedor.find((x) => x.fornecedor_id === fid);
+    frete.value = fr?.tipo || (uma?.frete_incluso === 1 ? 'CIF' : uma?.frete_incluso === 0 ? 'FOB' : f.frete || '');
+    transportadora.value = fr?.transportadora || ''; valorFrete.value = num(fr?.valor);
+    mostrarFob();
     linhas.clear();
     render(corpoTabela, d.itens.map((i) => {
       const c = ja.find((x) => x.numero_item === i.numero_item);
@@ -367,7 +379,8 @@ function registrarResposta(d, recarregar, fornecedorId) {
       h('div', { class: 'largo' }, h('label', {}, 'Fornecedor'), sel),
       h('div', {}, h('label', {}, 'Prazo de entrega (dias)'), prazo),
       h('div', {}, h('label', {}, 'Validade da cotação'), validade),
-      h('div', {}, h('label', {}, 'Frete incluso?'), frete)),
+      h('div', {}, h('label', {}, 'Frete'), frete)),
+    blocoFob,
     h('p', { class: 'suave pequeno' }, 'Preencha o preço unitário só dos itens que o fornecedor cotou. Deixe em branco os que ele não cotou (apagar um preço remove a cotação daquele item).'),
     h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-cotacao' },
       h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Preço unit. do fornecedor', 'Marca / modelo'].map((t) => h('th', {}, t)))),
@@ -376,7 +389,7 @@ function registrarResposta(d, recarregar, fornecedorId) {
       .map(([n, l]) => ({ numero_item: n, preco_unitario: lerNum(l.preco.value), marca_modelo: l.marca.value.trim() }));
     if (!itens.length) { toast('Informe o preço de pelo menos um item.'); return false; }
     try {
-      const r = await api(`/kanban/${d.oportunidade.id}/cotacoes`, { metodo: 'POST', corpo: { fornecedor_id: Number(sel.value), prazo_entrega_dias: prazo.value, validade: validade.value, frete_incluso: frete.value, itens } });
+      const r = await api(`/kanban/${d.oportunidade.id}/cotacoes`, { metodo: 'POST', corpo: { fornecedor_id: Number(sel.value), prazo_entrega_dias: prazo.value, validade: validade.value, frete: frete.value, transportadora: transportadora.value.trim(), valor_frete: lerNum(valorFrete.value), itens } });
       toast(`${r.gravados} item(ns) cotado(s)${r.removidos ? `, ${r.removidos} removido(s)` : ''}.`); recarregar();
     } catch (e) { toast(e.message, 6000); return false; }
   } }]);
@@ -424,6 +437,7 @@ function imprimirCotacoes(d, est) {
       <td class="n">${i.orcamento_sigiloso ? 'Sigiloso' : pBrl(i.valor_unitario_estimado)}</td>
       <td>${c ? `<b>${esc(c.fornecedor_nome)}</b>${c.marca_modelo ? `<div class="s">${esc(c.marca_modelo)}</div>` : ''}` : '<span class="ni">sem cotação</span>'}</td>
       <td class="n">${c ? pBrl(c.preco_unitario) : '—'}</td>
+      <td>${!c ? '—' : i.frete === 'CIF' ? 'CIF' : i.frete === 'FOB' ? (i.frete_pendente ? 'FOB <span class="ni">sem valor</span>' : `FOB +${pBrl(i.frete_unitario)}/un`) : NI}</td>
       <td class="n">${i.custo_total == null ? '—' : pBrl(i.custo_total)}</td>
       <td class="n">${c ? prazo(c) : '—'}</td>
       <td class="n">${pPct(i.margem_estimado_pct)}</td>
@@ -446,7 +460,7 @@ function imprimirCotacoes(d, est) {
       ${campo('Local', esc([f.municipio, f.uf].filter(Boolean).join('/')) || NI)}
       ${campo('Contato', esc([f.contato_nome, f.whatsapp || f.telefone, f.email].filter(Boolean).join(' · ')) || NI)}
       ${campo('Pagamento', esc(textoPagamento(f)))}
-      ${campo('Frete', f.frete ? esc(f.frete) : NI)}
+      ${(() => { const fr = d.fretes_fornecedor.find((x) => x.fornecedor_id === f.id); return campo('Frete nesta cotação', fr ? esc(fr.tipo === 'FOB' ? `FOB${fr.transportadora ? ` · ${fr.transportadora}` : ''}` : 'CIF') + (fr.tipo === 'FOB' ? ` · ${fr.valor == null ? NI : pBrl(fr.valor)}` : '') : (f.frete ? `${esc(f.frete)} (cadastro)` : NI)); })()}
       ${campo('Pedido mínimo', f.pedido_minimo != null ? pBrl(f.pedido_minimo) : NI)}
       ${campo('Venda à ordem', f.venda_a_ordem === 1 ? 'faz (entrega direta no órgão)' : f.venda_a_ordem === 0 ? 'não faz' : NI)}
     </div>`).join('');
@@ -505,10 +519,10 @@ function imprimirCotacoes(d, est) {
   ${kpi(par.impostos_pct == null ? 'Margem no estimado' : 'Margem no estimado (líq. impostos)', pPct(margem))}
   ${kpi('Itens acima do estimado', esc(String(r.acima)))}
 </div>
-<div class="s" style="margin-top:6px">Parâmetros: impostos ${par.impostos_pct == null ? 'não informados' : esc(`${String(par.impostos_pct).replace('.', ',')}%`)} · margem desejada ${par.margem_pct == null ? 'não informada' : esc(`${String(par.margem_pct).replace('.', ',')}%`)} · preço mínimo = custo ÷ (1 − impostos − margem).</div>
+<div class="s" style="margin-top:6px">Parâmetros: ${par.tributos?.regime ? `${esc(REGIMES[par.tributos.regime] || '')}${par.tributos.regime === 'simples' ? ` (Anexo ${esc(par.tributos.anexo)})` : ''} · ` : ''}${r.frete_total ? `frete FOB ${pBrl(r.frete_total)} incluído no custo · ` : ''}impostos ${par.impostos_pct == null ? 'não informados' : esc(`${String(par.impostos_pct).replace('.', ',')}%`)} · margem desejada ${par.margem_pct == null ? 'não informada' : esc(`${String(par.margem_pct).replace('.', ',')}%`)} · preço mínimo = custo ÷ (1 − impostos − margem).</div>
 
 <h2>Itens e cotação usada</h2>
-<table><thead><tr><th>Nº</th><th>Descrição</th><th class="n">Qtd.</th><th class="n">Estimado unit.</th><th>Fornecedor / marca</th><th class="n">Custo unit.</th><th class="n">Custo total</th><th class="n">Prazo de entrega</th><th class="n">Margem no estimado</th><th class="n">Preço mín. unit.</th><th class="n">Preço mín. total</th><th>Situação</th></tr></thead>
+<table><thead><tr><th>Nº</th><th>Descrição</th><th class="n">Qtd.</th><th class="n">Estimado unit.</th><th>Fornecedor / marca</th><th class="n">Preço fornecedor</th><th>Frete</th><th class="n">Custo total (c/ frete)</th><th class="n">Prazo de entrega</th><th class="n">Margem no estimado</th><th class="n">Preço mín. unit.</th><th class="n">Preço mín. total</th><th>Situação</th></tr></thead>
 <tbody>${linhas}</tbody></table>
 
 ${comparativo ? `<h2>Comparativo de cotações por item</h2>${comparativo}` : ''}
@@ -521,6 +535,54 @@ ${aguardando.length ? `<h2>Aguardando retorno do fornecedor</h2><ul>${aguardando
   janela.document.open(); janela.document.write(html); janela.document.close();
 }
 
+// "CIF", "FOB + R$ 2,00/un" ou "FOB sem valor"
+function textoFreteItem(i) {
+  if (!i.usada_id) return '—';
+  if (i.frete === 'CIF') return h('span', { class: 'etiqueta verde pequena', title: 'Entrega inclusa no preço do fornecedor' }, 'CIF');
+  if (i.frete === 'FOB') return i.frete_pendente ? h('span', { class: 'etiqueta amarela pequena', title: 'Informe o valor do frete na resposta do fornecedor' }, 'FOB sem valor')
+    : h('span', {}, h('span', { class: 'etiqueta pequena' }, 'FOB'), h('div', { class: 'suave pequeno' }, `+ ${brl(i.frete_unitario)}/un`));
+  return naoInformado();
+}
+
+// Seletor de regime tributário: calcula a alíquota sobre a venda (a mesma conta é refeita no servidor)
+function blocoTributos(par) {
+  const t = par.tributos || (par.impostos_pct != null ? { regime: 'manual', aliquota: par.impostos_pct } : {});
+  const opc = (obj, atual, rot = (v) => v) => Object.entries(obj).map(([k, v]) => h('option', { value: k, selected: k === atual }, rot(v)));
+  const regime = h('select', { onchange: () => atualizar() }, h('option', { value: '' }, 'Escolha o regime…'), opc(REGIMES, t.regime));
+  const anexo = h('select', { onchange: () => atualizar() }, opc(ANEXOS_SIMPLES, t.anexo || 'I', (a) => a.nome));
+  const atividade = h('select', { onchange: () => atualizar() }, opc(PRESUMIDO, t.atividade || 'comercio', (a) => a.nome));
+  const campoNum = (v, ph) => h('input', { inputmode: 'decimal', value: num(v), placeholder: ph, oninput: () => atualizar(), style: { width: '120px' } });
+  const rbt12 = campoNum(t.rbt12, 'ex.: 850000');
+  const icms = campoNum(t.icms, 'ex.: 12'); const iss = campoNum(t.iss, 'ex.: 5');
+  const pisCofins = campoNum(t.pis_cofins, '9,25'); const irCsll = campoNum(t.ir_csll, 'ex.: 2');
+  const aliquota = campoNum(t.aliquota, 'ex.: 8');
+  const c = (rot, el, dica) => h('div', { class: 'campo' }, h('label', {}, rot), el, dica ? h('div', { class: 'suave pequeno' }, dica) : null);
+  const campos = h('div', { class: 'linha', style: { alignItems: 'flex-start', flexWrap: 'wrap' } });
+  const resultado = h('div', { class: 'resultado-tributos' });
+  const ler = () => ({ regime: regime.value, anexo: anexo.value, atividade: atividade.value, rbt12: lerNum(rbt12.value), icms: lerNum(icms.value), iss: lerNum(iss.value),
+    pis_cofins: lerNum(pisCofins.value), ir_csll: lerNum(irCsll.value), aliquota: lerNum(aliquota.value) });
+  const atualizar = () => {
+    const r = regime.value;
+    render(campos,
+      r === 'simples' ? [c('Anexo', anexo), c('Receita bruta dos últimos 12 meses (R$)', rbt12, 'Está no PGDAS-D ou com o contador.')] : null,
+      r === 'presumido' ? [c('Atividade', atividade), c('ICMS efetivo (%)', icms, 'Venda de mercadoria. Já descontado o crédito da compra.'), c('ISS (%)', iss, 'Só para serviço.')] : null,
+      r === 'real' ? [c('PIS + COFINS após créditos (%)', pisCofins, 'Sem créditos: 9,25%.'), c('ICMS efetivo (%)', icms), c('ISS (%)', iss), c('IRPJ + CSLL sobre a venda (%)', irCsll, 'Estimativa: peça a carga média ao contador.')] : null,
+      r === 'manual' ? c('Impostos sobre a venda (%)', aliquota) : null);
+    if (!r) return render(resultado, h('div', { class: 'aviso amarelo pequeno' }, 'Escolha o regime da empresa para calcular os impostos.'));
+    const x = calcularTributos(ler());
+    if (x.erro) return render(resultado, h('div', { class: 'aviso vermelho pequeno' }, x.erro));
+    render(resultado, h('div', { class: 'aviso azul pequeno' },
+      h('strong', {}, `Impostos sobre a venda: ${pct(x.aliquota)}`), ' = ', x.partes.map(([rot, v]) => `${rot} ${pct(v)}`).join(' + '),
+      x.aviso ? h('div', {}, `⚠ ${x.aviso}`) : null));
+  };
+  atualizar();
+  return {
+    el: h('div', {}, h('div', { class: 'linha', style: { alignItems: 'flex-start', flexWrap: 'wrap' } }, c('Regime tributário da empresa', regime), campos), resultado,
+      h('div', { class: 'suave pequeno' }, 'Fontes: LC 123/2006 (Anexos I a III do Simples); Lei 9.249/1995 (presunção do Lucro Presumido); Leis 9.718/1998, 10.637/2002 e 10.833/2003 (PIS/COFINS).')),
+    valor: () => (regime.value ? { tributos: ler() } : {}),
+  };
+}
+
 export async function cotacao(alvo, rota, est) {
   render(alvo, carregando());
   const id = rota.args[0];
@@ -529,18 +591,21 @@ export async function cotacao(alvo, rota, est) {
   const recarregar = () => cotacao(alvo, rota, est);
   const editar = podeEditar(est);
 
-  const imp = h('input', { inputmode: 'decimal', value: num(d.parametros.impostos_pct), placeholder: 'ex.: 8', style: { width: '90px' } });
   const mar = h('input', { inputmode: 'decimal', value: num(d.parametros.margem_pct), placeholder: 'ex.: 15', style: { width: '90px' } });
+  const trib = blocoTributos(d.parametros);
   const parametros = h('div', { class: 'cartao' }, h('h2', {}, 'Como calcular o preço mínimo'),
-    h('div', { class: 'linha', style: { alignItems: 'flex-end' } },
-      h('div', { class: 'campo' }, h('label', {}, 'Impostos sobre a venda (%)'), imp),
+    trib.el,
+    h('div', { class: 'linha', style: { alignItems: 'flex-end', marginTop: '10px' } },
       h('div', { class: 'campo' }, h('label', {}, 'Margem desejada (%)'), mar),
-      editar ? h('button', { class: 'btn', onclick: async () => {
-        try { await api(`/kanban/${id}/cotacoes/parametros`, { metodo: 'PATCH', corpo: { impostos_pct: lerNum(imp.value), margem_pct: lerNum(mar.value) } }); toast('Parâmetros salvos.'); recarregar(); }
-        catch (e) { toast(e.message, 5000); }
-      } }, 'Recalcular') : null),
+      editar ? h('button', { class: 'btn primario', onclick: async () => {
+        try {
+          const corpo = { margem_pct: lerNum(mar.value), ...trib.valor() };
+          const x = await api(`/kanban/${id}/cotacoes/parametros`, { metodo: 'PATCH', corpo });
+          toast(`Salvo. Impostos: ${pct(x.impostos_pct)}.${op.cliente_id && corpo.tributos ? ' Regime guardado na empresa para as próximas cotações.' : ''}`, 5000); recarregar();
+        } catch (e) { toast(e.message, 5000); }
+      } }, 'Salvar e recalcular') : null),
     h('p', { class: 'suave pequeno' }, 'Preço mínimo = custo ÷ (1 − impostos − margem). Ex.: custo R$ 80, impostos 8% e margem 15% → 80 ÷ 0,77 = R$ 103,90. ',
-      'Use a alíquota efetiva da empresa (Simples Nacional ou outro regime): confirme com o contador. Frete não incluso na cotação precisa entrar no custo.'),
+      'O custo já inclui o frete FOB informado na resposta do fornecedor. A alíquota é estimativa para formar preço: confirme com o contador.'),
     d.parametros.impostos_pct == null && d.parametros.margem_pct == null ? h('div', { class: 'aviso amarelo pequeno' }, 'Impostos e margem não informados: o "preço mínimo" abaixo é só o custo de compra.') : null);
 
   const total = (rot, val, dica) => h('div', { class: 'cartao kpi', title: dica || '' }, h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, val));
@@ -548,7 +613,7 @@ export async function cotacao(alvo, rota, est) {
   const semImpostos = d.parametros.impostos_pct == null;
   const resumo = h('div', { class: 'grade kpis' },
     total('Itens cotados', `${r.cotados} de ${r.itens}`),
-    total('Custo de compra', r.custo_total == null ? (r.cotados ? 's/ qtd.' : '—') : moeda(r.custo_total), 'Soma de preço × quantidade da cotação usada em cada item'),
+    total('Custo de compra', r.custo_total == null ? (r.cotados ? 's/ qtd.' : '—') : moeda(r.custo_total), `Soma de preço × quantidade da cotação usada em cada item${r.frete_total ? `, com ${moeda(r.frete_total)} de frete FOB` : ''}`),
     total('Preço mínimo total', r.preco_minimo_total == null ? '—' : moeda(r.preco_minimo_total), 'Com impostos e margem informados acima'),
     total('Estimado dos itens cotados', r.estimado_cotados == null ? '—' : moeda(r.estimado_cotados), `Valor de referência do órgão, só dos ${r.itens_com_ref} item(ns) cotados que têm valor`),
     total(semImpostos ? 'Margem no estimado (sem impostos informados)' : 'Margem no estimado, líquida de impostos', margemGeral == null ? '—' : pct(margemGeral),
@@ -573,7 +638,9 @@ export async function cotacao(alvo, rota, est) {
       h('td', { class: 'desc' }, i.descricao || '—', detalhes),
       h('td', { class: 'num' }, i.quantidade != null ? `${String(i.quantidade).replace('.', ',')} ${i.unidade_medida || ''}` : naoInformado()),
       h('td', { class: 'num' }, i.orcamento_sigiloso ? 'Sigiloso' : brl(i.valor_unitario_estimado)),
-      h('td', { class: 'num' }, i.custo_unitario == null ? '—' : brl(i.custo_unitario), i.usada_id ? h('div', { class: 'suave pequeno' }, i.cotacoes.find((c) => c.id === i.usada_id)?.fornecedor_nome) : null),
+      h('td', { class: 'num' }, i.custo_unitario == null ? '—' : brl(i.custo_unitario), i.usada_id ? h('div', { class: 'suave pequeno' }, i.cotacoes.find((c) => c.id === i.usada_id)?.fornecedor_nome) : null,
+        i.frete_unitario ? h('div', { class: 'suave pequeno' }, `${brl(i.preco_fornecedor)} + ${brl(i.frete_unitario)} frete`) : null),
+      h('td', {}, textoFreteItem(i)),
       h('td', { class: 'num' }, pct(i.margem_estimado_pct)),
       h('td', { class: 'num' }, i.preco_minimo == null ? '—' : brl(i.preco_minimo)),
       h('td', { class: 'num' }, i.preco_minimo_total == null ? '—' : moeda(i.preco_minimo_total)),
@@ -615,10 +682,11 @@ export async function cotacao(alvo, rota, est) {
       !op.detalhes_sincronizados_em && editar ? h('button', { class: 'btn pequeno', onclick: async (e) => { e.target.disabled = true; try { const x = await api(`/licitacoes/${op.licitacao_id}/atualizar`, { metodo: 'POST', corpo: {} }); toast(x.ok ? `${x.itens} itens baixados.` : x.mensagem, 5000); recarregar(); } catch (er) { toast(er.message, 6000); e.target.disabled = false; } } }, '↻ Baixar itens agora') : null) : null,
     !d.fornecedores.length ? h('div', { class: 'aviso azul' }, 'Nenhum fornecedor ativo cadastrado. ', h('a', { href: '#/fornecedores' }, 'Cadastre em Fornecedores'), ' e informe os produtos que ele vende para ver sugestões aqui.') : null,
     semItens ? null : resumo,
+    !semItens && r.fretes_pendentes ? h('div', { class: 'aviso amarelo', style: { marginTop: '10px' } }, `${r.fretes_pendentes} item(ns) com frete FOB sem valor: o custo e o preço mínimo deles ainda não incluem o frete. Informe o valor em "Registrar resposta" do fornecedor.`) : null,
     semItens ? null : blocoPedidos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),
       h('div', { class: 'tabela-wrap' }, h('table', { class: 'tabela-cotacao' },
-        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', semImpostos ? 'Margem no estimado' : 'Margem no estimado (líquida de impostos)', 'Preço mínimo (unit.)', 'Preço mínimo (total)', 'Situação'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['Nº', 'Descrição', 'Qtd.', 'Estimado (unit.)', 'Custo (unit.)', 'Frete', semImpostos ? 'Margem no estimado' : 'Margem no estimado (líquida de impostos)', 'Preço mínimo (unit.)', 'Preço mínimo (total)', 'Situação'].map((t) => h('th', {}, t)))),
         h('tbody', {}, d.itens.map(linhaItem))))),
     semItens ? null : h('div', { style: { marginTop: '14px' } }, parametros),
     semItens || !d.fornecedores.some((f) => f.combina.length) ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Fornecedores que combinam com os itens'),

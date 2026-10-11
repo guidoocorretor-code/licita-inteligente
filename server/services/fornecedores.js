@@ -1,6 +1,7 @@
 // Fornecedores (de quem as empresas assessoradas compram para revender ao governo) e cotações por item.
 // Tudo aqui é digitado pelo usuário: nada é inventado. Preço não informado fica NULL, nunca zero.
 import { validarCnpj } from './clientes.js';
+import { calcularTributos } from '../../web/js/tributos.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const texto = (v, max = 200) => (v == null || String(v).trim() === '' ? null : String(v).trim().slice(0, max));
@@ -14,6 +15,8 @@ export const PRAZOS_BOLETO = ['0', '30', '30/60', '30/60/90', '30/60/90/120', '3
 export function migrarFornecedores(conn) {
   const op = colunas(conn, 'oportunidades');
   for (const c of ['cot_impostos_pct', 'cot_margem_pct']) if (!op.includes(c)) conn.exec(`ALTER TABLE oportunidades ADD COLUMN ${c} REAL`);
+  if (!op.includes('cot_tributos')) conn.exec('ALTER TABLE oportunidades ADD COLUMN cot_tributos TEXT');
+  if (!colunas(conn, 'clientes').includes('tributos_json')) conn.exec('ALTER TABLE clientes ADD COLUMN tributos_json TEXT');
   const fo = colunas(conn, 'fornecedores');
   for (const [c, t] of [['formas_pagamento', 'TEXT'], ['boleto_prazo', 'TEXT'], ['venda_a_ordem', 'INTEGER'], ['cartao_parcelas', 'INTEGER'], ['cartao_juros', 'INTEGER']]) if (!fo.includes(c)) conn.exec(`ALTER TABLE fornecedores ADD COLUMN ${c} ${t}`);
 }
@@ -148,7 +151,7 @@ export function itensQueCombinam(produtos, itens) {
 
 // ---------- Cotações ----------
 function oportunidadeDaConta(db, empresaId, id) {
-  const op = db.prepare(`SELECT o.id, o.licitacao_id, o.cliente_id, o.cot_impostos_pct, o.cot_margem_pct, o.valor_proposta,
+  const op = db.prepare(`SELECT o.id, o.licitacao_id, o.cliente_id, o.cot_impostos_pct, o.cot_margem_pct, o.cot_tributos, cl.tributos_json cliente_tributos, o.valor_proposta,
       l.objeto, l.orgao_nome, l.municipio, l.uf, l.numero_compra, l.ano, l.data_encerramento_proposta, l.detalhes_sincronizados_em, l.numero_controle_pncp,
       l.modalidade_nome, l.link_pncp, l.processo, l.unidade_nome,
       COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome, cl.razao_social cliente_razao, cl.cnpj cliente_cnpj
@@ -188,20 +191,41 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
   const idsCotados = [...new Set(cot.map((c) => c.fornecedor_id))];
   const fornecedoresCotados = idsCotados.length
     ? db.prepare(`SELECT * FROM fornecedores WHERE id IN (${idsCotados.map(() => '?').join(',')})`).all(...idsCotados) : [];
-  const linhas = itens.map((i) => {
+  const fretes = db.prepare(`SELECT fr.*, COALESCE(f.nome_fantasia, f.razao_social) fornecedor_nome FROM cotacao_fretes fr JOIN fornecedores f ON f.id = fr.fornecedor_id
+    WHERE fr.oportunidade_id=?`).all(id);
+  const freteDe = new Map(fretes.map((f) => [f.fornecedor_id, f]));
+  const usadas = itens.map((i) => {
     const doItem = cot.filter((c) => c.numero_item === i.numero_item);
-    const usada = doItem.find((c) => c.escolhida) || doItem[0] || null; // escolhida pelo usuário ou a mais barata
+    return { i, doItem, usada: doItem.find((c) => c.escolhida) || doItem[0] || null }; // escolhida pelo usuário ou a mais barata
+  });
+  // Frete FOB: o valor informado é rateado entre os itens em que aquele fornecedor é o usado, pelo valor de cada item
+  const baseFrete = new Map();
+  for (const { i, usada } of usadas) {
+    if (usada && i.quantidade != null && freteDe.get(usada.fornecedor_id)?.tipo === 'FOB' && freteDe.get(usada.fornecedor_id).valor != null) baseFrete.set(usada.fornecedor_id, (baseFrete.get(usada.fornecedor_id) || 0) + usada.preco_unitario * i.quantidade);
+  }
+  const linhas = usadas.map(({ i, doItem, usada }) => {
     const estimado = i.orcamento_sigiloso ? null : i.valor_unitario_estimado;
-    const minimo = usada ? precoMinimo(usada.preco_unitario, imp, mar) : null;
     const qtd = i.quantidade;
+    // cotação antiga, sem frete por fornecedor: usa o "frete incluso" do item (FOB sem valor fica pendente)
+    const fr = !usada ? null : freteDe.get(usada.fornecedor_id) || (usada.frete_incluso === 1 ? { tipo: 'CIF' } : usada.frete_incluso === 0 ? { tipo: 'FOB', valor: null } : null);
+    let freteUnit = 0; let fretePendente = false;
+    if (fr?.tipo === 'FOB') {
+      if (fr.valor == null || qtd == null) fretePendente = true;
+      else freteUnit = (fr.valor * (usada.preco_unitario * qtd) / baseFrete.get(usada.fornecedor_id)) / qtd;
+    }
+    const custo = usada ? round4(usada.preco_unitario + freteUnit) : null;
+    const minimo = usada ? precoMinimo(custo, imp, mar) : null;
     let situacao = 'sem_cotacao';
-    if (usada) situacao = estimado == null ? 'sem_referencia' : (minimo ?? usada.preco_unitario) > estimado ? 'acima' : 'ok';
+    if (usada) situacao = estimado == null ? 'sem_referencia' : (minimo ?? custo) > estimado ? 'acima' : 'ok';
     return {
-      ...i, cotacoes: doItem, usada_id: usada?.id ?? null, custo_unitario: usada?.preco_unitario ?? null,
-      custo_total: usada && qtd != null ? round2(usada.preco_unitario * qtd) : null,
+      ...i, cotacoes: doItem, usada_id: usada?.id ?? null,
+      preco_fornecedor: usada?.preco_unitario ?? null,
+      frete: usada ? (fr?.tipo || null) : null, frete_unitario: freteUnit ? round4(freteUnit) : (fr?.tipo === 'CIF' ? 0 : null), frete_pendente: fretePendente,
+      custo_unitario: custo, // preço do fornecedor + frete FOB rateado
+      custo_total: usada && qtd != null ? round2((usada.preco_unitario + freteUnit) * qtd) : null,
       // Margem que sobra se vender pelo valor estimado, já descontados os impostos informados:
       // (estimado × (1 − impostos) − custo) ÷ estimado. É comparável com a margem desejada.
-      margem_estimado_pct: usada && estimado ? round2(margemNoPreco(estimado, usada.preco_unitario, imp)) : null,
+      margem_estimado_pct: usada && estimado ? round2(margemNoPreco(estimado, custo, imp)) : null,
       preco_minimo: minimo, preco_minimo_total: minimo != null && qtd != null ? round2(minimo * qtd) : null, situacao,
     };
   });
@@ -210,7 +234,8 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
   const comRef = cotados.filter((l) => l.valor_unitario_estimado != null && !l.orcamento_sigiloso && l.quantidade != null);
   return {
     oportunidade: op, itens: linhas, fornecedores, fretes: FRETES,
-    parametros: { impostos_pct: imp, margem_pct: mar },
+    parametros: { impostos_pct: imp, margem_pct: mar, tributos: lerJson(op.cot_tributos) || lerJson(op.cliente_tributos) },
+    fretes_fornecedor: fretes,
     resumo: {
       itens: linhas.length, cotados: cotados.length, acima: linhas.filter((l) => l.situacao === 'acima').length,
       custo_total: cotados.length ? soma('custo_total') : null,
@@ -219,11 +244,14 @@ export function cotacoesDaOportunidade(db, empresaId, id) {
       estimado_cotados: comRef.length ? round2(comRef.reduce((s, l) => s + l.valor_unitario_estimado * l.quantidade, 0)) : null,
       custo_cotados_com_ref: comRef.length ? soma('custo_total', comRef) : null,
       itens_com_ref: comRef.length,
+      frete_total: round2(linhas.reduce((s, l) => s + (l.frete_unitario && l.quantidade != null ? l.frete_unitario * l.quantidade : 0), 0)),
+      fretes_pendentes: linhas.filter((l) => l.frete_pendente).length,
     },
     pedidos, fornecedores_cotados: fornecedoresCotados,
   };
 }
 const round2 = (v) => Math.round(v * 100) / 100;
+const lerJson = (t) => { try { return t ? JSON.parse(t) : null; } catch { return null; } };
 /** Margem (%) de vender a `preco` com `custo`, descontando os impostos sobre a venda. */
 export const margemNoPreco = (preco, custo, impostosPct) => ((preco * (1 - (impostosPct || 0) / 100) - custo) / preco) * 100;
 
@@ -233,8 +261,13 @@ export function registrarCotacoes(db, empresaId, oportunidadeId, usuarioId, b) {
   const forn = db.prepare('SELECT id FROM fornecedores WHERE id=? AND empresa_id=?').get(Number(b.fornecedor_id), empresaId);
   if (!forn) throw erro(400, 'Escolha um fornecedor cadastrado.');
   if (b.validade && !dataOk(b.validade)) throw erro(400, 'Validade da cotação inválida.');
-  const frete = b.frete_incluso === true || b.frete_incluso === 1 || b.frete_incluso === '1' ? 1
-    : b.frete_incluso === false || b.frete_incluso === 0 || b.frete_incluso === '0' ? 0 : null;
+  // Frete: 'CIF' (incluso) ou 'FOB' (por nossa conta, com transportadora e valor); aceita o antigo frete_incluso
+  const tipoFrete = b.frete === 'CIF' || b.frete === 'FOB' ? b.frete
+    : b.frete_incluso === true || b.frete_incluso === 1 || b.frete_incluso === '1' ? 'CIF'
+      : b.frete_incluso === false || b.frete_incluso === 0 || b.frete_incluso === '0' ? 'FOB' : null;
+  if (b.frete && !tipoFrete) throw erro(400, 'Frete inválido: use CIF ou FOB.');
+  const frete = tipoFrete === 'CIF' ? 1 : tipoFrete === 'FOB' ? 0 : null;
+  const valorFrete = tipoFrete === 'FOB' ? numeroOuNulo(b.valor_frete, 'Valor do frete') : null;
   const prazo = numeroOuNulo(b.prazo_entrega_dias, 'Prazo de entrega', { max: 3650, inteiro: true });
   const itens = Array.isArray(b.itens) ? b.itens.slice(0, 2000) : [];
   if (!itens.length) throw erro(400, 'Informe o preço de pelo menos um item.');
@@ -257,6 +290,11 @@ export function registrarCotacoes(db, empresaId, oportunidadeId, usuarioId, b) {
       up.run(op.id, n, forn.id, round4(preco), texto(it.marca_modelo, 150), prazo, b.validade || null, frete, texto(it.observacoes ?? b.observacoes, 500), usuarioId);
       gravados++;
     }
+    if (tipoFrete) {
+      db.prepare(`INSERT INTO cotacao_fretes (oportunidade_id, fornecedor_id, tipo, transportadora, valor) VALUES (?,?,?,?,?)
+        ON CONFLICT (oportunidade_id, fornecedor_id) DO UPDATE SET tipo=excluded.tipo, transportadora=excluded.transportadora, valor=excluded.valor, atualizado_em=datetime('now')`)
+        .run(op.id, forn.id, tipoFrete, tipoFrete === 'FOB' ? texto(b.transportadora, 150) : null, valorFrete);
+    } else db.prepare('DELETE FROM cotacao_fretes WHERE oportunidade_id=? AND fornecedor_id=?').run(op.id, forn.id);
     if (gravados) db.prepare("UPDATE cotacao_pedidos SET status='respondido', respondido_em=datetime('now') WHERE oportunidade_id=? AND fornecedor_id=? AND status='aguardando'").run(op.id, forn.id);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
@@ -278,11 +316,22 @@ export function excluirCotacao(db, empresaId, oportunidadeId, cotacaoId) {
 }
 
 export function salvarParametros(db, empresaId, oportunidadeId, b) {
-  oportunidadeDaConta(db, empresaId, oportunidadeId);
-  const imp = numeroOuNulo(b.impostos_pct, 'Impostos (%)', { max: 99 });
+  const op = oportunidadeDaConta(db, empresaId, oportunidadeId);
+  let imp = numeroOuNulo(b.impostos_pct, 'Impostos (%)', { max: 99 });
+  let tributos = null;
+  if (b.tributos && typeof b.tributos === 'object') {
+    const t = b.tributos;
+    tributos = { regime: t.regime, anexo: t.anexo, atividade: t.atividade };
+    for (const k of ['rbt12', 'icms', 'iss', 'pis_cofins', 'ir_csll', 'aliquota']) tributos[k] = numeroOuNulo(t[k], `Campo ${k}`, { max: k === 'rbt12' ? 1e10 : 99 });
+    const c = calcularTributos(tributos);
+    if (c.erro) throw erro(400, c.erro);
+    imp = c.aliquota; // a alíquota vem do regime; o servidor refaz a conta
+    if (op.cliente_id) db.prepare('UPDATE clientes SET tributos_json=? WHERE id=? AND empresa_id=?').run(JSON.stringify(tributos), op.cliente_id, empresaId);
+  }
   const mar = numeroOuNulo(b.margem_pct, 'Margem (%)', { max: 99 });
   if ((imp || 0) + (mar || 0) >= 100) throw erro(400, 'Impostos + margem precisam somar menos de 100%.');
-  db.prepare('UPDATE oportunidades SET cot_impostos_pct=?, cot_margem_pct=? WHERE id=?').run(imp, mar, oportunidadeId);
+  db.prepare('UPDATE oportunidades SET cot_impostos_pct=?, cot_margem_pct=?, cot_tributos=? WHERE id=?').run(imp, mar, tributos ? JSON.stringify(tributos) : null, oportunidadeId);
+  return { impostos_pct: imp };
 }
 
 // ---------- Pedidos de cotação (enviados pelo usuário fora do sistema) ----------

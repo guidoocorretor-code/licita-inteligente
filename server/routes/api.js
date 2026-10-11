@@ -518,7 +518,7 @@ r.patch('/kanban/:id/pedidos/:pid', exigirPapel('analista'), (req, res) => {
   try { mudarStatusPedido(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.pid), req.body?.status); res.json({ ok: true }); } catch (e) { falha(res, e); }
 });
 r.patch('/kanban/:id/cotacoes/parametros', exigirPapel('analista'), (req, res) => {
-  try { salvarParametros(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {}); res.json({ ok: true }); } catch (e) { falha(res, e); }
+  try { res.json({ ok: true, ...salvarParametros(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {}) }); } catch (e) { falha(res, e); }
 });
 
 // ---------------- Preferências de alerta e e-mail (Fase 3) ----------------

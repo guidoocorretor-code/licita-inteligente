@@ -53,6 +53,8 @@ Clique no cartão para definir responsável, prazo interno e comentários. Todo 
 3. **✉ Pedir cotação** monta a mensagem com a descrição completa de cada item, para copiar, abrir no WhatsApp ou **Enviar por e-mail** (abre o programa de e-mail padrão, como o Outlook, já com o e-mail do fornecedor). O sistema não envia nada sozinho: depois ele pergunta se você enviou e, se sim, a cotação mostra **Aguardando retorno do fornecedor** até você registrar a resposta ou marcar "Sem retorno".
    - **🖨 Imprimir / PDF** gera o mapa de cotações (empresa, licitação, itens, fornecedor, prazo de entrega, comparativo e condições). Para PDF, escolha "Salvar como PDF" na impressão.
    - A **margem no estimado** já desconta os impostos informados, para comparar direto com a margem desejada.
+   - **Frete:** na resposta do fornecedor, escolha CIF (entrega inclusa) ou FOB. No FOB, informe a transportadora e o valor total: ele é dividido entre os itens daquele fornecedor pelo valor de cada item e entra no custo. FOB sem valor fica marcado como pendente.
+   - **Regime tributário:** em "Como calcular o preço mínimo", escolha Simples (anexo + receita dos últimos 12 meses), Lucro Presumido (+ ICMS/ISS) ou Lucro Real. O sistema calcula a alíquota e guarda o regime na empresa para as próximas cotações. É estimativa: confirme com o contador.
 4. Quando o fornecedor responder, use **+ Registrar resposta** e digite o preço unitário de cada item cotado.
 5. Informe impostos e margem desejada: a tela mostra custo, margem sobre o valor estimado, preço mínimo por item e os itens que ficam acima do estimado.
 

@@ -191,3 +191,33 @@ test('pedido de cotação: aguardando até a resposta, sem retorno e isolado por
   assert.throws(() => mudarStatusPedido(db, emp, op, p1, 'respondido'), /inválida/);
   assert.throws(() => mudarStatusPedido(db, outra, op, p2, 'aguardando'), /não encontrada/);
 });
+
+test('frete FOB entra no custo, rateado pelo valor dos itens; FOB sem valor fica pendente', () => {
+  const { db, emp, u, op } = preparar();
+  const a = criarFornecedor(db, emp, { razao_social: 'A' });
+  // itens 1 (100 × 20 = 2.000) e 2 (10 × 200 = 2.000): frete 400 → 200 para cada → +2,00/un no item 1 e +20,00/un no item 2
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', transportadora: 'Transp X', valor_frete: '400', itens: [{ numero_item: 1, preco_unitario: '20' }, { numero_item: 2, preco_unitario: '200' }] });
+  let d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.itens[0].custo_unitario, 22); assert.equal(d.itens[0].preco_fornecedor, 20); assert.equal(d.itens[0].frete, 'FOB');
+  assert.equal(d.itens[1].custo_unitario, 220);
+  assert.equal(d.resumo.frete_total, 400);
+  assert.equal(d.resumo.custo_total, 4400);
+  assert.equal(d.fretes_fornecedor[0].transportadora, 'Transp X');
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'FOB', itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.itens[0].frete_pendente, true);                     // FOB sem valor: avisa, não inventa zero
+  assert.equal(d.resumo.fretes_pendentes, 2);
+  registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'CIF', itens: [{ numero_item: 1, preco_unitario: '20' }] });
+  d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.itens[0].custo_unitario, 20); assert.equal(d.itens[0].frete_unitario, 0); assert.equal(d.itens[0].frete_pendente, false);
+  assert.throws(() => registrarCotacoes(db, emp, op, u, { fornecedor_id: a, frete: 'XYZ', itens: [{ numero_item: 1, preco_unitario: '20' }] }), /CIF ou FOB/);
+});
+
+test('regime tributário calcula os impostos no servidor', () => {
+  const { db, emp, op } = preparar();
+  assert.deepEqual(salvarParametros(db, emp, op, { margem_pct: '15', tributos: { regime: 'simples', anexo: 'I', rbt12: '500000', impostos_pct: '99' } }), { impostos_pct: 6.73 });
+  const d = cotacoesDaOportunidade(db, emp, op);
+  assert.equal(d.parametros.impostos_pct, 6.73);
+  assert.equal(d.parametros.tributos.regime, 'simples');
+  assert.throws(() => salvarParametros(db, emp, op, { tributos: { regime: 'simples', anexo: 'I', rbt12: '9000000' } }), /sai do Simples/);
+});

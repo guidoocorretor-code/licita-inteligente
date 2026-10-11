@@ -461,3 +461,4 @@ body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-o
 .lista-pedidos li:last-child { border-bottom: 0; }
 textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .item-pedido .etiqueta { margin-left: 6px; }
+.resultado-tributos { margin-top: 6px; }
