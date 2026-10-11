@@ -108,10 +108,17 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
     if (prazoMin != null) { w.push('l.data_encerramento_proposta >= ?'); p.push(new Date(base + prazoMin * 86400000).toISOString().slice(0, 19)); }
     if (prazoMax != null) { w.push('l.data_encerramento_proposta <= ?'); p.push(new Date(base + prazoMax * 86400000).toISOString().slice(0, 19)); }
   }
-  if (f.sessao_proxima === '1' || f.sessao_proxima === true) {
+  // Abertura da sessão nos próximos N dias. O PNCP não informa a data da sessão de disputa separadamente:
+  // usa o fim do recebimento de propostas, que é quando a sessão abre. "sessao_proxima=1" (antigo) = 7 dias.
+  const PERIODOS = [7, 15, 30];
+  const sessaoDias = f.sessao_proxima === '1' || f.sessao_proxima === true ? 7 : PERIODOS.includes(Number(f.sessao_dias)) ? Number(f.sessao_dias) : null;
+  if (sessaoDias) {
     const base = Date.parse(agora + 'Z');
-    w.push('l.data_encerramento_proposta BETWEEN ? AND ?'); p.push(agora, new Date(base + 7 * 86400000).toISOString().slice(0, 19));
+    w.push('l.data_encerramento_proposta BETWEEN ? AND ?'); p.push(agora, new Date(base + sessaoDias * 86400000).toISOString().slice(0, 19));
   }
+  // Publicadas nos últimos N dias
+  const pubDias = PERIODOS.includes(Number(f.publicadas_dias)) ? Number(f.publicadas_dias) : null;
+  if (pubDias) { w.push('l.data_publicacao >= ?'); p.push(new Date(Date.parse(agora + 'Z') - pubDias * 86400000).toISOString().slice(0, 10) + 'T00:00:00'); }
 
   if (f.me_epp === '1') w.push('l.me_epp_exclusivo = 1');
   if (f.me_epp === '0') w.push('l.me_epp_exclusivo = 0');

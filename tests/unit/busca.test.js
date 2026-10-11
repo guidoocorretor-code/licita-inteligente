@@ -93,3 +93,16 @@ test('exportação CSV (BOM, separador ;) e XLSX', async () => {
   assert.ok(xlsx.byteLength > 1000);
   assert.equal(Buffer.from(xlsx).subarray(0, 2).toString(), 'PK');
 });
+
+test('períodos: abertura da sessão nos próximos 7/15/30 dias e publicadas nos últimos N dias', async () => {
+  const { montarFiltro } = await import('../../server/services/busca.js');
+  const db = bancoMemoria(); popular(db);
+  const agora = '2026-10-10T12:00:00';
+  const conta = (f) => { const { where, params } = montarFiltro(f, agora); return db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n; };
+  assert.equal(conta({ sessao_dias: '7' }), 2);    // 12/10 e 15/10 (09/10 já passou)
+  assert.equal(conta({ sessao_dias: '15' }), 3);   // + 20/10
+  assert.equal(conta({ sessao_dias: '30' }), 4);   // + 30/10
+  assert.equal(conta({ sessao_proxima: '1' }), 2); // link antigo continua valendo 7 dias
+  assert.equal(conta({ sessao_dias: '9' }), 5);    // período fora da lista é ignorado
+  assert.equal(conta({ publicadas_dias: '7' }), 3); // publicadas desde 03/10
+});
