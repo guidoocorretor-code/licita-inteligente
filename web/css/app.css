@@ -296,3 +296,10 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .etiqueta.empresa.clicavel:hover, .etiqueta.empresa.clicavel:focus-visible { border-color: #7c3aed; background: #ddd6fe; }
 .etiqueta.empresa.clicavel.sem { border-color: #a78bfa; }
 .etiqueta.empresa .acao-vinc { font-weight: 700; color: #6d28d9; }
+/* No card do Kanban a empresa é uma linha como a do responsável: alinhada à esquerda, quebra o nome longo, não vaza do card */
+.cartao-k .etiqueta.empresa { display: block; width: 100%; max-width: 100%; margin-top: 3px !important; padding: 0; border: 0; border-radius: 0;
+  background: none; color: #5b21b6; font-size: .76rem; font-weight: 600; white-space: normal; text-align: left; overflow-wrap: anywhere; line-height: 1.35; }
+.cartao-k .etiqueta.empresa.clicavel:hover, .cartao-k .etiqueta.empresa.clicavel:focus-visible { background: none; border: 0; text-decoration: underline; outline: none; }
+.cartao-k .etiqueta.empresa.clicavel.sem { border: 0; }
+.cartao-k .etiqueta.empresa .acao-vinc { margin-left: 4px; font-size: .76rem; color: #7c3aed; }
+.cartao-k .etiqueta.empresa.sem .acao-vinc { text-decoration: underline dotted; }
