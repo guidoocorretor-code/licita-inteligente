@@ -534,3 +534,50 @@ CREATE TABLE IF NOT EXISTS capag (
   PRIMARY KEY (esfera, chave)
 );
 CREATE INDEX IF NOT EXISTS ix_capag_nome ON capag(esfera, uf, nome COLLATE NOCASE);
+
+-- Fase 3: fornecedores (de quem as empresas assessoradas compram) e cotações por item da licitação
+CREATE TABLE IF NOT EXISTS fornecedores (
+  id INTEGER PRIMARY KEY,
+  empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  cliente_id INTEGER NOT NULL DEFAULT 0,   -- empresa assessorada que compra dele; 0 = vale para todas
+  cnpj TEXT,                               -- só dígitos; NULL = não informado
+  razao_social TEXT NOT NULL,
+  nome_fantasia TEXT,
+  uf TEXT,
+  municipio TEXT,
+  contato_nome TEXT,
+  email TEXT,
+  telefone TEXT,
+  whatsapp TEXT,
+  site TEXT,
+  produtos TEXT,                           -- o que vende (produtos, marcas), separado por ";"
+  prazo_entrega_dias INTEGER,
+  pedido_minimo REAL,
+  condicoes_pagamento TEXT,
+  frete TEXT,                              -- CIF | FOB | NULL (não informado)
+  observacoes TEXT,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_forn_cnpj ON fornecedores(empresa_id, cnpj) WHERE cnpj IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_forn_cli ON fornecedores(empresa_id, cliente_id);
+
+CREATE TABLE IF NOT EXISTS cotacoes (
+  id INTEGER PRIMARY KEY,
+  oportunidade_id INTEGER NOT NULL REFERENCES oportunidades(id) ON DELETE CASCADE,
+  numero_item INTEGER NOT NULL,            -- licitacao_itens.numero_item da licitação da oportunidade
+  fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id) ON DELETE RESTRICT,
+  preco_unitario REAL NOT NULL,            -- custo de compra por unidade do item
+  marca_modelo TEXT,
+  prazo_entrega_dias INTEGER,
+  validade TEXT,                           -- AAAA-MM-DD; validade da cotação
+  frete_incluso INTEGER,                   -- 1 sim, 0 não, NULL não informado
+  observacoes TEXT,
+  escolhida INTEGER NOT NULL DEFAULT 0,    -- 1 = a que vale para o item (senão, a mais barata)
+  criado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (oportunidade_id, numero_item, fornecedor_id)
+);
+CREATE INDEX IF NOT EXISTS ix_cot_forn ON cotacoes(fornecedor_id);

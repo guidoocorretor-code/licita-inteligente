@@ -308,7 +308,7 @@ export async function detalhe(alvo, rota, est) {
   } }, d.favorito ? '★ Favorita' : '☆ Favoritar');
   const emFoco = empresaEmFoco(est);
   const btnKanban = d.oportunidade
-    ? h('a', { class: 'btn', href: '#/kanban' }, `Kanban: ${d.oportunidade.etapa_nome}`)
+    ? [h('a', { class: 'btn', href: '#/kanban' }, `Kanban: ${d.oportunidade.etapa_nome}`), h('a', { class: 'btn', href: `#/cotacao/${d.oportunidade.id}` }, '💲 Cotações')]
     : podeEditar(est) ? h('button', { class: 'btn primario', onclick: async () => {
       try { await api('/kanban', { metodo: 'POST', corpo: { licitacao_id: l.id } }); toast(emFoco ? `Enviada ao Kanban de ${nomeEmpresa(emFoco)}.` : 'Enviada ao Kanban.'); detalhe(alvo, rota, est); } catch (e) { toast(e.message); }
     } }, emFoco ? `+ Kanban de ${nomeEmpresa(emFoco)}` : '+ Acompanhar no Kanban') : null;
@@ -489,7 +489,7 @@ function camposExecucao(c, fase) {
   return { el, ler };
 }
 
-const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores' };
+const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores', cotacao: 'Cotação' };
 
 // Ao mover o card para uma etapa de execução, pede os dados dessa etapa (só os que ainda estão vazios).
 // Valores sugeridos vêm do próprio card (ex.: valor da nota = valor do empenho) e só gravam se o usuário salvar.
@@ -660,7 +660,8 @@ export async function kanban(alvo, _r, est) {
     const prazo = h('input', { type: 'date', value: c.prazo_interno || '' });
     const execucao = camposExecucao(c, k.etapas.find((e) => e.id === c.etapa_id)?.fase);
     modal(c.objeto?.slice(0, 90) || 'Oportunidade', h('div', {},
-      h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · Situação oficial: ', etiquetaStatus(c.status_calculado, est.meta)),
+      h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · ', h('a', { href: `#/cotacao/${c.id}`, title: 'Cotações dos fornecedores, custo, margem e preço mínimo por item' }, '💲 Cotações'),
+        ' · Situação oficial: ', etiquetaStatus(c.status_calculado, est.meta)),
       h('div', { class: 'campo' }, h('label', {}, 'Responsável'), resp),
       h('div', { class: 'campo' }, h('label', {}, 'Prazo interno'), prazo),
       execucao.el,

@@ -432,3 +432,22 @@ body.arrastando-card .kanban-etapas { outline: 2px dashed var(--info); outline-o
 .kanban .cartao-k { cursor: pointer; }
 .kanban .cartao-k[data-arrastavel] { cursor: grab; }
 .kanban.pegando, .kanban.pegando * { cursor: grabbing !important; user-select: none; }
+
+/* Fornecedores e cotações (Fase 3) */
+.cartao.fornecedor.inativa { opacity: .6; }
+.modal:has(.modal-largo) { max-width: 980px; }
+.tabela-cotacao th { white-space: normal; vertical-align: bottom; }
+.tabela-cotacao td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tabela-cotacao td.num .suave { white-space: normal; max-width: 170px; margin-left: auto; }
+.tabela-cotacao td.desc { min-width: 200px; max-width: 320px; }
+.busca-fornecedores { flex-wrap: nowrap; }
+.busca-fornecedores input { flex: 1; max-width: 560px; }
+.tabela-cotacao input.preco { width: 110px; text-align: right; }
+.tabela-cotacao tr.combina td:first-child { box-shadow: inset 3px 0 0 #1baf7a; }
+.cotacoes-item { margin-top: 4px; font-size: .82rem; }
+.cotacoes-item summary { cursor: pointer; color: var(--cor-primaria); }
+.cotacoes-item li { margin: 4px 0; }
+.cotacoes-item .btn { margin-left: 6px; }
+.lista-itens-pedido { max-height: 220px; overflow: auto; border: 1px solid var(--borda, #e5e7eb); border-radius: 8px; padding: 6px 8px; }
+.item-pedido { display: block; font-size: .85rem; padding: 3px 0; font-weight: 400; }
+.texto-perigo { color: var(--perigo); }

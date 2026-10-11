@@ -47,6 +47,13 @@ na ordem em que o sistema detectou.
 No detalhe, clique **+ Acompanhar no Kanban**. Arraste os cartões entre etapas (no celular, use o seletor "Mover").
 Clique no cartão para definir responsável, prazo interno e comentários. Todo movimento fica no histórico.
 
+## 7.1 Fornecedores e cotações
+1. Em **Fornecedores**, cadastre de quem a empresa compra (o CNPJ preenche os dados da Receita) e escreva os produtos e marcas que ele vende, separados por ";".
+2. No Kanban, abra o card e clique em **💲 Cotações** (ou no botão de mesmo nome na licitação).
+3. **✉ Pedir cotação** monta a mensagem com os itens, para você copiar ou abrir no WhatsApp/e-mail. O sistema não envia nada sozinho.
+4. Quando o fornecedor responder, use **+ Registrar resposta** e digite o preço unitário de cada item cotado.
+5. Informe impostos e margem desejada: a tela mostra custo, margem sobre o valor estimado, preço mínimo por item e os itens que ficam acima do estimado.
+
 ## 8. Alertas
 O sino mostra notificações não lidas. Em **Alertas** você liga/desliga o alerta de cada pesquisa salva.
 E-mail e WhatsApp ainda dependem de configuração de provedor.
