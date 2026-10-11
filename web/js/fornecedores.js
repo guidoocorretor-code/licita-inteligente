@@ -204,33 +204,29 @@ const qtdTexto = (i) => (i.quantidade != null ? `${String(i.quantidade).replace(
 const numeroLic = (op) => [op.modalidade_nome, op.numero_compra ? `nº ${op.numero_compra}${op.ano && !String(op.numero_compra).includes('/') ? `/${op.ano}` : ''}` : ''].filter(Boolean).join(' ');
 
 // Mensagem do pedido. formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
+// Mensagem do pedido. Leva só a descrição dos itens: nada de órgão, número, cidade ou data da licitação,
+// para o fornecedor não descobrir a disputa e entrar nela como concorrente.
+// formato 'whatsapp' usa *negrito*; 'email' é texto puro com títulos em maiúsculas.
 function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', link = null) {
   const op = d.oportunidade;
   const itens = d.itens.filter((i) => numeros.includes(i.numero_item));
   const t = (s) => (formato === 'whatsapp' ? `*${s}*` : s);
   const sep = formato === 'email' ? '------------------------------' : null;
-  const local = op.municipio ? `${op.municipio}/${op.uf}` : '';
   const linhas = [
     `Olá${forn.contato_nome ? `, ${forn.contato_nome}` : ''}! Tudo bem?`,
     '',
-    `${op.cliente_razao || op.cliente_nome ? `Somos da ${op.cliente_razao || op.cliente_nome}. ` : ''}Estamos participando de uma licitação e gostaríamos da sua cotação para ${itens.length === 1 ? 'o item abaixo' : `os ${itens.length} itens abaixo`}.`,
+    `${op.cliente_razao || op.cliente_nome ? `Somos da ${op.cliente_razao || op.cliente_nome}. ` : ''}Gostaríamos da sua cotação para ${itens.length === 1 ? 'o item abaixo' : `os ${itens.length} itens abaixo`}.`,
     '',
     link ? t('RESPONDA PELO LINK (mais rápido):') : null,
     link || null,
     link ? 'É só preencher preço, marca e prazo de cada item. Se preferir, responda por aqui mesmo.' : null,
     link ? '' : null,
-    t('DADOS DA LICITAÇÃO'),
-    op.orgao_nome ? `Órgão: ${op.orgao_nome}` : '',
-    local ? `Local de entrega: ${local}` : '',
-    numeroLic(op) ? `Licitação: ${numeroLic(op)}` : '',
-    op.data_encerramento_proposta ? `Propostas até: ${data(op.data_encerramento_proposta)}` : '',
-    '',
     sep,
     t(`ITENS PARA COTAR (${itens.length})`),
     sep,
   ];
   itens.forEach((i, n) => {
-    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', (i.descricao || '(sem descrição no edital)').trim());
+    linhas.push('', t(`ITEM ${i.numero_item}`), `Quantidade: ${qtdTexto(i)}`, 'Descrição:', (i.descricao || '(sem descrição)').trim());
     if (formato === 'email' && n < itens.length - 1) linhas.push('');
   });
   linhas.push('', sep,
@@ -239,11 +235,11 @@ function textoPedido(d, forn, numeros, formato = 'whatsapp', assinatura = '', li
     '2. Marca e modelo',
     '3. Prazo de entrega (em dias)',
     '4. Validade da cotação',
-    `5. Frete: incluso (CIF) ou não (FOB)${local ? ` para ${local}` : ''}`,
+    '5. Frete: incluso (CIF) ou não (FOB)',
     '6. Condições de pagamento',
-    '7. Se pode faturar para nós e entregar direto no órgão (venda à ordem)',
+    '7. Se pode faturar para nós e entregar direto ao nosso cliente (venda à ordem)',
     '',
-    op.data_encerramento_proposta ? `As propostas encerram em ${data(op.data_encerramento_proposta)}. Quanto antes puder responder, melhor.` : 'Quanto antes puder responder, melhor.',
+    'Quanto antes puder responder, melhor.',
     '',
     'Obrigado!',
     assinatura);
@@ -314,7 +310,7 @@ function pedirCotacao(d, sugeridos, recarregar, est) {
     const msgZap = textoPedido(d, f, numeros, 'whatsapp', assinatura, link);
     const msgEmail = textoPedido(d, f, numeros, 'email', assinatura, link);
     const w = zap(f.whatsapp || f.telefone, msgZap);
-    const assunto = ['Pedido de cotação', d.oportunidade.orgao_nome, numeroLic(d.oportunidade)].filter(Boolean).join(' – ');
+    const assunto = ['Pedido de cotação', d.oportunidade.cliente_nome].filter(Boolean).join(' – '); // sem órgão/licitação no assunto
     // Alguns programas de e-mail cortam links mailto longos: acima do limite, o corpo vai pela área de transferência
     let mailto = f.email ? `mailto:${encodeURIComponent(f.email)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(msgEmail)}` : null;
     const longo = mailto && mailto.length > 1800;
@@ -718,6 +714,11 @@ export async function cotacao(alvo, rota, est) {
         h('strong', {}, `A margem desejada de ${pct(d.parametros.margem_pct)} não cabe no valor estimado. `),
         `Para ter essa margem, o preço mínimo de venda seria ${moeda(r.preco_minimo_total)}, ${moeda(r.preco_minimo_total - r.estimado_cotados)} acima do estimado (${moeda(r.estimado_cotados)}). `,
         `Vendendo pelo estimado, a margem líquida máxima é ${pct(margemGeral)}. Para melhorar: negociar o custo com o fornecedor ou aceitar margem menor.`) : null,
+    // Margem desejada cabe: mostra a faixa de preço em que dá para disputar
+    !semItens && r.cotados === r.itens && r.preco_minimo_total != null && r.estimado_cotados != null && r.itens_com_ref === r.cotados && d.parametros.margem_pct != null && r.preco_minimo_total <= r.estimado_cotados
+      ? h('div', { class: 'aviso azul', style: { marginTop: '10px' } },
+        h('strong', {}, `Faixa para disputar: de ${moeda(r.preco_minimo_total)} a ${moeda(r.estimado_cotados)}. `),
+        `No preço mínimo de venda sobra a margem desejada (${pct(d.parametros.margem_pct)}); no valor estimado (o teto) sobra ${pct(margemGeral)}. Abaixo de ${moeda(r.preco_minimo_total)} a margem fica menor que a desejada.`) : null,
     !semItens && r.fretes_pendentes ? h('div', { class: 'aviso amarelo', style: { marginTop: '10px' } }, `${r.fretes_pendentes} item(ns) com frete FOB sem valor: o custo e o preço mínimo deles ainda não incluem o frete. Informe o valor em "Registrar resposta" do fornecedor.`) : null,
     semItens ? null : blocoPedidos,
     semItens ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Itens (${d.itens.length})`),

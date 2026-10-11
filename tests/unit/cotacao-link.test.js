@@ -38,6 +38,8 @@ test('link do fornecedor: mesmo link nos reenvios, só os itens pedidos e sem va
   assert.ok(!JSON.stringify(pub).includes('valor_unitario_estimado'));
   assert.ok(!JSON.stringify(pub).includes('250'));                       // estimado do toner não vaza
   assert.equal(pub.fornecedor, 'Fornecedor Teste');
+  assert.equal(pub.licitacao, undefined);                                // nada da licitação vai para o fornecedor
+  assert.ok(!/orgao|municipio|objeto|propostas|expira/.test(JSON.stringify(pub)));
 });
 
 test('link: assinatura, revogação, prazo e outra conta', () => {

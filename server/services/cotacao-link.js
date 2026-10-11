@@ -83,7 +83,7 @@ function linkDoToken(db, token) {
   return l;
 }
 
-/** O que o fornecedor vê: quem pede, a licitação e os itens (sem valor estimado). */
+/** O que o fornecedor vê: quem pede e a descrição dos itens (sem dados da licitação nem valor estimado). */
 export function cotacaoPublica(db, token) {
   const l = linkDoToken(db, token);
   db.prepare("UPDATE cotacao_links SET ultimo_acesso=datetime('now') WHERE id=?").run(l.id);
@@ -100,9 +100,8 @@ export function cotacaoPublica(db, token) {
   const fr = db.prepare('SELECT tipo FROM cotacao_fretes WHERE oportunidade_id=? AND fornecedor_id=?').get(l.oportunidade_id, l.fornecedor_id);
   return {
     solicitante: op.cliente || op.conta, solicitante_cnpj: op.cliente_cnpj || null, fornecedor: forn.nome,
-    licitacao: { orgao: op.orgao_nome, local: op.municipio ? `${op.municipio}/${op.uf}` : null, modalidade: op.modalidade_nome, numero: op.numero_compra, ano: op.ano,
-      propostas_ate: op.data_encerramento_proposta, objeto: op.objeto },
-    expira_em: l.expira_em, respondido_em: l.respondido_em,
+    // Nada da licitação (órgão, número, cidade, objeto, datas) vai para o fornecedor: só os itens
+    respondido_em: l.respondido_em,
     itens: itens.map((i) => ({ ...i, resposta: ja.find((c) => c.numero_item === i.numero_item) || null })),
     resposta_anterior: ja[0] ? { prazo_entrega_dias: ja[0].prazo_entrega_dias, validade: ja[0].validade, frete: fr?.tipo || null,
       condicoes_pagamento: ja[0].condicoes_pagamento, observacoes: ja[0].observacoes, respondente: ja[0].respondente } : null,
