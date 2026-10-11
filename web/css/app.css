@@ -303,3 +303,68 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .cartao-k .etiqueta.empresa.clicavel.sem { border: 0; }
 .cartao-k .etiqueta.empresa .acao-vinc { margin-left: 4px; font-size: .76rem; color: #7c3aed; }
 .cartao-k .etiqueta.empresa.sem .acao-vinc { text-decoration: underline dotted; }
+
+/* ---------- Dashboard › Empresas ---------- */
+.kpi .apoio { font-size: .78rem; color: var(--texto-suave); margin-top: 4px; }
+.kpi.kpi-alerta { border-left: 3px solid var(--perigo); }
+.kpi.kpi-alerta .apoio { color: var(--perigo); font-weight: 600; }
+.caminho { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; margin: 14px 0; }
+.caminho .passo { position: relative; background: var(--superficie); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.caminho .passo::after { content: '›'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%); color: var(--texto-suave); font-weight: 700; z-index: 1; }
+.caminho .passo:last-child::after { content: none; }
+.caminho .passo.zerado { opacity: .55; }
+.caminho .passo-rotulo { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--texto-suave); font-weight: 600; min-height: 2.4em; line-height: 1.2; }
+.caminho .passo-n { font-size: 1.25rem; font-weight: 700; margin-top: 2px; }
+.caminho .passo-valor { font-size: .8rem; color: var(--texto); overflow-wrap: anywhere; }
+.caminho .sem-valor { color: var(--alerta); font-weight: 600; }
+.caminho .passo-disputa { border-top: 3px solid var(--info); }
+.caminho .passo-ganha, .caminho .passo-empenho, .caminho .passo-a_entregar, .caminho .passo-entregue { border-top: 3px solid #7c3aed; }
+.caminho .passo-faturada { border-top: 3px solid var(--alerta); }
+.caminho .passo-recebida { border-top: 3px solid var(--ok); }
+.caminho.compacto .passo { padding: 6px 8px; }
+.caminho.compacto .passo-n { font-size: 1.05rem; }
+.painel-empresas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+.painel-empresa { container-type: inline-size; }
+.pe-corpo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px 20px; }
+@container (min-width: 1000px) { .pe-corpo { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); } .pe-lateral h3:first-child { margin-top: 10px; } }
+@container (max-width: 640px) { .pe-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .caminho { grid-template-columns: repeat(2, minmax(0, 1fr)); } .caminho .passo::after { content: none; } }
+.painel-empresa h2 { margin: 0; font-size: 1.15rem; }
+.painel-empresa h3 { font-size: .95rem; margin: 14px 0 6px; }
+.pe-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.painel-empresa .chips { margin: 10px 0 4px; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; border-radius: 99px; padding: 4px 11px; font-size: .8rem; font-weight: 600; text-decoration: none; border: 1px solid transparent; font-family: inherit; cursor: pointer; }
+.chip.ok { background: var(--ok-fundo); color: var(--ok); }
+.chip.alerta { background: var(--alerta-fundo); color: var(--alerta); }
+.chip.perigo { background: var(--perigo-fundo); color: var(--perigo); }
+.chip.info { background: var(--info-fundo); color: var(--info); }
+.chip.neutro { background: var(--fundo); color: var(--texto-suave); border-color: var(--borda); }
+.chip:hover { text-decoration: underline; }
+.pe-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.pe-kpis .kpi { padding: 10px; box-shadow: none; }
+.pe-kpis .kpi .valor { font-size: 1.15rem; }
+.pe-kpis .kpi .rotulo { min-height: 0; font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; font-weight: 600; }
+.projecao { background: var(--fundo); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; font-size: .88rem; margin-top: 4px; }
+.projecao-total { border-top: 1px solid var(--borda); padding-top: 6px; margin-top: 2px; font-size: .95rem; }
+.proximos { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: .86rem; }
+.proximos li { display: flex; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border-radius: 6px; background: var(--fundo); }
+.proximos li.urgente { background: var(--perigo-fundo); }
+.proximos .quando { font-weight: 600; white-space: nowrap; min-width: 118px; }
+.painel-empresa .cnaes { margin-top: 12px; font-size: .85rem; }
+.painel-empresa .cnaes summary, .como-ler summary { cursor: pointer; font-weight: 600; }
+.painel-empresa .cnaes ul, .lista-cnaes ul { margin: 6px 0; padding-left: 18px; }
+.como-ler { margin-top: 16px; }
+@media (max-width: 1100px) { .caminho { grid-template-columns: repeat(4, minmax(0, 1fr)); } .caminho .passo::after { content: none; } }
+@media (max-width: 760px) { .caminho { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Kanban: valores e execução */
+.cartao-k .valor-card { font-size: .8rem; font-weight: 600; margin-top: 3px; }
+.execucao { border: 1px solid var(--borda); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
+.execucao summary { cursor: pointer; font-weight: 600; }
+.grupo-exec { border: 0; border-top: 1px solid var(--borda); margin: 8px 0 0; padding: 8px 0 0; }
+.grupo-exec legend { font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; color: var(--texto-suave); font-weight: 700; padding: 0 4px 0 0; }
+.grade-exec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.grade-exec label { display: block; font-size: .8rem; color: var(--texto-suave); margin-bottom: 2px; }
+.grade-exec input { width: 100%; }
+@media (max-width: 560px) { .grade-exec { grid-template-columns: 1fr 1fr; } }
+.caminho.compacto .passo-rotulo { font-size: .62rem; letter-spacing: 0; overflow-wrap: anywhere; hyphens: auto; }
+.proximos li { padding: 4px 8px; }
+@container (max-width: 640px) { .pe-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

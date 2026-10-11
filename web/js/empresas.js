@@ -36,6 +36,15 @@ function formEmpresa(est, c = {}, aoSalvar) {
   campos.porte = h('select', { id: 'e-porte' }, h('option', { value: '' }, 'Não informado'),
     ['MEI', 'ME', 'EPP', 'Demais'].map((p) => h('option', { value: p, selected: c.porte === p }, p)));
   campos.observacoes = h('textarea', { id: 'e-observacoes', rows: 2 }, c.observacoes || '');
+  // Ramo: CNAEs da Receita (só leitura) e palavras que contam as licitações compatíveis no Dashboard › Empresas
+  let cnaes = null;
+  try { cnaes = c.cnaes_json ? JSON.parse(c.cnaes_json) : null; } catch { cnaes = null; }
+  campos.palavras_chave = h('textarea', { id: 'e-palavras_chave', rows: 2, placeholder: 'ex.: informática; papelaria; material de escritório' }, c.palavras_chave || '');
+  const listaCnaes = h('div', { class: 'lista-cnaes pequeno' });
+  const mostrarCnaes = () => render(listaCnaes, cnaes?.length
+    ? h('ul', {}, cnaes.map((x) => h('li', {}, h('code', {}, x.codigo), ` ${x.descricao}`, x.principal ? h('strong', {}, ' (principal)') : null)))
+    : h('span', { class: 'suave' }, 'Os CNAEs aparecem aqui ao consultar o CNPJ na Receita (botão 🔎 Receita).'));
+  mostrarCnaes();
   const statusReceita = h('div', { class: 'status-receita' });
   const seletorSocio = h('div', {});
   let ultimaConsulta = '';
@@ -57,6 +66,8 @@ function formEmpresa(est, c = {}, aoSalvar) {
       if (d.porte && (sempre || !campos.porte.value)) campos.porte.value = d.porte;
       const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
       escolherSocio(d.responsavel);
+      if (d.cnaes?.length) { cnaes = d.cnaes; mostrarCnaes(); }
+      if (d.palavras_sugeridas?.length && !campos.palavras_chave.value.trim()) campos.palavras_chave.value = d.palavras_sugeridas.join('; ');
       render(seletorSocio, d.socios.length > 1 ? h('div', { class: 'campo' }, h('label', { for: 'e-socio' }, `Sócios na Receita (${d.socios.length}): escolha quem é o responsável`),
         h('select', { id: 'e-socio', onchange: (ev) => { forcar = true; escolherSocio(d.socios[ev.target.value]); } },
           d.socios.map((s, i) => h('option', { value: i, selected: s === d.responsavel || (d.responsavel && s.nome === d.responsavel.nome) }, `${s.nome}${s.qualificacao ? ` (${s.qualificacao})` : ''}`)))) : null);
@@ -95,10 +106,15 @@ function formEmpresa(est, c = {}, aoSalvar) {
     h('div', { class: 'filtros' },
       inp('resp_nome', 'Nome', {}, true), inp('resp_cargo', 'Cargo', { placeholder: 'Sócio-administrador' }),
       inp('resp_email', 'E-mail', { type: 'email' }), inp('resp_telefone', 'Telefone / WhatsApp', { type: 'tel' })),
+    h('h3', {}, 'Ramo de atuação'),
+    listaCnaes,
+    h('div', { class: 'campo' }, h('label', { for: 'e-palavras_chave' }, 'Palavras do ramo (separe com ;)'), campos.palavras_chave,
+      h('div', { class: 'suave pequeno' }, 'Sugeridas a partir dos CNAEs. Revise: o Dashboard › Empresas conta as licitações abertas que têm alguma destas palavras no objeto ou nos itens.')),
     h('div', { class: 'campo' }, h('label', { for: 'e-observacoes' }, 'Observações'), campos.observacoes));
   modal(c.id ? `Editar ${nomeCli(c)}` : 'Nova empresa', conteudo, [{ texto: 'Salvar', classe: 'primario', acao: async () => {
     const corpo = Object.fromEntries(Object.entries(campos).map(([k, el]) => [k, el.value.trim()]));
     corpo.cnpj = corpo.cnpj.replace(/\D/g, '');
+    if (cnaes) corpo.cnaes = cnaes;
     try {
       const r = c.id ? await api(`/clientes/${c.id}`, { metodo: 'PATCH', corpo }) : await api('/clientes', { metodo: 'POST', corpo });
       toast('Empresa salva.'); avisarAlteracao(); aoSalvar?.(c.id || r.id);

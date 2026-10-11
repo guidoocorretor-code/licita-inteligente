@@ -16,6 +16,9 @@ export const radical = (t) => {
   return r;
 };
 const fts = (t) => `"${radical(t)}"*`;
+/** "informática; papelaria, material de escritório" -> [['informática'], ['papelaria'], ['material', 'escritório']] (até 30 expressões). */
+export const expressoesRamo = (v) => String(v ?? "").split(/[;,\n]+/).map((x) => termos(x).filter((t) => !PALAVRAS_VAZIAS.has(t))).filter((x) => x.length).slice(0, 30);
+const PALAVRAS_VAZIAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com', 'ou', 'a', 'o', 'as', 'os', 'por']);
 const dataOk = (v) => (v && /^\d{4}-\d{2}-\d{2}/.test(v) ? String(v).slice(0, 10) : null);
 const numOk = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
 
@@ -47,6 +50,16 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
     if (excl.length) { w.push('l.id NOT IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)'); p.push(excl.map(fts).join(' OR ')); }
   } else if (excl.length) {
     w.push(`l.id NOT IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)`); p.push(excl.map(fts).join(' OR '));
+  }
+
+  // Ramo: qualquer uma das expressões (separadas por ";"); dentro de cada expressão, todas as palavras.
+  // Usado no painel de Empresas (palavras-chave do ramo de cada empresa) e no campo "Qualquer destas".
+  const ramo = expressoesRamo(f.ramo);
+  if (ramo.length) {
+    const q = ramo.map((ws) => `(${ws.map(fts).join(' AND ')})`).join(' OR ');
+    w.push(`(l.id IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)
+      OR l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?)))`);
+    p.push(q, q);
   }
 
   const inList = (col, vals) => { if (vals.length) { w.push(`${col} IN (${vals.map(() => '?').join(',')})`); p.push(...vals); } };

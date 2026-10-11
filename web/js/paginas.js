@@ -3,6 +3,7 @@ import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
   confirmar, modal, barras, rosca, moedaCurta, naoInformado, render,
 } from './ui.js';
+import { painelEmpresas, abasDashboard } from './painel.js';
 
 const ehAdmin = (e) => ['admin', 'superadmin'].includes(e.usuario.papel);
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
@@ -23,7 +24,8 @@ function cabecalho(titulo, subtitulo, ...acoes) {
 }
 
 // ============================ DASHBOARD ============================
-export async function dashboard(alvo, _r, est) {
+export async function dashboard(alvo, rota, est) {
+  if (rota?.args?.[0] === 'empresas') return painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa });
   render(alvo, carregando());
   const d = await api('/dashboard');
   const kpi = (rot, val, link, dica, apoio) => h('div', { class: 'cartao kpi', title: dica || '' },
@@ -46,6 +48,7 @@ export async function dashboard(alvo, _r, est) {
   }
   render(alvo, 
     cabecalho('Dashboard', `Indicadores calculados a partir do banco · atualizado em ${data(d.atualizado_em)} · última sincronização bem-sucedida: ${d.ultima_sincronizacao ? dataUtc(d.ultima_sincronizacao) : 'nenhuma'}`),
+    abasDashboard('oportunidades'),
     ...avisos,
     h('div', { class: 'grade kpis' },
       kpi('Licitações monitoradas', numero(d.total)),
@@ -186,6 +189,7 @@ export async function buscar(alvo, rota, est) {
       campo('Procurar em', sel('nos_itens', [['0', 'Só no objeto']], 'Objeto e itens')),
       campo('Palavras obrigatórias', inp('obrigatorias', { placeholder: 'todas devem aparecer' })),
       campo('Excluir palavras', inp('excluir', { placeholder: 'ex.: locação' })),
+      campo('Qualquer destas (separe com ;)', inp('ramo', { placeholder: 'ex.: informática; papelaria' })),
       campo('Estado (UF)', sel('uf', meta.ufs.map((u) => [u, u]))),
       campo('Município', inp('municipio', { placeholder: 'ex.: Vila Velha' })),
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
@@ -431,7 +435,48 @@ export async function favoritos(alvo, _r, est) {
 }
 
 // ============================ KANBAN ============================
-const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada' };
+// "1.234,56", "R$ 1234,5", "1500" -> número; vazio -> null; texto inválido -> NaN
+const paraNumero = (t) => {
+  let x = String(t ?? '').replace(/[R$\s]/g, '');
+  if (!x) return null;
+  if (x.includes(',')) x = x.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(x)) x = x.replace(/\./g, '');
+  const n = Number(x);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
+};
+const fmtNum = (v) => (v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const FASES_POS_VITORIA = ['ganha', 'empenho', 'a_entregar', 'entregue', 'faturada', 'recebida'];
+// Valor que o card mostra: o mais firme que já existe (recebido > nota > empenho > ganho > proposta)
+const valorDoCard = (c) => [[c.recebido_valor, 'recebido'], [c.nf_valor, 'nota'], [c.empenho_valor, 'empenho'], [c.valor_ganho, 'ganho'], [c.valor_proposta, 'proposta']].find(([v]) => v != null);
+
+// Valores e execução da oportunidade: proposta, resultado, empenho, entrega, nota fiscal e recebimento
+function camposExecucao(c, fase) {
+  const els = {};
+  const valor = (k, rot) => { els[k] = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'R$ 0,00', value: fmtNum(c[k]), 'aria-label': rot }); els[k].dataset.tipo = 'valor'; return h('div', {}, h('label', {}, rot), els[k]); };
+  const dia = (k, rot) => { els[k] = h('input', { type: 'date', value: c[k] || '', 'aria-label': rot }); return h('div', {}, h('label', {}, rot), els[k]); };
+  const txt = (k, rot) => { els[k] = h('input', { type: 'text', maxlength: 60, value: c[k] || '', 'aria-label': rot }); return h('div', {}, h('label', {}, rot), els[k]); };
+  const grupo = (titulo, ...campos) => h('fieldset', { class: 'grupo-exec' }, h('legend', {}, titulo), h('div', { class: 'grade-exec' }, campos));
+  const el = h('details', { class: 'execucao', open: FASES_POS_VITORIA.includes(fase) || c.valor_proposta != null },
+    h('summary', {}, '💰 Valores e execução ', h('span', { class: 'suave pequeno' }, '(alimentam o Dashboard › Empresas)')),
+    grupo('Proposta e resultado', valor('valor_proposta', 'Valor da proposta'), valor('valor_ganho', 'Valor ganho')),
+    grupo('Empenho', txt('empenho_numero', 'Nº do empenho'), valor('empenho_valor', 'Valor empenhado'), dia('empenho_data', 'Data do empenho')),
+    grupo('Entrega', dia('entrega_prazo', 'Prazo de entrega'), dia('entrega_data', 'Entregue em')),
+    grupo('Nota fiscal', txt('nf_numero', 'Nº da nota'), valor('nf_valor', 'Valor da nota'), dia('nf_data', 'Emitida em')),
+    grupo('Recebimento', valor('recebido_valor', 'Valor recebido'), dia('recebido_data', 'Recebido em')));
+  const ler = () => {
+    const out = {};
+    for (const [k, e] of Object.entries(els)) {
+      let v = e.value.trim();
+      if (e.dataset.tipo === 'valor') { v = paraNumero(v); if (Number.isNaN(v)) throw new Error(`Valor inválido em "${e.getAttribute('aria-label')}": use, por exemplo, 1.234,56`); }
+      else v = v || null;
+      if ((v ?? null) !== (c[k] ?? null)) out[k] = v;
+    }
+    return out;
+  };
+  return { el, ler };
+}
+
+const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores' };
 export async function kanban(alvo, _r, est) {
   render(alvo, carregando());
   const k = await api('/kanban');
@@ -458,17 +503,19 @@ export async function kanban(alvo, _r, est) {
     const txt = h('textarea', { rows: 3, placeholder: 'Comentário…' });
     const resp = h('select', {}, h('option', { value: '' }, 'Sem responsável'), k.usuarios.map((u) => h('option', { value: u.id, selected: u.id === c.responsavel_id }, u.nome)));
     const prazo = h('input', { type: 'date', value: c.prazo_interno || '' });
+    const execucao = camposExecucao(c, k.etapas.find((e) => e.id === c.etapa_id)?.fase);
     modal(c.objeto?.slice(0, 90) || 'Oportunidade', h('div', {},
       h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · Situação oficial: ', etiquetaStatus(c.status_calculado, est.meta)),
       h('div', { class: 'campo' }, h('label', {}, 'Responsável'), resp),
       h('div', { class: 'campo' }, h('label', {}, 'Prazo interno'), prazo),
+      execucao.el,
       h('div', { class: 'campo' }, h('label', {}, 'Novo comentário'), txt),
       h('h3', {}, 'Histórico'),
       h('div', { class: 'pequeno' }, hist.map((x) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(x.criado_em)), h('div', {}, h('strong', {}, x.usuario_nome || ''), ` · ${TIPO_HIST[x.tipo] || x.tipo}: ${x.texto || ''}`))))),
     podeEditar(est) ? [
       { texto: 'Salvar', classe: 'primario', acao: async () => {
         try {
-          await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { responsavel_id: resp.value ? Number(resp.value) : null, prazo_interno: prazo.value || null } });
+          await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { responsavel_id: resp.value ? Number(resp.value) : null, prazo_interno: prazo.value || null, ...execucao.ler() } });
           if (txt.value.trim()) await api(`/kanban/${c.id}/comentarios`, { metodo: 'POST', corpo: { texto: txt.value.trim() } });
           kanban(alvo, _r, est);
         } catch (e) { toast(e.message); return false; }
@@ -490,6 +537,7 @@ export async function kanban(alvo, _r, est) {
           h('div', { class: 'linha', style: { marginTop: '6px' } }, etiquetaStatus(c.status_calculado, est.meta),
             c.data_encerramento_proposta ? h('span', { class: 'suave' }, `até ${data(c.data_encerramento_proposta)}`) : null),
           c.responsavel_nome ? h('div', { class: 'suave' }, `👤 ${c.responsavel_nome}`) : null,
+          valorDoCard(c) ? h('div', { class: 'valor-card', title: `Valor ${valorDoCard(c)[1]} informado no card` }, `💰 ${moeda(valorDoCard(c)[0])}`, h('span', { class: 'suave' }, ` · ${valorDoCard(c)[1]}`)) : null,
           !clienteSelecionado() && est.clientes?.length ? (podeEditar(est)
             ? h('button', { type: 'button', class: 'etiqueta empresa clicavel' + (c.cliente_nome ? '' : ' sem'), style: { marginTop: '6px' }, title: c.cliente_nome ? 'Trocar a empresa vinculada' : 'Clique para vincular uma empresa',
               onclick: (e) => { e.stopPropagation(); vincularEmpresa(c); } }, `🏢 ${c.cliente_nome || 'Sem empresa'}`, c.cliente_nome ? null : h('span', { class: 'acao-vinc' }, '· vincular'))
