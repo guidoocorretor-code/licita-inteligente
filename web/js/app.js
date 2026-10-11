@@ -24,6 +24,7 @@ const MENU = [
   ['propostas', 'Propostas', 4],
   ['lances', 'Gestão de lances', 5],
   ['Inteligência'],
+  ['pagometro', 'Pagômetro'],
   ['ia-edital', 'Análise de edital por IA', 4],
   ['ia-juridico', 'Assistente jurídico', 4],
   ['financeiro', 'Financeiro', 5],
@@ -35,7 +36,7 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, precos: P.precos, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {

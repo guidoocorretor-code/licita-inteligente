@@ -20,6 +20,7 @@ import { statusEmail, enviarEmailTeste } from '../services/email.js';
 import { consultarCnpj } from '../services/cnpj.js';
 import { lerSicafPdf } from '../services/sicaf.js';
 import { catalogoSistemas } from '../services/sistemas.js';
+import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -131,6 +132,7 @@ r.get('/licitacoes/:id', (req, res) => {
   const u = req.usuario;
   res.json({
     licitacao: lic,
+    pagometro: pagometroDaLicitacao(db(), lic),
     status_rotulo: STATUS[lic.status_calculado]?.rotulo,
     itens: db().prepare('SELECT * FROM licitacao_itens WHERE licitacao_id=? ORDER BY numero_item').all(id),
     documentos: db().prepare('SELECT * FROM licitacao_documentos WHERE licitacao_id=? ORDER BY sequencial').all(id),
@@ -435,6 +437,33 @@ const csv = (cab, linhas) => '\ufeff' + [cab.map(csvCampo).join(';'), ...linhas.
 const decimal = (v) => (v == null ? '' : String(v).replace('.', ','));
 
 r.get('/precos/catalogo', (req, res) => res.json({ status: statusCatalogo(db()), resultados: buscarCatalogo(db(), req.query.q) }));
+// ---------------- Pagômetro (CAPAG do Tesouro Nacional) ----------------
+r.get('/pagometro', (req, res) => {
+  const w = []; const p = [];
+  if (req.query.esfera === 'E' || req.query.esfera === 'M') { w.push('esfera=?'); p.push(req.query.esfera); }
+  if (req.query.uf) { w.push('uf=?'); p.push(String(req.query.uf).toUpperCase()); }
+  if (req.query.q) { w.push('nome LIKE ?'); p.push(`%${String(req.query.q).trim()}%`); }
+  if (req.query.nota) {
+    const v = String(req.query.nota).toUpperCase();
+    if (v === 'SEM') w.push('capag IS NULL'); else if (/^[ABCD]$/.test(v)) { w.push('substr(capag,1,1)=?'); p.push(v); }
+  }
+  const where = w.length ? `WHERE ${w.join(' AND ')}` : '';
+  const conn = db();
+  res.json({
+    dados: conn.prepare(`SELECT esfera, chave, nome, uf, capag, capag_texto, ind1, nota1, ind2, nota2, ind3, nota3, icf, observacao FROM capag ${where}
+      ORDER BY esfera, uf, nome LIMIT 300`).all(...p),
+    total: conn.prepare(`SELECT COUNT(*) n FROM capag ${where}`).get(...p).n,
+    resumo: conn.prepare("SELECT esfera, COALESCE(substr(capag,1,1),'n.d.') nota, COUNT(*) n FROM capag GROUP BY 1,2 ORDER BY 1,2").all(),
+    referencias: conn.prepare('SELECT esfera, referencia, fonte_url, MAX(atualizado_em) atualizado_em FROM capag GROUP BY esfera').all(),
+    fontes: FONTES_CAPAG,
+  });
+});
+r.post('/pagometro/atualizar', exigirPapel('admin'), async (req, res) => {
+  const r2 = await atualizarCapag(db());
+  auditar(req, 'capag_atualizar', 'capag', null, r2);
+  res.json(r2);
+});
+
 r.post('/precos/catalogo/atualizar', exigirPapel('admin'), (req, res) => {
   auditar(req, 'catalogo_atualizar');
   sincronizarCatalogo(db()).then((r2) => console.log('[catalogo]', JSON.stringify(r2))).catch((e) => console.error('[catalogo]', e.message));

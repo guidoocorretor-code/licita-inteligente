@@ -1,5 +1,6 @@
 // Busca avançada combinável sobre licitações (todas as fontes, já deduplicadas).
 import { statusDaVisao, agoraBrasilia } from './status.js';
+import { SQL_CAPAG_LIC } from './capag.js';
 import { SISTEMAS } from './sistemas.js';
 
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
@@ -104,6 +105,15 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   if (f.catalogo) { w.push('l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE catalogo_codigo = ?)'); p.push(String(f.catalogo)); }
   if (f.fonte) { w.push('l.id IN (SELECT licitacao_id FROM licitacao_fontes WHERE fonte_codigo = ?)'); p.push(f.fonte); }
   if (f.criado_apos) { w.push('l.criado_em > ?'); p.push(f.criado_apos); }
+  // Pagômetro (CAPAG do Tesouro): "A,B" = só entes com nota A ou B; "sem" = sem nota (federal, n.d. ou não encontrado)
+  if (f.capag) {
+    const v = lista(f.capag).map((x) => x.toUpperCase());
+    const letras = v.filter((x) => /^[ABCD]$/.test(x));
+    const conds = [];
+    if (letras.length) { conds.push(`substr(${SQL_CAPAG_LIC},1,1) IN (${letras.map(() => '?').join(',')})`); p.push(...letras); }
+    if (v.includes('SEM')) conds.push(`${SQL_CAPAG_LIC} IS NULL`);
+    if (conds.length) w.push(`(${conds.join(' OR ')})`);
+  }
 
   return { where: w.length ? `WHERE ${w.join(' AND ')}` : '', params: p };
 }
@@ -112,7 +122,8 @@ export const COLUNAS_LISTA = `l.id, l.numero_controle_pncp, l.numero_compra, l.a
   l.uf, l.municipio, l.modalidade_nome, l.objeto, l.segmento, l.valor_estimado, l.valor_estimado_situacao, l.valor_homologado,
   l.data_publicacao, l.data_abertura_proposta, l.data_encerramento_proposta, l.status_calculado, l.status_motivo,
   l.situacao_oficial_nome, l.plataforma_origem, l.sistema_eletronico, l.link_origem, l.link_pncp, l.ultima_verificacao, l.me_epp_exclusivo,
-  l.num_itens, l.tem_documentos, l.regime_legal, l.criterio_julgamento, l.modo_disputa_nome, l.srp,
+  l.num_itens, l.tem_documentos, l.regime_legal, l.criterio_julgamento, l.modo_disputa_nome, l.srp, l.codigo_ibge,
+  ${SQL_CAPAG_LIC} AS capag,
   (SELECT group_concat(fonte_codigo) FROM licitacao_fontes lf WHERE lf.licitacao_id = l.id) AS fontes`;
 
 export function buscar(db, f = {}, { agora } = {}) {

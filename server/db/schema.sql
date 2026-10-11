@@ -505,3 +505,23 @@ CREATE TABLE IF NOT EXISTS cliente_documentos (
 );
 CREATE INDEX IF NOT EXISTS ix_clidoc_cli ON cliente_documentos(cliente_id);
 CREATE INDEX IF NOT EXISTS ix_clidoc_val ON cliente_documentos(validade);
+
+-- Pagômetro: CAPAG (capacidade de pagamento) do Tesouro Nacional por estado (esfera E, chave = UF) e município (M, chave = IBGE)
+CREATE TABLE IF NOT EXISTS capag (
+  esfera TEXT NOT NULL,
+  chave TEXT NOT NULL,
+  nome TEXT,
+  uf TEXT,
+  capag TEXT,            -- A, B, C, D (com "+" quando houver); NULL = n.d.
+  capag_texto TEXT,      -- valor original da planilha
+  ind1 REAL, nota1 TEXT, -- endividamento
+  ind2 REAL, nota2 TEXT, -- poupança corrente
+  ind3 REAL, nota3 TEXT, -- liquidez
+  icf TEXT,
+  observacao TEXT,
+  referencia TEXT,       -- nome do arquivo/posição publicada pelo Tesouro
+  fonte_url TEXT,
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (esfera, chave)
+);
+CREATE INDEX IF NOT EXISTS ix_capag_nome ON capag(esfera, uf, nome COLLATE NOCASE);
