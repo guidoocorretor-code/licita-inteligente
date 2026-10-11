@@ -265,8 +265,21 @@ r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
   const emp = req.usuario.empresa_id; const id = inteiro(req.params.id);
   const op = db().prepare('SELECT * FROM oportunidades WHERE id=? AND empresa_id=?').get(id, emp);
   if (!op) return erro(res, 404, 'Oportunidade não encontrada.');
-  const { etapa_id, responsavel_id, prazo_interno, posicao } = req.body || {};
+  const { etapa_id, responsavel_id, prazo_interno, posicao, cliente_id } = req.body || {};
   transacao(db(), () => {
+    if (cliente_id !== undefined) {
+      // vincular (ou trocar/desvincular) a empresa assessorada da oportunidade
+      const cid = cliente_id ? inteiro(cliente_id) : 0;
+      const cli = cid ? db().prepare('SELECT id, COALESCE(nome_fantasia, razao_social) nome FROM clientes WHERE id=? AND empresa_id=?').get(cid, emp) : null;
+      if (cid && !cli) throw Object.assign(new Error('Empresa inválida.'), { status: 400 });
+      if (cid !== op.cliente_id) {
+        if (db().prepare('SELECT 1 FROM oportunidades WHERE empresa_id=? AND licitacao_id=? AND cliente_id=? AND id<>?').get(emp, op.licitacao_id, cid, id)) {
+          throw Object.assign(new Error(`Esta licitação já está no Kanban ${cli ? `da empresa ${cli.nome}` : 'sem empresa'}.`), { status: 409 });
+        }
+        db().prepare("UPDATE oportunidades SET cliente_id=?, atualizado_em=datetime('now') WHERE id=?").run(cid, id);
+        db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'empresa',?)").run(id, req.usuario.id, cli ? cli.nome : 'Sem empresa');
+      }
+    }
     if (etapa_id != null) {
       const et = db().prepare('SELECT * FROM kanban_etapas WHERE id=? AND empresa_id=?').get(inteiro(etapa_id), emp);
       if (!et) throw Object.assign(new Error('Etapa inválida.'), { status: 400 });
