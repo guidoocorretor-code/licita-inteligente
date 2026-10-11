@@ -226,7 +226,11 @@ tr.linha-alerta td { background: #fff8f7; }
 /* Busca nos itens: mostra por que a licitação apareceu */
 .item-lic .orgao-local { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: .88rem; color: var(--texto-suave); }
 .item-lic .orgao-local .orgao { font-weight: 600; color: var(--texto); }
-.ficha { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+.corpo-lic { container-type: inline-size; min-width: 0; }
+/* 6 campos: 2 linhas de 3 (sem buraco); numa linha só quando há espaço; 2 por linha no celular */
+.ficha { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+@container (min-width: 980px) { .ficha { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@container (max-width: 420px) { .ficha { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .campo-ficha { display: flex; flex-direction: column; gap: 2px; background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; min-width: 0; }
 .campo-ficha .rotulo { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--texto-suave); font-weight: 600; }
 .campo-ficha .valor { font-size: .9rem; color: var(--texto); font-weight: 500; overflow-wrap: anywhere; }
@@ -285,3 +289,6 @@ input.lido-pdf { background: var(--ok-fundo); border-color: var(--ok); }
 .campo-ficha.capag-c { border-left: 3px solid var(--alerta); }
 .campo-ficha.capag-d { border-left: 3px solid var(--perigo); background: var(--perigo-fundo); }
 .bloco-pagometro .linha { gap: 4px 14px; flex-wrap: wrap; }
+
+.capag-curta { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.capag-palavra { font-size: .85rem; color: var(--texto-suave); font-weight: 600; }
