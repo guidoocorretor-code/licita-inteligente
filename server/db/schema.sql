@@ -325,6 +325,7 @@ CREATE TABLE IF NOT EXISTS kanban_etapas (
   empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
   nome TEXT NOT NULL,
   ordem INTEGER NOT NULL,
+  fase TEXT,                                   -- prospeccao | disputa | ganha | empenho | a_entregar | entregue | faturada | recebida | perdida | descartada
   UNIQUE (empresa_id, nome)
 );
 
@@ -339,6 +340,12 @@ CREATE TABLE IF NOT EXISTS oportunidades (
   criado_em TEXT NOT NULL DEFAULT (datetime('now')),
   atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
   cliente_id INTEGER NOT NULL DEFAULT 0,       -- empresa assessorada (0 = sem empresa)
+  -- Valores e execução (informados pelo usuário; NULL = não informado, diferente de zero)
+  valor_proposta REAL, valor_ganho REAL, resultado_em TEXT,
+  empenho_numero TEXT, empenho_valor REAL, empenho_data TEXT,
+  entrega_prazo TEXT, entrega_data TEXT,
+  nf_numero TEXT, nf_valor REAL, nf_data TEXT,
+  recebido_valor REAL, recebido_data TEXT,
   UNIQUE (empresa_id, cliente_id, licitacao_id)
 );
 
@@ -483,6 +490,8 @@ CREATE TABLE IF NOT EXISTS clientes (
   resp_email TEXT,
   resp_telefone TEXT,
   observacoes TEXT,
+  cnaes_json TEXT,                    -- [{codigo, descricao, principal}] da base pública da Receita
+  palavras_chave TEXT,                -- ramo da empresa, separado por ";" (conta as licitações compatíveis)
   ativo INTEGER NOT NULL DEFAULT 1,
   criado_em TEXT NOT NULL DEFAULT (datetime('now')),
   atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),

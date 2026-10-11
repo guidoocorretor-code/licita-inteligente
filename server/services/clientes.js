@@ -50,8 +50,23 @@ function dadosCliente(b) {
     uf: texto(b.uf, 2)?.toUpperCase() || null, municipio: texto(b.municipio, 100), email: texto(b.email, 150), telefone: texto(b.telefone, 30),
     resp_nome: texto(b.resp_nome, 150), resp_cargo: texto(b.resp_cargo, 80), resp_email: texto(b.resp_email, 150), resp_telefone: texto(b.resp_telefone, 30),
     observacoes: texto(b.observacoes, 2000),
+    cnaes_json: cnaesJson(b),
+    palavras_chave: palavrasChave(b.palavras_chave),
   };
 }
+
+// CNAEs vindos da consulta à Receita (lista) ou já gravados (texto JSON)
+function cnaesJson(b) {
+  const lista = Array.isArray(b.cnaes) ? b.cnaes : null;
+  if (!lista) return b.cnaes_json ?? null;
+  const ok = lista.slice(0, 100).map((c) => ({ codigo: String(c?.codigo ?? '').slice(0, 12), descricao: String(c?.descricao ?? '').slice(0, 300), principal: !!c?.principal }))
+    .filter((c) => /^\d{4}-\d\/\d{2}$/.test(c.codigo) && c.descricao);
+  return ok.length ? JSON.stringify(ok) : null;
+}
+const palavrasChave = (v) => {
+  const l = String(v ?? '').split(/[;,\n]+/).map((x) => x.trim().replace(/\s+/g, ' ').slice(0, 60)).filter(Boolean);
+  return l.length ? [...new Set(l)].slice(0, 30).join('; ') : null;
+};
 
 export function criarCliente(db, empresaId, b) {
   const d = dadosCliente(b);

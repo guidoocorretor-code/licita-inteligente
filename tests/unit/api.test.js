@@ -70,7 +70,7 @@ test('busca, detalhe e favoritos funcionam e ficam isolados por usuário/empresa
 test('Kanban: criação, movimentação com histórico e isolamento entre empresas', async () => {
   const a = await entrar('a@a.com'); const b = await entrar('b@b.com');
   const k = await (await a('/kanban')).json();
-  assert.equal(k.etapas.length, 12);
+  assert.equal(k.etapas.length, 17); // 12 de antes + 5 de execução (empenho, entrega, nota, recebimento)
   const { id } = await (await a('/kanban', { method: 'POST', body: JSON.stringify({ licitacao_id: 1 }) })).json();
   const alvo = k.etapas.find((e) => e.nome === 'Em análise');
   assert.equal((await a(`/kanban/${id}`, { method: 'PATCH', body: JSON.stringify({ etapa_id: alvo.id }) })).status, 200);
@@ -83,7 +83,7 @@ test('Kanban: criação, movimentação com histórico e isolamento entre empres
   const kb = await (await b('/kanban')).json();
   const { id: idB } = await (await b('/kanban', { method: 'POST', body: JSON.stringify({ licitacao_id: 1 }) })).json();
   assert.equal((await b(`/kanban/${idB}`, { method: 'PATCH', body: JSON.stringify({ etapa_id: alvo.id }) })).status, 400);
-  assert.ok(kb.etapas.length === 12);
+  assert.ok(kb.etapas.length === 17);
 });
 
 test('controle de acesso por papel', async () => {

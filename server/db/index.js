@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { FONTES_PADRAO } from '../connectors/catalogo.js';
+import { migrarExecucao } from '../services/execucao.js';
 
 let db;
 
@@ -14,6 +15,7 @@ export function abrirBanco(caminho = config.dbPath) {
   conn.exec(schema);
   migrarClientes(conn);
   migrarSistemas(conn);
+  migrarExecucao(conn);
   semearFontes(conn);
   return conn;
 }

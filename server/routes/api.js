@@ -20,19 +20,19 @@ import { statusEmail, enviarEmailTeste } from '../services/email.js';
 import { consultarCnpj } from '../services/cnpj.js';
 import { lerSicafPdf } from '../services/sicaf.js';
 import { catalogoSistemas } from '../services/sistemas.js';
+import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
+import { painelEmpresas } from '../services/painel-empresas.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
-export const ETAPAS_PADRAO = ['Nova oportunidade', 'Em análise', 'Aguardando decisão', 'Documentação em preparação',
-  'Proposta em elaboração', 'Pronta para envio', 'Participação confirmada', 'Em disputa', 'Aguardando resultado',
-  'Vencida', 'Perdida', 'Descartada'];
+export { ETAPAS_PADRAO };
 
 export function garantirEtapas(db, empresaId) {
   const n = db.prepare('SELECT COUNT(*) n FROM kanban_etapas WHERE empresa_id=?').get(empresaId).n;
   if (n === 0) {
-    const ins = db.prepare('INSERT INTO kanban_etapas (empresa_id, nome, ordem) VALUES (?,?,?)');
-    ETAPAS_PADRAO.forEach((e, i) => ins.run(empresaId, e, i));
+    const ins = db.prepare('INSERT INTO kanban_etapas (empresa_id, nome, ordem, fase) VALUES (?,?,?,?)');
+    ETAPAS_PADRAO.forEach(([nome, fase], i) => ins.run(empresaId, nome, i, fase));
   }
 }
 
@@ -288,6 +288,17 @@ r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
         db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'movimento',?)").run(id, req.usuario.id, `${de} → ${et.nome}`);
       }
       db().prepare("UPDATE oportunidades SET etapa_id=?, atualizado_em=datetime('now') WHERE id=?").run(et.id, id);
+      // Data do resultado: fixada ao entrar em vitória/perda pela primeira vez; some se voltar para antes do resultado
+      const fechada = [...FASES_GANHAS, 'perdida'].includes(et.fase);
+      if (fechada && !op.resultado_em) db().prepare("UPDATE oportunidades SET resultado_em=date('now','-3 hours') WHERE id=?").run(id);
+      if (!fechada && et.fase !== 'descartada') db().prepare('UPDATE oportunidades SET resultado_em=NULL WHERE id=?').run(id);
+    }
+    const execucao = valoresExecucao(req.body || {});
+    const mudou = Object.entries(execucao).filter(([k, v]) => v !== op[k]);
+    if (mudou.length) {
+      db().prepare(`UPDATE oportunidades SET ${mudou.map(([k]) => `${k}=?`).join(', ')}, atualizado_em=datetime('now') WHERE id=?`).run(...mudou.map(([, v]) => v), id);
+      db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'valores',?)")
+        .run(id, req.usuario.id, mudou.map(([k, v]) => `${ROTULO_EXECUCAO[k]}: ${v == null ? 'removido' : CAMPOS_EXECUCAO[k] === 'valor' ? fmtReal(v) : CAMPOS_EXECUCAO[k] === 'data' ? v.split('-').reverse().join('/') : v}`).join(' · '));
     }
     if (responsavel_id !== undefined) {
       const rid = responsavel_id === null ? null : inteiro(responsavel_id);
@@ -308,6 +319,31 @@ r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
   });
   res.json({ ok: true });
 });
+// Valores e execução da oportunidade (proposta, resultado, empenho, entrega, nota fiscal, recebimento).
+// Só os campos enviados mudam; vazio = remover (não informado), diferente de zero.
+const CAMPOS_EXECUCAO = { valor_proposta: 'valor', valor_ganho: 'valor', empenho_numero: 'texto', empenho_valor: 'valor', empenho_data: 'data',
+  entrega_prazo: 'data', entrega_data: 'data', nf_numero: 'texto', nf_valor: 'valor', nf_data: 'data', recebido_valor: 'valor', recebido_data: 'data' };
+const ROTULO_EXECUCAO = { valor_proposta: 'Valor da proposta', valor_ganho: 'Valor ganho', empenho_numero: 'Nº do empenho', empenho_valor: 'Valor empenhado',
+  empenho_data: 'Data do empenho', entrega_prazo: 'Prazo de entrega', entrega_data: 'Entregue em', nf_numero: 'Nº da nota fiscal', nf_valor: 'Valor da nota',
+  nf_data: 'Nota emitida em', recebido_valor: 'Valor recebido', recebido_data: 'Recebido em' };
+const fmtReal = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+function valoresExecucao(b) {
+  const out = {};
+  for (const [k, tipo] of Object.entries(CAMPOS_EXECUCAO)) {
+    if (b[k] === undefined) continue;
+    const v = b[k] === '' || b[k] === null ? null : b[k];
+    if (v === null) { out[k] = null; continue; }
+    if (tipo === 'valor') {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > 1e12) throw Object.assign(new Error(`${ROTULO_EXECUCAO[k]} inválido.`), { status: 400 });
+      out[k] = Math.round(n * 100) / 100;
+    } else if (tipo === 'data') {
+      if (!dataOk(v)) throw Object.assign(new Error(`${ROTULO_EXECUCAO[k]}: data inválida.`), { status: 400 });
+      out[k] = String(v).slice(0, 10);
+    } else out[k] = String(v).trim().slice(0, 60) || null;
+  }
+  return out;
+}
 r.post('/kanban/:id/comentarios', exigirPapel('analista'), (req, res) => {
   const op = db().prepare('SELECT id FROM oportunidades WHERE id=? AND empresa_id=?').get(inteiro(req.params.id), req.usuario.empresa_id);
   if (!op || !req.body?.texto) return erro(res, 400, 'Oportunidade ou texto inválido.');
@@ -379,6 +415,23 @@ r.get('/cnpj/validar', (req, res) => res.json({ valido: !!validarCnpj(req.query.
 r.get('/cnpj/:cnpj/consulta', async (req, res) => {
   try { res.json(await consultarCnpj(req.params.cnpj)); }
   catch (e) { erro(res, e.status || 502, e.message); }
+});
+// Busca os CNAEs da empresa na base pública da Receita e grava; se o ramo estiver vazio, usa a sugestão
+r.post('/clientes/:id/cnaes', exigirPapel('analista'), async (req, res) => {
+  const id = inteiro(req.params.id);
+  const c = db().prepare('SELECT * FROM clientes WHERE id=? AND empresa_id=?').get(id, req.usuario.empresa_id);
+  if (!c) return erro(res, 404, 'Empresa não encontrada.');
+  try {
+    const d = await consultarCnpj(c.cnpj);
+    const palavras = c.palavras_chave || d.palavras_sugeridas.join('; ');
+    atualizarCliente(db(), req.usuario.empresa_id, id, { cnaes: d.cnaes, palavras_chave: palavras });
+    auditar(req, 'cliente_cnaes', 'cliente', id);
+    res.json({ cnaes: d.cnaes, palavras_chave: palavras, sugeridas: d.palavras_sugeridas, fonte: d.fonte });
+  } catch (e) { erro(res, e.status || 502, e.message); }
+});
+// Painel de Empresas: do edital ao dinheiro na conta, por empresa assessorada
+r.get('/painel/empresas', (req, res) => {
+  res.json({ ...painelEmpresas(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, hoje: hojeBr(), agora: agoraBrasilia() }), fases: FASES });
 });
 // Lê as validades do PDF do SICAF para pré-preencher o formulário (não grava nada; o usuário confere e salva)
 r.post('/clientes/:id/sicaf/ler', exigirPapel('analista'), receberPdf, async (req, res) => {
