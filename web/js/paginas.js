@@ -587,6 +587,31 @@ function ativarArrastar(quadro, faixa, aoSoltar) {
     quadro.querySelector(`.coluna-k[data-etapa="${chip.dataset.etapa}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
   });
 }
+// Clicar numa área vazia do quadro (fora dos cards) e arrastar rola o Kanban para os lados, como "pegar" a tela.
+// Só com mouse: no celular o dedo já rola o quadro naturalmente.
+let ouvintesQuadro = null;
+function ativarArrastarQuadro(quadro) {
+  ouvintesQuadro?.abort(); ouvintesQuadro = new AbortController();
+  const { signal } = ouvintesQuadro;
+  let pan = null;
+  quadro.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('.cartao-k, select, button, a, input, textarea')) return;
+    if (e.clientY > quadro.getBoundingClientRect().top + quadro.clientHeight) return; // barra de rolagem: deixa o navegador cuidar
+    pan = { x: e.clientX, y: e.clientY, left: quadro.scrollLeft, top: window.scrollY, moveu: false };
+    e.preventDefault();
+  }, { signal });
+  window.addEventListener('pointermove', (e) => {
+    if (!pan) return;
+    const dx = e.clientX - pan.x; const dy = e.clientY - pan.y;
+    if (!pan.moveu && Math.hypot(dx, dy) < 4) return;
+    pan.moveu = true; quadro.classList.add('pegando');
+    quadro.scrollLeft = pan.left - dx;
+    window.scrollTo(window.scrollX, pan.top - dy);
+  }, { signal });
+  const soltar = () => { if (pan) { pan = null; quadro.classList.remove('pegando'); } };
+  window.addEventListener('pointerup', soltar, { signal });
+  window.addEventListener('pointercancel', soltar, { signal });
+}
 let rolagemKanban = 0;
 
 export async function kanban(alvo, _r, est) {
@@ -670,6 +695,7 @@ export async function kanban(alvo, _r, est) {
   const faixa = h('div', { class: 'kanban-etapas', title: 'Clique para ir até a etapa · solte um card aqui para movê-lo' },
     k.etapas.map((et) => h('button', { type: 'button', class: `chip-etapa fase-${et.fase || 'outra'}${qtd(et.id) ? '' : ' vazia'}`, 'data-etapa': et.id }, et.nome, h('b', {}, qtd(et.id)))));
   const quadro = h('div', { class: 'kanban' }, colunas);
+  ativarArrastarQuadro(quadro);
   if (podeEditar(est)) ativarArrastar(quadro, faixa, mover);
   else faixa.addEventListener('click', (e) => { const ch = e.target.closest('[data-etapa]'); if (ch) quadro.querySelector(`.coluna-k[data-etapa="${ch.dataset.etapa}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' }); });
   render(alvo, cabecalho('Kanban de oportunidades', 'Etapas internas da sua empresa. A situação oficial da licitação aparece na etiqueta e é independente da etapa.'),
