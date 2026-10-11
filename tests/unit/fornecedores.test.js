@@ -178,6 +178,8 @@ test('pedido de cotação: aguardando até a resposta, sem retorno e isolado por
   assert.deepEqual(d.pedidos[0].itens, [1, 2]);                       // item inexistente sai, repetido sai
   assert.equal(d.pedidos[0].status, 'aguardando');
   assert.match(db.prepare("SELECT texto FROM oportunidade_historico WHERE tipo='cotacao'").get().texto, /e-mail \(2 item/);
+  assert.equal(registrarPedido(db, emp, op, u, { fornecedor_id: a, canal: 'whatsapp', itens: [3] }), p1); // reenvio junta no pedido aberto
+  assert.deepEqual(cotacoesDaOportunidade(db, emp, op).pedidos.map((p) => p.itens), [[1, 2, 3]]);
   registrarCotacoes(db, emp, op, u, { fornecedor_id: a, itens: [{ numero_item: 1, preco_unitario: '20' }] });
   d = cotacoesDaOportunidade(db, emp, op);
   assert.equal(d.pedidos[0].status, 'respondido');

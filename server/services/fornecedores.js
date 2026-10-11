@@ -297,10 +297,17 @@ export function registrarPedido(db, empresaId, oportunidadeId, usuarioId, b) {
   const existe = new Set(db.prepare('SELECT numero_item FROM licitacao_itens WHERE licitacao_id=?').all(op.licitacao_id).map((r) => r.numero_item));
   const itens = [...new Set((Array.isArray(b.itens) ? b.itens : []).map(Number))].filter((n) => existe.has(n)).sort((x, y) => x - y);
   if (!itens.length) throw erro(400, 'Marque pelo menos um item.');
-  const out = db.prepare('INSERT INTO cotacao_pedidos (oportunidade_id, fornecedor_id, itens, canal, usuario_id) VALUES (?,?,?,?,?)')
-    .run(op.id, forn.id, JSON.stringify(itens), b.canal, usuarioId);
   db.prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'cotacao',?)")
     .run(op.id, usuarioId, `Pedido de cotação enviado para ${forn.nome} por ${CANAIS_PEDIDO[b.canal]} (${itens.length} item(ns))`);
+  // Reenvio ao mesmo fornecedor ainda sem resposta: junta os itens no pedido aberto (uma linha por fornecedor na espera)
+  const aberto = db.prepare("SELECT id, itens FROM cotacao_pedidos WHERE oportunidade_id=? AND fornecedor_id=? AND status='aguardando' ORDER BY id DESC LIMIT 1").get(op.id, forn.id);
+  if (aberto) {
+    const todos = [...new Set([...JSON.parse(aberto.itens), ...itens])].sort((x, y) => x - y);
+    db.prepare("UPDATE cotacao_pedidos SET itens=?, canal=?, enviado_em=datetime('now'), usuario_id=? WHERE id=?").run(JSON.stringify(todos), b.canal, usuarioId, aberto.id);
+    return aberto.id;
+  }
+  const out = db.prepare('INSERT INTO cotacao_pedidos (oportunidade_id, fornecedor_id, itens, canal, usuario_id) VALUES (?,?,?,?,?)')
+    .run(op.id, forn.id, JSON.stringify(itens), b.canal, usuarioId);
   return Number(out.lastInsertRowid);
 }
 
