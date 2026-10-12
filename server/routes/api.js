@@ -300,6 +300,11 @@ r.delete('/pesquisas/:id', (req, res) => {
 r.get('/notificacoes', (req, res) => {
   res.json(listarNotificacoes(db(), req.usuario.id, req.clienteId));
 });
+r.post('/notificacoes/:id/lida', (req, res) => {
+  const out = db().prepare('UPDATE notificacoes SET lida=1 WHERE id=? AND usuario_id=?').run(inteiro(req.params.id), req.usuario.id);
+  if (!out.changes) return erro(res, 404, 'Alerta não encontrado.');
+  res.json({ ok: true });
+});
 r.post('/notificacoes/lidas', (req, res) => {
   const c = doCliente(req);
   db().prepare(`UPDATE notificacoes SET lida=1 WHERE usuario_id=?${c.sql}`).run(req.usuario.id, ...c.p); res.json({ ok: true });
