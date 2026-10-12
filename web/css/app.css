@@ -123,6 +123,8 @@ tr.clicavel:hover td { background: #f8fafc; }
 .valor-grande { font-weight: 700; }
 
 .paginacao { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.paginas-num { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.paginas-num .btn[aria-current] { opacity: 1; cursor: default; }
 
 .barras { display: grid; gap: 6px; }
 .barra { display: grid; grid-template-columns: minmax(90px, 55%) 1fr 44px; gap: 8px; align-items: center; font-size: .84rem; }

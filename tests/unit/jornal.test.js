@@ -97,3 +97,11 @@ test('excluir envios: só da própria empresa; o link deixa de funcionar', () =>
   assert.throws(() => jornalPublico(db, e.token), /inválido|ativo/);
   assert.throws(() => excluirEnvios(db, emp, []), /pelo menos um/);
 });
+
+test('paginação numerada: primeira, última e vizinhas da atual, resto vira "…"', async () => {
+  const { numerosPaginas } = await import('../../web/js/ui.js');
+  assert.deepEqual(numerosPaginas(1, 6), [1, 2, 3, '…', 6]);
+  assert.deepEqual(numerosPaginas(3, 6), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(numerosPaginas(10, 20), [1, '…', 8, 9, 10, 11, 12, '…', 20]);
+  assert.deepEqual(numerosPaginas(1, 1), [1]);
+});

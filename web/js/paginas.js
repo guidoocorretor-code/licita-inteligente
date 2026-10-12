@@ -1,7 +1,7 @@
 import { api, qs, clienteSelecionado } from './api.js';
 import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
-  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render, faixaGoverno } from './ui.js';
+  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render, faixaGoverno, paginacao } from './ui.js';
 import { painelEmpresas, painelFornecedores, abasDashboard } from './painel.js';
 import { blocoRelatorio } from './mercado.js';
 
@@ -283,10 +283,7 @@ export async function buscar(alvo, rota, est) {
     render(lista, aviso,
       h('div', { class: 'suave pequeno' }, `${numero(res.total)} licitação(ões) encontrada(s).`),
       ...res.dados.map((l) => linhaLicitacao(l, est, { aoFavoritar: favoritar })),
-      h('div', { class: 'paginacao' },
-        h('button', { class: 'btn', disabled: res.pagina <= 1, onclick: () => aplicar({ pagina: res.pagina - 1 }) }, '← Anterior'),
-        h('span', { class: 'suave' }, `Página ${res.pagina} de ${res.paginas}`),
-        h('button', { class: 'btn', disabled: res.pagina >= res.paginas, onclick: () => aplicar({ pagina: res.pagina + 1 }) }, 'Próxima →')));
+      paginacao(res.pagina, res.paginas, (pagina) => aplicar({ pagina })));
   } catch (e) { render(lista, erroBox(e)); }
 }
 
@@ -1268,10 +1265,7 @@ async function contratosAba(alvo, rota, est) {
               c.licitacao_id ? h('a', { class: 'btn pequeno', href: `#/licitacao/${c.licitacao_id}` }, 'Licitação') : null,
               c.link_pncp ? h('a', { class: 'btn pequeno', href: c.link_pncp, target: '_blank', rel: 'noopener noreferrer' }, 'PNCP ↗') : null)));
       }),
-      h('div', { class: 'paginacao' },
-        h('button', { class: 'btn', disabled: r.pagina <= 1, onclick: () => ir({ pagina: r.pagina - 1 }) }, '← Anterior'),
-        h('span', { class: 'suave' }, `Página ${r.pagina} de ${totalPag}`),
-        h('button', { class: 'btn', disabled: r.pagina >= totalPag, onclick: () => ir({ pagina: r.pagina + 1 }) }, 'Próxima →')));
+      paginacao(r.pagina, totalPag, (pagina) => ir({ pagina })));
   } catch (e) { render(lista, erroBox(e)); }
 }
 
