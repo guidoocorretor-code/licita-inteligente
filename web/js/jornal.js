@@ -354,6 +354,7 @@ function formPerfil(est, ops, p) {
   const cidades = h('input', { value: fx.cidades.join('; '), list: 'perfil-cidades', placeholder: 'Ex.: Vila Velha; Serra; Cariacica' });
   const produtos = h('textarea', { rows: 2, placeholder: 'Ex.: papel A4; toner; material de escritório' }, fx.produtos || '');
   const itens = h('textarea', { rows: 2, placeholder: 'Ex.: notebook; cartucho hp 664' }, fx.itens || '');
+  const excluir = h('input', { value: fx.excluir || '', placeholder: 'Ex.: software; mobiliário; seguro' });
   const vmin = h('input', { type: 'number', min: 0, step: '0.01', value: fx.valor_min ?? '', placeholder: 'Mínimo (R$)' });
   const vmax = h('input', { type: 'number', min: 0, step: '0.01', value: fx.valor_max ?? '', placeholder: 'Máximo (R$)' });
   const enc = fx.encerramento || { modo: 'qualquer' };
@@ -379,7 +380,8 @@ function formPerfil(est, ops, p) {
     campo('Nicho', h('div', { class: 'grade-checks', onchange: () => avisoObras() }, est.meta.segmentos.map((sg) => caixa('seg', sg, sg, fx.segmentos.includes(sg)))), 'Segmento estimado pelo objeto. Marque nenhum para não filtrar.'),
     h('div', { class: 'grade duas' },
       campo('Produto(s) / palavras do objeto', produtos, 'Qualquer um da lista (separe por ;). Busca no objeto e no início da descrição dos itens.'),
-      campo('Itens', itens, 'Busca só na descrição dos itens do edital: todas as palavras de um termo no mesmo item (separe termos por ;).')),
+      campo('Itens', itens, 'O item precisa COMEÇAR pelo termo (é onde fica o produto) e ter todas as palavras dele (separe termos por ;).')),
+    campo('Excluir palavras', excluir, 'Licitação com qualquer destas palavras no objeto fica fora do jornal (separe por ;).'),
     campo('Modalidade', h('div', {}, h('div', { class: 'linha', onchange: () => avisoObras() }, Object.entries(ops.modalidades).map(([k, v]) => caixa('mod', k, v, fx.modalidades.includes(k)))), dicaObras), 'Nenhuma marcada = todas.'),
     campo('Valor do edital', h('div', { class: 'linha' }, vmin, vmax), 'Licitação sem valor informado ou sigilosa fica de fora quando há limite de valor.'),
     campo('Portais (sistema da disputa)', h('div', { class: 'grade-checks' }, Object.entries(est.meta.sistemas || {}).map(([k, v]) => caixa('sis', k, v.nome, fx.sistemas.includes(k)))), 'Nenhum marcado = todos.'),
@@ -393,7 +395,7 @@ function formPerfil(est, ops, p) {
     nome: nome.value, cliente_id: cliente.value || null,
     filtros: {
       ufs: marcados(form, 'uf'), cidades: cidades.value.split(';').map((x) => x.trim()).filter(Boolean), segmentos: marcados(form, 'seg'),
-      produtos: produtos.value, itens: itens.value, modalidades: marcados(form, 'mod'), valor_min: vmin.value, valor_max: vmax.value,
+      produtos: produtos.value, itens: itens.value, excluir: excluir.value, modalidades: marcados(form, 'mod'), valor_min: vmin.value, valor_max: vmax.value,
       sistemas: marcados(form, 'sis'), fases: marcados(form, 'fase'),
       encerramento: { modo: form.querySelector('input[name="enc"]:checked')?.value || 'qualquer', data: encData.value, hora: encHora.value },
     },

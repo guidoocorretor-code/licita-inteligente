@@ -62,6 +62,7 @@ export function normalizarFiltros(b = {}) {
     segmentos: arr(b.segmentos),
     produtos: String(b.produtos || '').trim().slice(0, 500),
     itens: String(b.itens || '').trim().slice(0, 500),
+    excluir: String(b.excluir || '').trim().slice(0, 500),
     modalidades: arr(b.modalidades).filter((m) => MODALIDADES_JORNAL[m]),
     valor_min: num(b.valor_min, 'Valor mínimo'),
     valor_max: num(b.valor_max, 'Valor máximo'),
@@ -89,6 +90,7 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
     modalidade: f.modalidades.flatMap((m) => MODALIDADES_JORNAL[m].ids),
     sistema: f.sistemas, valor_min: f.valor_min ?? undefined, valor_max: f.valor_max ?? undefined,
     criado_apos: desde || undefined,
+    excluir: f.excluir || undefined, // palavras no objeto que tiram a licitação do jornal
   };
   const { where, params } = montarFiltro(base, agora);
   const w = []; const p = [...params];
@@ -100,11 +102,12 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
     const r = montarFiltro({ ramo: f.produtos }, agora);
     if (r.where) { oque.push(r.where.replace(/^WHERE /, '')); po.push(...r.params); }
   }
-  // Itens: qualquer uma das expressões (";"), todas as palavras dela na descrição de um mesmo item
+  // Itens: qualquer uma das expressões (";"), todas as palavras dela no mesmo item, e a 1ª palavra ABRINDO a
+  // descrição (onde fica o produto). Sem isso "pintura" trazia "Armário de aço com pintura epóxi".
   const itens = String(f.itens || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
   if (itens.length) {
     oque.push('l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?))');
-    po.push(itens.map((ws) => `(${ws.map(fts).join(' AND ')})`).join(' OR '));
+    po.push(itens.map((ws) => `(^${ws.map(fts).join(' AND ')})`).join(' OR '));
   }
   if (oque.length) { w.push(`(${oque.join(' OR ')})`); p.push(...po); }
   // Propostas ainda não encerradas, e o encerramento escolhido
@@ -124,11 +127,12 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
  * Mostra qual filtro zerou o jornal (ex.: cidade digitada errado, modalidade que não serve para o nicho).
  */
 export function funilDoPerfil(db, f, agora) {
-  const vazio = { ufs: [], cidades: [], segmentos: [], produtos: '', itens: '', modalidades: [], valor_min: null, valor_max: null, sistemas: [], fases: [], encerramento: { modo: 'qualquer' } };
+  const vazio = { ufs: [], cidades: [], segmentos: [], produtos: '', itens: '', excluir: '', modalidades: [], valor_min: null, valor_max: null, sistemas: [], fases: [], encerramento: { modo: 'qualquer' } };
   const etapas = [
     ['Estado(s)', { ufs: f.ufs }, f.ufs.length],
     ['Cidade(s)', { cidades: f.cidades }, f.cidades.length],
     ['Nicho, produtos ou itens', { segmentos: f.segmentos, produtos: f.produtos, itens: f.itens }, f.segmentos.length || f.produtos || f.itens],
+    ['Palavras excluídas', { excluir: f.excluir }, !!f.excluir],
     ['Modalidade', { modalidades: f.modalidades }, f.modalidades.length],
     ['Valor do edital', { valor_min: f.valor_min, valor_max: f.valor_max }, f.valor_min != null || f.valor_max != null],
     ['Portais', { sistemas: f.sistemas }, f.sistemas.length],
@@ -164,8 +168,8 @@ export function salvarPerfil(db, empresaId, usuarioId, b = {}, id = null) {
   if (id) {
     const atual = perfilDaEmpresa(db, empresaId, id);
     db.prepare("UPDATE jornal_perfis SET nome=?, cliente_id=?, filtros=?, ativo=?, atualizado_em=datetime('now') WHERE id=?").run(nome, cli, JSON.stringify(filtros), ativo, id);
-    // Filtro mudou: a edição de hoje é refeita com o perfil novo
-    if (JSON.stringify(atual.filtros) !== JSON.stringify(filtros)) db.prepare('DELETE FROM jornal_edicoes WHERE perfil_id=? AND data=(SELECT MAX(data) FROM jornal_edicoes WHERE perfil_id=?)').run(id, id);
+    // Salvou: a edição de hoje é refeita (perfil novo ou regra de filtro melhorada desde a geração)
+    if (atual) db.prepare('DELETE FROM jornal_edicoes WHERE perfil_id=? AND data=?').run(id, new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10));
     return id;
   }
   return Number(db.prepare('INSERT INTO jornal_perfis (empresa_id, cliente_id, nome, filtros, ativo, criado_por) VALUES (?,?,?,?,?,?)')
@@ -257,6 +261,7 @@ export function resumoFiltros(f) {
     f.segmentos.length ? f.segmentos.join(', ') : null,
     f.produtos ? `Produtos: ${f.produtos}` : null,
     f.itens ? `Itens: ${f.itens}` : null,
+    f.excluir ? `Sem: ${f.excluir}` : null,
     f.modalidades.length ? f.modalidades.map((m) => MODALIDADES_JORNAL[m].nome).join(', ') : 'Todas as modalidades',
     f.valor_min != null || f.valor_max != null ? `Valor ${f.valor_min != null ? `de ${brl(f.valor_min)} ` : ''}${f.valor_max != null ? `até ${brl(f.valor_max)}` : ''}`.trim() : null,
     f.sistemas.length ? f.sistemas.map((s) => SISTEMAS[s]?.nome || s).join(', ') : null,

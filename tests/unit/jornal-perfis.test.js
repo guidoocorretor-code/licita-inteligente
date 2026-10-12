@@ -80,7 +80,11 @@ test('jornal de obras (caso real do Guido): cidade sem acento, "o que" soma, fun
   const a = lic('a', { objeto: 'Reforma da escola municipal', mun: 'Vitória', mod: 4 }); seg.run('Obras e engenharia', a);
   const b = lic('b', { objeto: 'Contratação de empresa de engenharia', mun: 'Vila Velha', mod: 6 }); seg.run('Obras e engenharia', b);
   const c = lic('c', { objeto: 'Aquisição de tintas', mun: 'Cariacica', mod: 8 });
-  db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)').run(c, 1, 'Tinta para pintura acrílica 18L');
+  const it = db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)');
+  it.run(c, 1, 'Pintura de parede interna com tinta acrílica');
+  // "pintura" no meio da descrição de um móvel não é item de pintura
+  const m = lic('m', { objeto: 'Aquisição de mobiliário', mun: 'Vitória', mod: 6 });
+  it.run(m, 1, 'Armário de aço com pintura epóxi');
   lic('d', { objeto: 'Reforma de praça', mun: 'Linhares', mod: 4 });
   const filtros = { ufs: ['ES'], cidades: ['Vila velha', 'vitoria', 'serra', 'cariacica'], segmentos: ['Obras e engenharia'],
     produtos: 'obra civil; construção; reforma; pintura', itens: 'obra civil; construção; reforma; pintura', modalidades: ['dispensa', 'pregao'] };
@@ -91,7 +95,9 @@ test('jornal de obras (caso real do Guido): cidade sem acento, "o que" soma, fun
   assert.deepEqual(ids(filtros), [b, c]);
   const funil = funilDoPerfil(db, normalizarFiltros(filtros), AGORA);
   assert.deepEqual(funil.map((e) => e.etapa), ['Estado(s)', 'Cidade(s)', 'Nicho, produtos ou itens', 'Modalidade', 'Fase']);
-  assert.deepEqual(funil.map((e) => e.total), [4, 3, 3, 2, 2]);
+  assert.deepEqual(funil.map((e) => e.total), [5, 4, 3, 2, 2]);
+  // Palavras excluídas tiram pelo objeto
+  assert.deepEqual(ids({ ...filtros, modalidades: [], excluir: 'escola; tintas' }), [b]);
   // Primeira edição vazia é refeita quando passa a haver resultado no mesmo dia
   const id = salvarPerfil(db, emp, uid, { nome: 'Obras', filtros: { ufs: ['ES'], cidades: ['Serra'] } });
   assert.equal(gerarEdicao(db, perfilDaEmpresa(db, emp, id), AGORA).total, 0);
