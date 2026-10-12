@@ -7,7 +7,7 @@ import { getDb } from './db/index.js';
 import { usuarioDoToken, eventosCalendario, gerarIcs } from './services/calendario.js';
 import { cotacaoPublica, responderCotacao } from './services/cotacao-link.js';
 import { enviarComprovante } from './services/comprovante-cotacao.js';
-import { jornalPublico, responderJornal } from './services/jornal-cliente.js';
+import { jornalPublico, responderJornal, avisarInteresse } from './services/jornal-cliente.js';
 import { emailConfigurado } from './services/email.js';
 
 // Limite simples por IP para as páginas públicas (sem login): evita robô testando links ou enchendo a cotação
@@ -68,7 +68,13 @@ export function criarApp() {
   app.get('/j/:token', publico, (req, res) => res.sendFile(path.join(config.raiz, 'web', 'jornal.html')));
   app.get('/publico/jornal/:token', publico, limitar(120, 10 * 60000), (req, res) => responderPublico(() => jornalPublico(getDb(), req.params.token))(req, res));
   app.post('/publico/jornal/:token', publico, limitar(20, 10 * 60000), express.json({ limit: '50kb' }), exigirCabecalhoAjax,
-    (req, res) => responderPublico(() => responderJornal(getDb(), req.params.token, req.body || {}))(req, res));
+    (req, res) => responderPublico(() => {
+      const db = getDb();
+      const r = responderJornal(db, req.params.token, req.body || {});
+      // Avisa na hora, por e-mail, quem montou o jornal (falha no e-mail não desfaz a resposta; o alerta fica no sino)
+      if (emailConfigurado()) avisarInteresse(db, r.envio_id, r.notificacoes).catch((e) => console.error('[jornal]', e.message));
+      return { interesses: r.interesses };
+    })(req, res));
   const jsonPadrao = express.json({ limit: '1mb' });
   app.use('/api', (req, res, next) => (req.path === '/fontes/importar-json' ? next() : jsonPadrao(req, res, next)), exigirCabecalhoAjax, api);
   // Código da tela (HTML/JS/CSS) é sempre revalidado pelo ETag, para uma publicação nova aparecer no

@@ -171,6 +171,7 @@ function filtroJornal(req) {
   if (req.query.uf) { w.push('l.uf = ?'); p.push(String(req.query.uf).toUpperCase()); }
   if (req.query.segmento) { w.push('l.segmento = ?'); p.push(req.query.segmento); }
   if (req.query.orgao) { w.push('l.orgao_nome LIKE ?'); p.push(`%${req.query.orgao}%`); }
+  if (req.query.municipio) { w.push('l.municipio LIKE ?'); p.push(`%${String(req.query.municipio).trim()}%`); }
   if (req.query.q) { w.push('(l.objeto LIKE ? OR e.descricao LIKE ?)'); p.push(`%${req.query.q}%`, `%${req.query.q}%`); }
   // Só com propostas ainda abertas (prazo futuro ou não informado)
   if (req.query.abertas === '1') { w.push("(l.data_encerramento_proposta IS NULL OR l.data_encerramento_proposta >= ?)"); p.push(agoraBrasilia()); }
@@ -185,6 +186,12 @@ r.get('/jornal', (req, res) => {
     ORDER BY e.detectado_em DESC, e.id DESC LIMIT 30 OFFSET ?`).all(...p, (pagina - 1) * 30)
     .map((x) => ({ ...x, sistema: sistemaDaLicitacao(x) }));
   res.json({ total, pagina, paginas: Math.ceil(total / 30), dados });
+});
+// Municípios com licitação no banco (sugestões do filtro do Jornal), da UF escolhida
+r.get('/jornal/municipios', (req, res) => {
+  const uf = String(req.query.uf || '').toUpperCase().slice(0, 2);
+  const linhas = db().prepare(`SELECT DISTINCT municipio FROM licitacoes WHERE municipio IS NOT NULL AND municipio <> ''${uf ? ' AND uf = ?' : ''} ORDER BY municipio LIMIT 1500`).all(...(uf ? [uf] : []));
+  res.json({ municipios: linhas.map((x) => x.municipio) });
 });
 // Licitações (sem repetir) de todos os resultados do filtro, para "marcar todos"
 r.get('/jornal/ids', (req, res) => {

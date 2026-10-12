@@ -5,7 +5,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
+import { montarEmailInteresse, resumoLicitacoes, faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
 
 // Base de TESTE: uma licitação real do fixture do PNCP e uma empresa assessorada de exemplo
 function preparar() {
@@ -50,10 +50,13 @@ test('jornal: link assinado, resumo público com PNCP e resposta de interesse vi
   const n = db.prepare("SELECT * FROM notificacoes WHERE tipo='jornal'").all();
   assert.equal(n.length, 1); assert.equal(n[0].usuario_id, uid); assert.equal(n[0].licitacao_id, lic);
   assert.match(n[0].mensagem, /João \(EMPRESA EXEMPLO LTDA\).*Ligar à tarde/);
+  const objeto = db.prepare('SELECT objeto FROM licitacoes WHERE id=?').get(lic).objeto;
+  assert.ok(n[0].mensagem.includes(objeto.slice(0, 60)));                      // o alerta diz QUAL licitação
+  assert.deepEqual(r.notificacoes, [n[0].id]);
   const fav = db.prepare("SELECT * FROM favoritos WHERE lista='Interesse do cliente'").all();
   assert.equal(fav.length, 1); assert.equal(fav[0].cliente_id, cli);
   const env = listarEnvios(db, emp);
-  assert.deepEqual(env[0].interesses, [lic]); assert.equal(env[0].respondente, 'João');
+  assert.deepEqual(env[0].interesses.map((l) => l.id), [lic]); assert.ok(env[0].interesses[0].objeto); assert.equal(env[0].respondente, 'João');
   assert.throws(() => criarEnvio(db, { empresaId: emp, usuarioId: uid, ids: [] }), /pelo menos uma/);
 });
 
@@ -104,4 +107,17 @@ test('paginação numerada: primeira, última e vizinhas da atual, resto vira "�
   assert.deepEqual(numerosPaginas(3, 6), [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(numerosPaginas(10, 20), [1, '…', 8, 9, 10, 11, 12, '…', 20]);
   assert.deepEqual(numerosPaginas(1, 1), [1]);
+});
+
+test('e-mail de interesse do cliente lista as licitações marcadas com link e observação', () => {
+  const { db, lic } = preparar();
+  const lics = resumoLicitacoes(db, [lic, 999999]);
+  assert.equal(lics.length, 1);                                               // id inexistente não vira linha inventada
+  const m = montarEmailInteresse({ respondente: 'Alexandre', cliente: 'DAF', observacao: 'Ligar amanhã', lics }, { urlBase: 'https://x.app/' });
+  assert.match(m.assunto, /Alexandre \(DAF\) marcou 1 licitação/);
+  assert.ok(m.texto.includes(lics[0].objeto.slice(0, 60)));
+  assert.ok(m.html.includes(`https://x.app/#/licitacao/${lic}`));
+  assert.match(m.texto, /Observação: Ligar amanhã/);
+  const vazio = montarEmailInteresse({ respondente: 'Ana', cliente: null, observacao: null, lics: [] });
+  assert.match(vazio.assunto, /sem marcar/);
 });

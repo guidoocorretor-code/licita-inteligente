@@ -23,19 +23,27 @@ export async function jornal(alvo, rota, est) {
   const uf = h('select', { id: 'j-uf' }, h('option', { value: '' }, 'Todas as UFs'), est.meta.ufs.map((u) => h('option', { value: u, selected: f.uf === u }, u)));
   const seg = h('select', { id: 'j-seg' }, h('option', { value: '' }, 'Todos os segmentos'), est.meta.segmentos.map((s) => h('option', { value: s, selected: f.segmento === s }, s)));
   const orgao = h('input', { type: 'text', value: f.orgao || '', placeholder: 'Órgão', id: 'j-org' });
+  // Município: digita ou escolhe na lista (sugestões da UF escolhida, como estão gravadas no PNCP)
+  const listaMun = h('datalist', { id: 'j-mun-lista' });
+  const municipio = h('input', { type: 'text', value: f.municipio || '', placeholder: 'Município', id: 'j-mun', list: 'j-mun-lista', autocomplete: 'off' });
+  const carregarMunicipios = async () => {
+    try { const r = await api(`/jornal/municipios${qs({ uf: uf.value })}`); render(listaMun, ...r.municipios.map((m) => h('option', { value: m }))); } catch { /* sugestões são opcionais */ }
+  };
+  uf.addEventListener('change', () => { municipio.value = ''; carregarMunicipios(); });
+  carregarMunicipios();
   const abertas = h('input', { type: 'checkbox', checked: f.abertas === '1' });
-  const filtros = () => ({ q: q.value, tipo: tipo.value, uf: uf.value, segmento: seg.value, orgao: orgao.value, abertas: abertas.checked ? '1' : '' });
+  const filtros = () => ({ q: q.value, tipo: tipo.value, uf: uf.value, segmento: seg.value, orgao: orgao.value, municipio: municipio.value.trim(), abertas: abertas.checked ? '1' : '' });
   const ir = (pagina = 1) => { location.hash = `#/jornal${qs({ ...filtros(), pagina })}`; };
   const sel = lerSelecao();
   const contador = h('strong', {});
-  const foraDaPagina = h('button', { class: 'btn pequeno', type: 'button', hidden: true, onclick: () => verSelecionadas(), title: 'A seleção continua ao trocar de página ou de filtro' });
+  const foraDaPagina = h('button', { class: 'btn pequeno', type: 'button', style: { display: 'none' }, onclick: () => verSelecionadas(), title: 'A seleção continua ao trocar de página ou de filtro' });
   const caixas = [];
   const atualizar = () => {
     contador.textContent = `${sel.size} selecionada(s)`;
     for (const c of caixas) c.checked = sel.has(Number(c.dataset.id));
     const nestaPagina = new Set(caixas.map((c) => Number(c.dataset.id)).filter((id) => sel.has(id))).size; // a mesma licitação pode ter 2 eventos na página
     const fora = sel.size - nestaPagina;
-    foraDaPagina.hidden = fora <= 0;
+    foraDaPagina.style.display = fora > 0 ? '' : 'none';
     foraDaPagina.textContent = `⚠ ${fora} de outras páginas ou filtros · ver`;
     gravarSelecao(sel);
   };
@@ -114,7 +122,7 @@ export async function jornal(alvo, rota, est) {
 
   render(alvo, h('div', { class: 'cabecalho-pagina' }, h('div', {}, h('h1', {}, 'Jornal de licitações'),
       h('div', { class: 'suave' }, 'O que foi publicado ou mudou nas sincronizações. Marque os cards para imprimir, baixar em PDF ou enviar ao cliente.'))),
-    h('form', { class: 'cartao filtros', onsubmit: (e) => { e.preventDefault(); ir(); } }, q, tipo, uf, seg, orgao,
+    h('form', { class: 'cartao filtros', onsubmit: (e) => { e.preventDefault(); ir(); } }, q, tipo, uf, municipio, listaMun, seg, orgao,
       h('label', { class: 'pequeno', style: { display: 'flex', gap: '6px', alignItems: 'center' } }, abertas, 'Só com propostas abertas'),
       h('button', { class: 'btn primario' }, 'Filtrar')),
     barra,
@@ -153,7 +161,11 @@ export async function jornal(alvo, rota, est) {
           h('td', {}, e.email_status === 'enviado' ? `enviado para ${e.email_para}` : e.email_status === 'erro' ? h('span', { class: 'texto-alerta' }, `não enviado para ${e.email_para}: ${e.email_erro || 'erro desconhecido'}`) : e.email_status === 'sem_smtp' ? 'e-mail não configurado' : '—'),
           h('td', {}, e.ultimo_acesso ? dataUtc(e.ultimo_acesso) : 'ainda não'),
           h('td', {}, e.respondido_em
-            ? h('span', { class: e.interesses?.length ? 'texto-sucesso' : '' }, `${e.respondente}: ${e.interesses?.length ? `interesse em ${e.interesses.length}` : 'nenhuma marcada'}${e.observacao ? ` · "${e.observacao}"` : ''}`)
+            ? h('div', {},
+              h('span', { class: e.interesses?.length ? 'texto-sucesso' : '' }, `${e.respondente}: ${e.interesses?.length ? `interesse em ${e.interesses.length}` : 'nenhuma marcada'}`),
+              e.interesses?.length ? h('ol', { class: 'pequeno', style: { margin: '4px 0 0', paddingLeft: '18px' } },
+                ...e.interesses.map((l) => h('li', {}, h('a', { href: `#/licitacao/${l.id}` }, (l.objeto || 'Licitação').slice(0, 120)), l.local ? h('span', { class: 'suave' }, ` · ${l.local}`) : null))) : null,
+              e.observacao ? h('div', { class: 'pequeno' }, `Obs.: "${e.observacao}"`) : null)
             : 'aguardando'));
         })))),
       r.envios.some((e) => e.interesses?.length) ? h('p', { class: 'pequeno suave' }, 'As licitações marcadas pelo cliente estão em ', h('a', { href: '#/favoritos' }, 'Favoritos'), ', lista "Interesse do cliente".') : null);
