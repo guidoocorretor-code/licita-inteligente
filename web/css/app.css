@@ -627,3 +627,8 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .a-jornal { --ac: #4d7c0f; --af: #ecfccb; }
 .modal:has(.form-perfil) { max-width: 900px; }
 .form-perfil input[type=date], .form-perfil input[type=time] { width: auto; }
+
+/* Disco do servidor (Configurações) */
+.barra-disco { height: 10px; border-radius: 6px; background: var(--borda, #e3e8ef); overflow: hidden; margin: 8px 0; }
+.barra-disco > div { height: 100%; background: var(--primaria, #1e4f9c); }
+.barra-disco > div.cheia { background: #c0392b; }

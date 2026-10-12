@@ -12,7 +12,7 @@ import { SEGMENTOS } from '../services/segmentos.js';
 import { salvarLicitacao } from '../services/repositorio.js';
 import { sincronizarFonte, testarFonte, reprocessarFalhas, sincronizarDetalhesDe, sincronizacaoEmAndamento } from '../services/sync.js';
 import { paraCsv, paraXlsx } from '../services/exportacao.js';
-import { espacoEmDisco } from '../lib/disco.js';
+import { espacoEmDisco, usoDoDisco } from '../lib/disco.js';
 import multer from 'multer';
 import { TIPOS_DOCUMENTO, PORTES, criarCliente, atualizarCliente, excluirCliente, listarClientes, listarDocumentos,
   adicionarDocumentos, excluirDocumento, caminhoArquivo, validarCnpj } from '../services/clientes.js';
@@ -776,6 +776,8 @@ r.patch('/preferencias', (req, res) => {
   res.json({ ok: true });
 });
 r.get('/email/status', exigirPapel('admin'), (req, res) => res.json(statusEmail()));
+// Espaço do volume (Railway) para Configurações
+r.get('/sistema/disco', exigirPapel('gestor'), (req, res) => res.json({ disco: usoDoDisco() }));
 r.post('/email/teste', async (req, res) => {
   const p = db().prepare('SELECT email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id);
   const destino = p?.email_alertas || req.usuario.email;

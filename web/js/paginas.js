@@ -1022,6 +1022,22 @@ export async function fontes(alvo, _r, est) {
 }
 
 // ============================ CONFIGURAÇÕES ============================
+// Espaço do disco do servidor (volume do Railway): total, livre, barra e o que mais ocupa
+async function cartaoDisco() {
+  let d = null;
+  try { d = (await api('/sistema/disco')).disco; } catch { /* sem permissão ou servidor sem volume */ }
+  const gb = (mb) => `${(mb / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} GB`;
+  const tam = (mb) => (mb >= 1024 ? gb(mb) : `${mb.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`);
+  if (!d) return h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Disco do servidor'), naoInformado('Não foi possível ler o espaço do disco agora.'));
+  const usadoPct = Math.round((d.usado_mb / d.total_mb) * 1000) / 10;
+  return h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Disco do servidor (Railway)'),
+    h('div', { class: 'disco-numeros' }, h('b', {}, `${gb(d.livre_mb)} livres`), ` de ${gb(d.total_mb)} · ${gb(d.usado_mb)} usados (${usadoPct.toLocaleString('pt-BR')}%)`),
+    h('div', { class: 'barra-disco' }, h('div', { class: d.baixo ? 'cheia' : '', style: { width: `${Math.min(100, usadoPct)}%` } })),
+    d.baixo ? h('div', { class: 'aviso vermelho pequeno' }, 'Disco quase cheio: o sistema parou de baixar licitações e de copiar arquivos. Aumente o volume no Railway (clique no volume › Settings).') : null,
+    h('ul', { class: 'suave pequeno' }, d.partes.map((p) => h('li', {}, `${p.nome}: ${tam(p.mb)}`))),
+    h('div', { class: 'suave pequeno' }, `Proteção automática: com menos de ${d.limite_pct}% ou ${d.limite_mb} MB livres, o sistema para de baixar dados novos.`));
+}
+
 export async function configuracoes(alvo, _r, est) {
   const atual = h('input', { type: 'password', autocomplete: 'current-password' });
   const nova = h('input', { type: 'password', autocomplete: 'new-password' });
@@ -1036,6 +1052,7 @@ export async function configuracoes(alvo, _r, est) {
             catch (e) { toast(e.message); }
           } }, 'Alterar senha'),
           h('button', { class: 'btn', onclick: async () => { await api('/auth/sair-de-todos', { metodo: 'POST', corpo: {} }); location.reload(); } }, 'Sair de todos os dispositivos'))))];
+  if (['admin', 'gestor'].includes(est.usuario.papel)) blocos.push(await cartaoDisco());
   const pref = await api('/preferencias');
   const destino = h('input', { type: 'email', value: pref.email_alertas, placeholder: pref.email_login });
   const ativo = h('input', { type: 'checkbox', checked: pref.alertas_email });
