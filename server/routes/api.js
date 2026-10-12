@@ -29,6 +29,8 @@ import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarForneced
   registrarCotacoes, escolherCotacao, excluirCotacao, salvarParametros, registrarPedido, mudarStatusPedido, listarPedidos, painelFornecedores } from '../services/fornecedores.js';
 import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { propostaDaOportunidade, salvarProposta, mudarStatusProposta, listarPropostas } from '../services/propostas.js';
+import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
+import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -656,6 +658,30 @@ async function pesquisa(req, res) {
 r.get('/precos', async (req, res) => {
   const p = await pesquisa(req, res);
   if (p) res.json({ ...p, registros: p.registros.slice(0, 1000), registros_total: p.registros.length });
+});
+// Relatório de mercado: Brasil × estado em 6/12/24 meses, quem compra, marcas, fornecedores, licitações abertas.
+// modo=lead tira os nomes dos fornecedores concorrentes (vai para a empresa prospectada).
+async function relatorio(req, res) {
+  const c = validarConsulta(req.query);
+  if (!c) { erro(res, 400, 'Escolha um item do catálogo (tipo e código).'); return null; }
+  try {
+    const cat = db().prepare('SELECT nome, classe FROM catalogo_compras WHERE tipo=? AND codigo=?').get(c.tipo === 'servico' ? 'servico' : 'material', c.codigo);
+    const r = await relatorioMercado(db(), { ...c, nome: cat?.nome || null, classe: cat?.classe || null }, {
+      filtro: String(req.query.filtro || '').slice(0, 120), item: req.query.item, unidade: req.query.unidade, termo: String(req.query.termo || '').slice(0, 80) });
+    return req.query.modo === 'lead' ? paraLead(r) : r;
+  } catch (e) { erro(res, 502, `Não foi possível consultar o Compras.gov.br agora: ${e.message}`); return null; }
+}
+r.get('/precos/relatorio', async (req, res) => { const x = await relatorio(req, res); if (x) res.json(x); });
+r.get('/precos/relatorio.pdf', async (req, res) => {
+  const x = await relatorio(req, res);
+  if (!x) return;
+  const emp = db().prepare('SELECT nome FROM empresas WHERE id=?').get(req.usuario.empresa_id);
+  const preparadoPor = String(req.query.assinatura || '').slice(0, 160) || [req.usuario.nome, emp?.nome, req.usuario.email].filter(Boolean).join(' · ');
+  const buf = pdfRelatorio(x, { modo: req.query.modo === 'lead' ? 'lead' : 'interno', para: String(req.query.para || '').slice(0, 120), preparadoPor });
+  const base = String(x.consulta.nome || x.consulta.codigo).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 50);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${req.query.modo === 'lead' ? 'oportunidade' : 'analise-mercado'}-${base}${x.estado ? `-${x.estado.uf.toLowerCase()}` : ''}.pdf"`);
+  res.send(buf);
 });
 r.get('/precos/exportar', async (req, res) => {
   const p = await pesquisa(req, res);

@@ -99,6 +99,12 @@ export async function baixarPrecos(params, { maxPaginas = 6, concorrencia = 3, f
   return { registros, totalRegistros: primeira.dados.totalRegistros ?? registros.length, truncado };
 }
 
+/** Só o total de compras registradas no período (1 página pequena), para quando a amostra baixada é parcial. */
+export async function contarCompras(params, { fetchImpl } = {}) {
+  const { dados } = await getJson(urlPrecos({ ...params, pagina: 1, tamanhoPagina: 10 }), { fetchImpl });
+  return dados?.totalRegistros ?? 0;
+}
+
 // Catálogo: PDM de materiais (módulo 01, item 3) e itens de serviço (módulo 02, item 6)
 export async function* paginarCatalogo(tipo, { maxPaginas = 400, fetchImpl } = {}) {
   const caminho = tipo === 'servico' ? '/modulo-servico/6_consultarItemServico' : '/modulo-material/3_consultarPdmMaterial';
