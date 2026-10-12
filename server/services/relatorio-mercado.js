@@ -48,6 +48,20 @@ export async function relatorioMercado(db, c, { filtro, item, unidade, termo, fe
   const local = c.uf ? await escopo(db, c, c.uf, opcoes, { fetchImpl, agora }) : null;
   // O Brasil usa a mesma unidade de fornecimento do estado, para os números serem comparáveis
   const brasil = await escopo(db, c, null, { ...opcoes, unidade: local?.unidade || unidade }, { fetchImpl, agora });
+  // Conferência: o Brasil contém o estado. Se um período do Brasil vier menor (amostra incompleta da fonte),
+  // ele passa a mostrar o total oficial de compras e fica marcado como parcial, em vez de um número errado.
+  if (local) {
+    for (const m of PERIODOS) {
+      const b = brasil.periodos[m]; const e = local.periodos[m];
+      if (b.compras < e.compras || b.quantidade < e.quantidade) {
+        b.parcial = true;
+        if (b.total_fonte == null) {
+          const desde = iso(new Date(agora.getTime() - m * 30.44 * 86400000));
+          b.total_fonte = await contarCompras({ tipo: c.tipo, codigo: c.codigo, desde, ate: iso(agora) }, { fetchImpl }).catch(() => null);
+        }
+      }
+    }
+  }
   const foco = local || brasil;
   const pan = panoramaMercado(foco.lista);
   const estFoco = estatisticas(foco.lista.map((r) => r.preco_unitario));

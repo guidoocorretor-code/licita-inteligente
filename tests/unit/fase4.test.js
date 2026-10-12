@@ -179,7 +179,7 @@ test('API: pesquisa de preços (cache), exportação CSV, contratos e contratos 
   criarUsuario(db, { empresaId: emp, nome: 'Ana', email: 'ana@teste.com', senha: 'SenhaForte123', papel: 'analista' });
   db.prepare("INSERT INTO catalogo_compras (tipo, codigo, nome, classe) VALUES ('material', 15779, 'BOTOM', 'DISTINTIVOS E INSÍGNIAS')").run();
   const regs = [8.97, 9.5, 10].map((p) => ({ ...normalizarPrecoCompras(fixture('compras-preco-material-real')), preco_unitario: p }));
-  db.prepare("INSERT INTO precos_consultas (chave, registros_json, total_fonte) VALUES ('material_pdm:15779:BR:12', ?, 3)").run(JSON.stringify(regs));
+  db.prepare("INSERT INTO precos_consultas (chave, registros_json, total_fonte) VALUES ('v2:material_pdm:15779:BR:12', ?, 3)").run(JSON.stringify(regs));
   const lic = clonar(fixture('pncp-contratacao-real')); lic.numeroControlePNCP = '13880257000127-1-000062/2026';
   const licId = salvarLicitacao(db, normalizarPncp(lic), 'pncp', lic).id;
   const { salvarContrato } = await import('../../server/services/contratos.js');
@@ -262,18 +262,23 @@ test('Análise de mercado: sinônimo do A4, marcas e panorama', async () => {
   assert.ok(r.some((x) => x.codigo === 127));
 });
 
-test('preços: com muitas páginas, baixa as mais novas (a fonte vem da mais antiga para a mais nova)', async () => {
+test('preços: período grande é dividido e baixado inteiro (a ordem da fonte não importa)', async () => {
   _reiniciarLimitador();
   const { baixarPrecos } = await import('../../server/connectors/comprasgov.js');
+  // Fonte de TESTE: 1 compra por dia entre 2026-01-01 e 2026-01-20, 2 por página, na ordem do mais novo para o mais antigo
+  const dias = Array.from({ length: 20 }, (_, k) => `2026-01-${String(k + 1).padStart(2, '0')}`);
   const fetchImpl = fetchFalso((url) => {
-    const pag = Number(new URL(url).searchParams.get('pagina'));
-    return { status: 200, body: { resultado: [{ idCompra: `P${pag}` }], totalRegistros: 10, totalPaginas: 10, paginasRestantes: 10 - pag } };
+    const q = new URL(url).searchParams; const pag = Number(q.get('pagina'));
+    const sel = dias.filter((d) => d >= q.get('dataCompraInicio') && d <= q.get('dataCompraFim')).reverse();
+    const porPag = 2; const totalPaginas = Math.ceil(sel.length / porPag);
+    return { status: 200, body: { resultado: sel.slice((pag - 1) * porPag, pag * porPag).map((d) => ({ idCompra: d })), totalRegistros: sel.length, totalPaginas, paginasRestantes: totalPaginas - pag } };
   });
-  const r = await baixarPrecos({ tipo: 'material_pdm', codigo: 1 }, { maxPaginas: 3, fetchImpl });
-  assert.equal(r.truncado, true);
-  assert.deepEqual(r.registros.map((x) => x.idCompra), ['P8', 'P9', 'P10']);
-  const r2 = await baixarPrecos({ tipo: 'material_pdm', codigo: 1 }, { maxPaginas: 20, fetchImpl });
-  assert.equal(r2.registros.length, 10); assert.equal(r2.truncado, false);
+  const r = await baixarPrecos({ tipo: 'material_pdm', codigo: 1, desde: '2026-01-01', ate: '2026-01-20' }, { maxPaginas: 3, fetchImpl });
+  assert.equal(r.truncado, false);
+  assert.equal(r.totalRegistros, 20);
+  assert.deepEqual(r.registros.map((x) => x.idCompra).sort(), dias);              // todas, sem repetir nem faltar
+  const pouco = await baixarPrecos({ tipo: 'material_pdm', codigo: 1, desde: '2026-01-01', ate: '2026-01-20' }, { maxPaginas: 3, maxTotalPaginas: 4, fetchImpl });
+  assert.equal(pouco.truncado, true);                                             // limite total: avisa que é parcial
 });
 
 test('relatório de mercado: Brasil × estado em 6/12/24 meses, órgãos, modo lead sem concorrentes e PDF', async () => {
@@ -285,7 +290,7 @@ test('relatório de mercado: Brasil × estado em 6/12/24 meses, órgãos, modo l
   const es = [reg('2026-09-01', 'ES', 20, 100, 'F'), reg('2026-03-01', 'ES', 22, 50, 'E'), reg('2025-06-01', 'ES', 21, 10, 'M')];
   const br = [...es, reg('2026-08-01', 'SP', 19, 1000, 'F', { orgao_nome: 'ORGAO SP' })];
   const salvar = (chave, regs) => db.prepare("INSERT INTO precos_consultas (chave, registros_json, total_fonte, truncado, consultado_em) VALUES (?,?,?,0,datetime('now'))").run(chave, JSON.stringify(regs), regs.length);
-  salvar('material_pdm:19746:ES:24', es); salvar('material_pdm:19746:BR:24', br);
+  salvar('v2:material_pdm:19746:ES:24', es); salvar('v2:material_pdm:19746:BR:24', br);
   const fetchImpl = fetchFalso(() => { throw new Error('não deveria consultar a fonte'); });
   const r = await relatorioMercado(db, { tipo: 'material_pdm', codigo: 19746, uf: 'ES', meses: 24, nome: 'PAPEL PARA IMPRESSÃO FORMATADO' },
     { termo: 'papel a4', fetchImpl, agora: new Date('2026-10-12T12:00:00Z') });
@@ -305,4 +310,19 @@ test('relatório de mercado: Brasil × estado em 6/12/24 meses, órgãos, modo l
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
   assert.ok(!pdf.toString('latin1').includes('FORNECEDOR TESTE'));   // concorrente não vai para o lead
   assert.ok(pdfRelatorio(r, { modo: 'interno' }).toString('latin1').includes('FORNECEDOR TESTE'));
+});
+
+test('relatório: Brasil nunca aparece menor que o estado (amostra incompleta vira "parcial" com o total oficial)', async () => {
+  const { relatorioMercado } = await import('../../server/services/relatorio-mercado.js');
+  _reiniciarLimitador();
+  const db = bancoMemoria();
+  const reg = (data, uf, qtd) => ({ data_compra: data, uf, preco_unitario: 20, quantidade: qtd, esfera: 'F', unidade: 'EMB 500', orgao_nome: `ORGAO ${uf}`, uasg: `U${uf}` });
+  const es = [reg('2026-09-01', 'ES', 100), reg('2026-08-01', 'ES', 100)];
+  const br = [reg('2026-09-02', 'SP', 10)];                                         // amostra do Brasil SEM as compras do ES (dado de TESTE)
+  const salvar = (chave, regs) => db.prepare("INSERT INTO precos_consultas (chave, registros_json, total_fonte, truncado, consultado_em) VALUES (?,?,?,0,datetime('now'))").run(chave, JSON.stringify(regs), regs.length);
+  salvar('v2:material_pdm:1:ES:24', es); salvar('v2:material_pdm:1:BR:24', br);
+  const fetchImpl = fetchFalso(() => ({ status: 200, body: { resultado: [{}], totalRegistros: 1252, totalPaginas: 126 } }));
+  const r = await relatorioMercado(db, { tipo: 'material_pdm', codigo: 1, uf: 'ES', meses: 24, nome: 'TESTE' }, { fetchImpl, agora: new Date('2026-10-12T12:00:00Z') });
+  assert.equal(r.brasil.periodos[6].parcial, true);
+  assert.equal(r.brasil.periodos[6].total_fonte, 1252);
 });

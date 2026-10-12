@@ -7,7 +7,7 @@ import { normalizarPrecoCompras } from './normalizacao.js';
 import { radical } from './busca.js';
 
 const CACHE_HORAS = 24;
-const MAX_PAGINAS = 6; // até 3.000 registros por consulta (500 por página), sempre os mais recentes
+const MAX_PAGINAS = 10; // páginas de 500 por parte do período; períodos maiores são divididos (baixarPrecos)
 let catalogoEmAndamento = false;
 
 // ---------- Catálogo ----------
@@ -131,7 +131,8 @@ export async function consultarPrecos(db, consulta, { fetchImpl, agora = new Dat
   const { tipo, codigo, uf, meses } = consulta;
   const ate = iso(agora);
   const desde = iso(new Date(agora.getTime() - meses * 30.44 * 86400000));
-  const chave = `${tipo}:${codigo}:${uf || 'BR'}:${meses}`;
+  // v2: a partir de 12/10/2026 o período é baixado inteiro (as amostras antigas, parciais, deixam de ser usadas)
+  const chave = `v2:${tipo}:${codigo}:${uf || 'BR'}:${meses}`;
   const cache = db.prepare(`SELECT * FROM precos_consultas WHERE chave=? AND consultado_em > datetime('now', ?)`).get(chave, `-${CACHE_HORAS} hours`);
   if (cache && !forcar) {
     return { registros: JSON.parse(cache.registros_json), total_fonte: cache.total_fonte, truncado: !!cache.truncado, consultado_em: cache.consultado_em, cache: true, desde, ate };

@@ -48,7 +48,7 @@ export function pdfRelatorio(r, { modo = 'interno', para = '', preparadoPor = ''
   pdf.tabela(['Onde', 'Período', 'Compras', 'Quantidade', 'Valor movimentado', 'Preço mediano', 'Órgãos'], linhasVolume(r),
     { larguras: [0.14, 0.12, 0.16, 0.14, 0.17, 0.15, 0.12], alinhar: ['', '', 'r', 'r', 'r', 'r', 'r'] });
   if ([r.brasil, r.estado].some((e) => e && PERIODOS.some((m) => e.periodos[m].parcial))) {
-    pdf.texto('* Período com mais compras do que o limite baixado: quantidade e valor contam as mais recentes; entre parênteses, o total de compras registradas.', { tam: 7.5, cor: [0.4, 0.4, 0.4] });
+    pdf.texto('* Amostra parcial: a fonte tem mais compras do que foi possível baixar. Quantidade e valor somam só a amostra; entre parênteses, o total oficial de compras.', { tam: 7.5, cor: [0.4, 0.4, 0.4] });
   }
 
   pdf.secao(`Quem compra${r.estado ? ` no ${onde}` : ''}`);

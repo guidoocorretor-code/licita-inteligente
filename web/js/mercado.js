@@ -33,13 +33,13 @@ function tabelaVolume(r) {
       return h('tr', { class: k === 0 ? 'inicio-grupo' : '' },
         k === 0 ? h('td', { rowspan: 3 }, h('strong', {}, nome)) : null,
         h('td', {}, `${m} meses`),
-        h('td', { class: 'num' }, numero(p.compras), p.parcial ? h('div', { class: 'suave pequeno', title: 'O período tem mais compras do que o limite baixado: quantidade e valor contam as mais recentes.' }, `de ${numero(p.total_fonte)} *`) : null),
+        h('td', { class: 'num' }, numero(p.compras), p.parcial ? h('div', { class: 'suave pequeno', title: 'Amostra parcial: a fonte tem mais compras do que foi possível baixar. Quantidade e valor somam só a amostra; "de N" é o total oficial.' }, `de ${numero(p.total_fonte)} *`) : null),
         h('td', { class: 'num' }, numero(p.quantidade)),
         h('td', { class: 'num', title: brl(p.valor) }, curto(p.valor)),
         h('td', { class: 'num' }, brl(p.mediana)),
         h('td', { class: 'num' }, numero(p.orgaos)));
     }))))),
-  parcial ? h('div', { class: 'suave pequeno' }, '* Mais compras do que o limite baixado: quantidade e valor contam as mais recentes; "de N" é o total de compras registradas.') : null];
+  parcial ? h('div', { class: 'suave pequeno' }, '* Amostra parcial: a fonte tem mais compras do que foi possível baixar. Quantidade e valor somam só a amostra; "de N" é o total oficial de compras.') : null];
 }
 
 function conteudo(r, q, est) {
@@ -170,7 +170,7 @@ ${lead ? `<h2>Como a assessoria ajuda sua empresa a vender para o governo</h2><u
 <li>Cadastro e documentação (SICAF, certidões e habilitação) em dia, com alertas de vencimento.</li>
 <li>Cotação com fornecedores e cálculo de custo, impostos e margem antes de entrar na disputa.</li>
 <li>Proposta de preços e acompanhamento da disputa até o contrato e o pagamento.</li></ul>` : ''}
-<div class="fonte">Fonte: Compras.gov.br, Dados Abertos (Pesquisa de Preços): compras de órgãos federais e de estados e municípios que usam o Compras.gov.br; compras feitas em outros sistemas não aparecem. Valores sem os preços fora da curva (critério estatístico).${PERIODOS.some((m) => r.brasil.periodos[m].parcial || r.estado?.periodos[m].parcial) ? ' * Período com mais compras do que o limite baixado: quantidade e valor contam as mais recentes.' : ''}</div>
+<div class="fonte">Fonte: Compras.gov.br, Dados Abertos (Pesquisa de Preços): compras de órgãos federais e de estados e municípios que usam o Compras.gov.br; compras feitas em outros sistemas não aparecem. Valores sem os preços fora da curva (critério estatístico).${PERIODOS.some((m) => r.brasil.periodos[m].parcial || r.estado?.periodos[m].parcial) ? ' * Amostra parcial: quantidade e valor somam só as compras baixadas; o total oficial aparece entre parênteses.' : ''}</div>
 </div></body></html>`;
   janela.document.open(); janela.document.write(html); janela.document.close();
   // A política de segurança do site bloqueia script dentro da página impressa: o botão é ligado daqui
