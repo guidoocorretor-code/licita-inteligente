@@ -16,10 +16,9 @@ const MENU = [
   ['empresas', 'Empresa'],
   ['Oportunidades'],
   ['dashboard', 'Dashboard'],
-  ['kanban', 'Kanban'],
+  ['kanban', 'Meus Negócios'],
   ['buscar', 'Buscar licitações'],
   ['jornal', 'Jornal de licitações'],
-  ['oportunidades', 'Minhas oportunidades'],
   ['notificacoes', 'Alertas'],
   ['Gestão'],
   ['precos', 'Análise de mercado'],
@@ -43,7 +42,7 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: J.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacoes: F.cotacoes, cotacao: F.cotacao, propostas: PR.propostas, proposta: PR.proposta, lances: LA.lances, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, financeiro: FI.financeiro, relatorios: FI.relatorios, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: () => { location.replace('#/kanban'); }, calendario: P.calendario, fornecedores: F.fornecedores, cotacoes: F.cotacoes, cotacao: F.cotacao, propostas: PR.propostas, proposta: PR.proposta, lances: LA.lances, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, financeiro: FI.financeiro, relatorios: FI.relatorios, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {
