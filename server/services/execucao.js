@@ -31,7 +31,8 @@ export function valorDe(o, fase) {
   const pri = (...pares) => { for (const [v, origem] of pares) if (v != null) return { valor: v, origem }; return { valor: null, origem: null }; };
   switch (fase) {
     case 'prospeccao': case 'disputa': return pri([o.valor_proposta, 'proposta'], [o.valor_estimado, 'edital']);
-    case 'ganha': case 'empenho': return pri([o.valor_ganho, 'ganho'], [o.valor_proposta, 'proposta']);
+    // Sem valor ganho nem proposta, vale o estimado do edital, marcado como "pelo edital" (pode incluir lotes não disputados)
+    case 'ganha': case 'empenho': return pri([o.valor_ganho, 'ganho'], [o.valor_proposta, 'proposta'], [o.valor_estimado, 'edital']);
     case 'a_entregar': case 'entregue': return pri([o.empenho_valor, 'empenho'], [o.valor_ganho, 'ganho'], [o.valor_proposta, 'proposta']);
     case 'faturada': return pri([o.nf_valor, 'nota'], [o.empenho_valor, 'empenho'], [o.valor_ganho, 'ganho']);
     case 'recebida': return pri([o.recebido_valor, 'recebido'], [o.nf_valor, 'nota'], [o.empenho_valor, 'empenho'], [o.valor_ganho, 'ganho']);

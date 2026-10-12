@@ -211,6 +211,13 @@ export function listarEnvios(db, empresaId, clienteId = null) {
     .map((r) => ({ ...r, licitacoes: JSON.parse(r.licitacoes).length, interesses: r.interesses ? JSON.parse(r.interesses) : null }));
 }
 
+/** Apaga envios da empresa (o link do cliente deixa de funcionar). Interesses já recebidos continuam nos Favoritos. */
+export function excluirEnvios(db, empresaId, ids) {
+  const lista = [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 200);
+  if (!lista.length) throw erro(400, 'Marque pelo menos um envio.');
+  return Number(db.prepare(`DELETE FROM jornal_envios WHERE empresa_id=? AND id IN (${lista.map(() => '?').join(',')})`).run(empresaId, ...lista).changes);
+}
+
 // ---------------- PDF ----------------
 const AZUL = [0.06, 0.24, 0.43]; const CINZA = [0.38, 0.4, 0.44];
 
