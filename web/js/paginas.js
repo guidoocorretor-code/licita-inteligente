@@ -194,6 +194,7 @@ export async function buscar(alvo, rota, est) {
     opcoes.map(([v, t]) => h('option', { value: v, selected: String(filtros[nome] ?? '') === String(v) }, t))));
   const campo = (rot, el, largo) => h('div', { class: largo ? 'largo' : '' }, h('label', { for: el.id }, rot), el);
 
+  let avancada; let resumoAvancada;
   const form = h('form', { class: 'cartao', onsubmit: (e) => { e.preventDefault(); aplicar({ pagina: 1 }); } },
     h('div', { class: 'filtros' },
       campo('Palavras-chave (objeto e itens)', inp('q', { type: 'search', placeholder: 'ex.: mouse, material hospitalar' }), true),
@@ -206,7 +207,11 @@ export async function buscar(alvo, rota, est) {
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
       campo('Esfera', sel('esfera', Object.entries(ESF))),
       campo('Modalidade', sel('modalidade', Object.entries(meta.modalidades), 'Todas')),
-      campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar')),
+      campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar'))),
+    // Filtros menos usados ficam na "Busca avançada"; abre sozinha se algum deles estiver em uso, para nada ficar escondido
+    avancada = h('details', { class: 'busca-avancada', open: false },
+      resumoAvancada = h('summary', {}, 'Busca avançada'),
+      h('div', { class: 'filtros' },
       campo('Segmento (estimado)', sel('segmento', meta.segmentos.map((s) => [s, s]))),
       campo('Sistema eletrônico', sel('sistema', Object.entries(meta.sistemas || {}).map(([k, x]) => [k, `${x.nome}${x.custo === 'pago' ? ' · pago' : x.custo === 'gratuito' ? ' · gratuito' : ''}`]), 'Todos')),
       campo('Pagômetro (CAPAG)', sel('capag', [['A,B', 'Só A e B (contas saudáveis)'], ['A', 'Só A'], ['B', 'Só B'], ['C', 'Só C'], ['D', 'Só D'], ['sem', 'Sem nota / federal']], 'Todas')),
@@ -227,13 +232,19 @@ export async function buscar(alvo, rota, est) {
       campo('Abertura da sessão nos próximos', sel('sessao_dias', [['7', '7 dias'], ['15', '15 dias'], ['30', '30 dias']], 'Qualquer data')),
       campo('Publicadas nos últimos', sel('publicadas_dias', [['7', '7 dias'], ['15', '15 dias'], ['30', '30 dias']], 'Qualquer data')),
       campo('Código CATMAT/CATSER', inp('catalogo')),
-      campo('Ordenar por', sel('ordenar', [['encerramento_asc', 'Prazo mais próximo'], ['publicacao_desc', 'Mais recentes'], ['valor_desc', 'Maior valor'], ['valor_asc', 'Menor valor'], ['atualizacao_desc', 'Atualização mais recente']], 'Padrão'))),
+      campo('Ordenar por', sel('ordenar', [['encerramento_asc', 'Prazo mais próximo'], ['publicacao_desc', 'Mais recentes'], ['valor_desc', 'Maior valor'], ['valor_asc', 'Menor valor'], ['atualizacao_desc', 'Atualização mais recente']], 'Padrão')))),
     h('div', { class: 'linha', style: { marginTop: '10px' } },
       h('button', { class: 'btn primario', type: 'submit' }, 'Buscar'),
       h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/buscar'; } }, 'Limpar'),
       h('button', { class: 'btn', type: 'button', onclick: salvarPesquisa }, '💾 Salvar pesquisa'),
       h('button', { class: 'btn', type: 'button', onclick: () => exportar('csv') }, '⬇ CSV'),
       h('button', { class: 'btn', type: 'button', onclick: () => exportar('xlsx') }, '⬇ Excel')));
+
+  // Quantos filtros avançados estão em uso (a ordenação padrão não conta)
+  const AVANCADOS = ['segmento', 'sistema', 'capag', 'sistema_custo', 'plataforma', 'regime_legal', 'valor_min', 'valor_max', 'publicacao_de', 'publicacao_ate',
+    'abertura_de', 'abertura_ate', 'prazo_min_dias', 'tipo_item', 'me_epp', 'srp', 'com_documentos', 'sessao_dias', 'publicadas_dias', 'catalogo', 'ordenar'];
+  const emUso = AVANCADOS.filter((k) => filtros[k] != null && filtros[k] !== '' && !(k === 'ordenar' && filtros[k] === FILTROS_PADRAO.ordenar)).length;
+  if (emUso) { avancada.open = true; resumoAvancada.append(h('span', { class: 'etiqueta azul pequena' }, `${emUso} em uso`)); }
 
   const lerFiltros = () => {
     const f = { visao: filtros.visao };

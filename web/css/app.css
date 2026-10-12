@@ -664,3 +664,11 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .item-dia-hora { font-weight: 700; font-variant-numeric: tabular-nums; }
 .item-dia-corpo { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .item-dia-objeto { color: var(--texto); font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+/* Buscar licitações: filtros principais à vista, o resto em "Busca avançada" */
+.busca-avancada { margin-top: 10px; border-top: 1px solid var(--borda); padding-top: 8px; }
+.busca-avancada > summary { cursor: pointer; font-weight: 600; color: var(--cor-primaria); display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; }
+.busca-avancada[open] > summary { margin-bottom: 8px; }
+.busca-avancada > summary { list-style: none; }
+.busca-avancada > summary::-webkit-details-marker { display: none; }
+.busca-avancada > summary::before { content: '▸'; font-size: .9rem; }
+.busca-avancada[open] > summary::before { content: '▾'; }
