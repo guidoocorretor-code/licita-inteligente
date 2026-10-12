@@ -283,14 +283,14 @@ export function intervaloPeriodo({ tipo, ano, mes, tri, sem, de, ate }) {
   if (tipo === 'livre' && (de || ate)) return { de: de || null, ate: ate || null };
   return { de: null, ate: null };
 }
-function lerPeriodo(q) {
+export function lerPeriodo(q) {
   const hoje = new Date();
   const x = { tipo: q.get('tipo') || 'tudo', ano: q.get('ano') || String(hoje.getFullYear()), mes: q.get('mes') || String(hoje.getMonth() + 1),
     tri: q.get('tri') || String(Math.floor(hoje.getMonth() / 3) + 1), sem: q.get('sem') || (hoje.getMonth() < 6 ? '1' : '2'), de: q.get('de') || '', ate: q.get('ate') || '' };
   return { ...x, ...intervaloPeriodo(x) };
 }
 const dataBrCurta = (iso) => (iso ? iso.split('-').reverse().join('/') : '…');
-function barraPeriodo(per, info) {
+export function barraPeriodo(per, info, { destino = '#/dashboard/empresas', explica = 'Cada card conta pela data da etapa em que está (ex.: Recebido pela data do pagamento, A receber pela data da nota).', tudo = 'Mostrando tudo o que está no Kanban.' } = {}) {
   const tipo = h('select', { 'aria-label': 'Tipo de período' }, [['tudo', 'Tudo'], ['mes', 'Mês'], ['tri', 'Trimestre'], ['sem', 'Semestre'], ['ano', 'Ano'], ['livre', 'Período (datas)']]
     .map(([v, t]) => h('option', { value: v, selected: per.tipo === v }, t)));
   const anoAtual = new Date().getFullYear();
@@ -311,12 +311,12 @@ function barraPeriodo(per, info) {
     const t = tipo.value;
     if (t === 'livre' && de.value && ate.value && de.value > ate.value) { toast('A data inicial é depois da final.'); return; }
     const q = t === 'tudo' ? {} : t === 'livre' ? { tipo: t, de: de.value, ate: ate.value } : { tipo: t, ano: ano.value, ...(t === 'mes' ? { mes: mes.value } : t === 'tri' ? { tri: tri.value } : t === 'sem' ? { sem: sem.value } : {}) };
-    location.hash = `#/dashboard/empresas${qs(q)}`;
+    location.hash = `${destino}${qs(q)}`;
   };
   const resumo = per.de || per.ate
-    ? h('span', { class: 'suave pequeno' }, `De ${dataBrCurta(per.de)} a ${dataBrCurta(per.ate)}. Cada card conta pela data da etapa em que está (ex.: Recebido pela data do pagamento, A receber pela data da nota).`,
+    ? h('span', { class: 'suave pequeno' }, `De ${dataBrCurta(per.de)} a ${dataBrCurta(per.ate)}. ${explica}`,
       info?.fora_sem_data ? h('strong', {}, ` ${info.fora_sem_data} card(s) sem a data da etapa ficaram de fora: complete no Kanban.`) : null)
-    : h('span', { class: 'suave pequeno' }, 'Mostrando tudo o que está no Kanban.');
+    : h('span', { class: 'suave pequeno' }, tudo);
   return h('form', { class: 'cartao pe-periodo', onsubmit: aplicar },
     h('div', { class: 'linha' }, h('strong', {}, '📅 Período'), tipo, mes, tri, sem, ano, de, ate, h('button', { class: 'btn primario', type: 'submit' }, 'Aplicar')),
     resumo);

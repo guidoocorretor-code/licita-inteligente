@@ -10,14 +10,14 @@ const podeEditar = (e) => e.usuario.papel !== 'leitor';
 // Nome da empresa assessorada em foco (null = todas)
 const empresaEmFoco = (est) => est?.clientes?.find((c) => String(c.id) === clienteSelecionado()) || null;
 const nomeEmpresa = (c) => c.nome_fantasia || c.razao_social;
-const avisoEmpresa = (est, oQue) => {
+export const avisoEmpresa = (est, oQue) => {
   const c = empresaEmFoco(est);
   return h('div', { class: 'faixa-empresa' }, c ? ['🏢 ', h('strong', {}, nomeEmpresa(c)), ` · ${oQue} só desta empresa. `, h('a', { href: '#/empresas' }, 'Trocar')]
     : est?.clientes?.length ? ['🏢 Todas as empresas · ', oQue, ' de todas. Escolha uma empresa no topo para separar.'] : null);
 };
 const ESF = { F: 'Federal', E: 'Estadual', M: 'Municipal', D: 'Distrital', N: 'Não se aplica' };
 
-function cabecalho(titulo, subtitulo, ...acoes) {
+export function cabecalho(titulo, subtitulo, ...acoes) {
   return h('div', { class: 'cabecalho-pagina' },
     h('div', {}, h('h1', {}, titulo), subtitulo ? h('div', { class: 'suave' }, subtitulo) : null),
     h('div', { class: 'linha' }, ...acoes));
@@ -458,14 +458,14 @@ const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentari
 
 // "Nota fiscal emitida" e "Recebido" só mudam com a senha de um administrador (o servidor confere; nada fica guardado aqui).
 // fn(extra) faz a chamada; se o servidor pedir a senha (423), abre a janela e tenta de novo com ela.
-async function comSenhaAdmin(fn) {
+export async function comSenhaAdmin(fn, texto = 'Este card está em "Nota fiscal emitida" ou "Recebido". Para alterar, voltar de etapa ou excluir, um administrador precisa digitar a senha dele.', rodape = 'A autorização fica registrada no histórico do card com o nome do administrador.') {
   try { return await fn({}); } catch (e) { if (e.status !== 423) throw e; }
   return new Promise((resolve, reject) => {
     const campo = h('input', { type: 'password', autocomplete: 'off', placeholder: 'Senha de um administrador' });
     const msg = h('p', { class: 'pequeno texto-alerta' });
     modal('🔒 Senha do administrador', h('div', {},
-      h('p', {}, 'Este card está em "Nota fiscal emitida" ou "Recebido". Para alterar, voltar de etapa ou excluir, um administrador precisa digitar a senha dele.'),
-      campo, msg, h('p', { class: 'pequeno suave' }, 'A autorização fica registrada no histórico do card com o nome do administrador.')),
+      h('p', {}, texto),
+      campo, msg, h('p', { class: 'pequeno suave' }, rodape)),
     [{ texto: 'Autorizar', classe: 'primario', acao: async () => {
       try { resolve(await fn({ senha_admin: campo.value })); return true; }
       catch (e) { if (e.status === 423 || e.status === 429) { msg.textContent = e.message; campo.select(); return false; } reject(e); return true; }
@@ -686,6 +686,8 @@ export async function kanban(alvo, _r, est) {
     const execucao = camposExecucao(c, k.etapas.find((e) => e.id === c.etapa_id)?.fase);
     modal(c.objeto?.slice(0, 90) || 'Oportunidade', h('div', {},
       h('p', {}, h('a', { href: `#/licitacao/${c.licitacao_id}` }, 'Abrir licitação'), ' · ', h('a', { href: `#/cotacao/${c.id}`, title: 'Cotações dos fornecedores, custo, margem e preço mínimo por item' }, '💲 Cotações'), ' · ', h('a', { href: `#/proposta/${c.id}`, title: 'Proposta de preços montada a partir das cotações' }, '📝 Proposta'),
+        ['ganha', 'empenho', 'a_entregar', 'entregue', 'faturada', 'recebida'].includes(k.etapas.find((e) => e.id === c.etapa_id)?.fase)
+          ? [' · ', h('a', { href: `#/financeiro/custos/${c.id}`, title: 'Custos do contrato e lucro real' }, '📊 Custos e lucro')] : null,
         ' · Situação oficial: ', etiquetaStatus(c.status_calculado, est.meta)),
       faixaGoverno(c),
       h('div', { class: 'campo' }, h('label', {}, 'Responsável'), resp),

@@ -24,11 +24,11 @@ const tentativas = new Map();
 const JANELA = 15 * 60000; const MAX = 5;
 
 /** Confere a senha contra os administradores ativos da conta. Devolve { id, nome } do administrador ou lança erro. */
-export function conferirSenhaAdmin(db, empresaId, usuarioId, senha) {
+export function conferirSenhaAdmin(db, empresaId, usuarioId, senha, { aviso = 'Este card está em "Nota fiscal emitida" ou "Recebido": informe a senha do administrador.' } = {}) {
   const agora = Date.now();
   const t = (tentativas.get(usuarioId) || []).filter((x) => agora - x < JANELA);
   if (t.length >= MAX) throw Object.assign(new Error('Muitas tentativas com senha errada. Aguarde 15 minutos.'), { status: 429 });
-  if (!senha) throw Object.assign(new Error('Este card está em "Nota fiscal emitida" ou "Recebido": informe a senha do administrador.'), { status: 423, codigo: 'senha_admin' });
+  if (!senha) throw Object.assign(new Error(aviso), { status: 423, codigo: 'senha_admin' });
   const admins = db.prepare("SELECT id, nome, senha_hash FROM usuarios WHERE empresa_id=? AND papel='admin' AND ativo=1").all(empresaId);
   const ok = admins.find((a) => bcrypt.compareSync(String(senha), a.senha_hash));
   if (!ok) {

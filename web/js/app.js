@@ -6,6 +6,7 @@ import * as F from './fornecedores.js';
 import * as PR from './propostas.js';
 import * as LA from './lances.js';
 import * as J from './jornal.js';
+import * as FI from './financeiro.js';
 
 export const estado = { usuario: null, empresa: null, meta: null, clientes: [] };
 
@@ -28,12 +29,13 @@ const MENU = [
   ['cotacoes', 'Cotações', null, true],
   ['lances', 'Gestão de lances'],
   ['propostas', 'Propostas'],
+  ['Financeiro'],
+  ['financeiro', 'Financeiro'],
+  ['relatorios', 'Relatórios'],
   ['Inteligência'],
   ['pagometro', 'Pagômetro'],
   ['ia-edital', 'Análise de edital por IA', 4],
   ['ia-juridico', 'Assistente jurídico', 4],
-  ['financeiro', 'Financeiro', 5],
-  ['relatorios', 'Relatórios', 5],
   ['Administração'],
   ['fontes', 'Fontes de dados'],
   ['configuracoes', 'Configurações'],
@@ -41,7 +43,7 @@ const MENU = [
 
 const ROTAS = {
   dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: J.jornal, favoritos: P.favoritos,
-  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacoes: F.cotacoes, cotacao: F.cotacao, propostas: PR.propostas, proposta: PR.proposta, lances: LA.lances, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
+  kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacoes: F.cotacoes, cotacao: F.cotacao, propostas: PR.propostas, proposta: PR.proposta, lances: LA.lances, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, financeiro: FI.financeiro, relatorios: FI.relatorios, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 
 function rotaAtual() {
