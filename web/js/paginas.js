@@ -802,13 +802,16 @@ export async function notificacoes(alvo, _r, est) {
   const [ns, ps] = await Promise.all([api('/notificacoes'), api('/pesquisas')]);
   render(alvo, avisoEmpresa(est, 'Alertas e pesquisas salvas'), cabecalho('Alertas', 'Prazos, vencimento de certidões, mudanças nos editais acompanhados e novas licitações das pesquisas salvas.',
     h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); window.dispatchEvent(new Event('atualizar-sino')); notificacoes(alvo, _r, est); } }, 'Marcar todas como lidas')),
-  h('div', { class: 'aviso azul' }, 'Você recebe alertas automáticos das licitações favoritas e das que estão no Kanban: 3 dias e 1 dia antes do fim das propostas, prazo interno no dia anterior e quando o edital muda (alteração, documento, situação ou resultado). Envio por e-mail em ',
+  h('div', { class: 'aviso azul' }, 'Você recebe alertas automáticos das licitações favoritas e das que estão no Kanban da empresa (a etiqueta mostra de onde vem cada um; ao tirar do Kanban, dos Favoritos ou descartar, o alerta some): 3 dias e 1 dia antes do fim das propostas, prazo interno no dia anterior e quando o edital muda (alteração, documento, situação ou resultado). Envio por e-mail em ',
     h('a', { href: '#/configuracoes' }, 'Configurações'), '. WhatsApp: depende de provedor oficial autorizado (pendente).'),
   h('div', { class: 'grade duas' },
     h('div', { class: 'cartao' }, h('h2', {}, 'Notificações'),
       ns.length ? ns.map((n) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(n.criado_em), n.lida ? '' : h('div', { class: 'etiqueta azul' }, 'nova')),
         h('div', {}, h('strong', {}, n.titulo),
           n.cliente_id && !clienteSelecionado() ? h('span', { class: 'etiqueta empresa', style: { marginLeft: '6px' } }, `🏢 ${n.cliente_nome || ''}`) : null,
+          // De onde vem o alerta: card do Kanban (com a etapa) e/ou favorito
+          n.kanban_etapa ? h('a', { class: 'etiqueta', href: '#/kanban', style: { marginLeft: '6px' }, title: 'Alerta porque a licitação está no Kanban desta empresa' }, `Kanban: ${n.kanban_etapa}`) : null,
+          n.favorito ? h('a', { class: 'etiqueta', href: '#/favoritos', style: { marginLeft: '6px' }, title: 'Alerta porque a licitação está nos Favoritos desta empresa' }, '☆ Favorito') : null,
           h('div', { class: 'pequeno' }, n.licitacao_id ? h('a', { href: `#/licitacao/${n.licitacao_id}` }, n.mensagem)
             : n.tipo === 'vencimento' && n.cliente_id ? h('a', { href: `#/empresas/${n.cliente_id}` }, n.mensagem) : n.mensagem))))
         : vazio('Sem notificações.')),

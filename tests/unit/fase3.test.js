@@ -5,7 +5,7 @@ import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao } from '../../server/services/repositorio.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, usuarioDoToken, revogarTokenCalendario } from '../../server/services/calendario.js';
-import { avaliarAlertasAcompanhadas } from '../../server/services/alertas.js';
+import { avaliarAlertasAcompanhadas, listarNotificacoes } from '../../server/services/alertas.js';
 import { enviarAlertasPendentes, montarEmail, _reiniciarEmail } from '../../server/services/email.js';
 
 const AGORA = '2026-10-10T12:00:00'; // horário de Brasília
@@ -138,4 +138,31 @@ test('e-mail: sem SMTP_URL nada é enviado; texto escapa HTML e limita a 30 iten
   assert.match(m.assunto, /35 novos alertas/);
   assert.ok(!m.html.includes('<b>Alerta'));
   assert.match(m.texto, /mais 5 alerta/);
+});
+
+test('alertas só da empresa que acompanha: saiu do Kanban, trocou de empresa ou foi descartada → some', () => {
+  const { db, emp, u1, ids } = preparar();
+  const cliA = Number(db.prepare("INSERT INTO clientes (empresa_id, cnpj, razao_social) VALUES (?, '11111111000191', 'EMPRESA A (TESTE)')").run(emp).lastInsertRowid);
+  const cliB = Number(db.prepare("INSERT INTO clientes (empresa_id, cnpj, razao_social) VALUES (?, '22222222000191', 'EMPRESA B (TESTE)')").run(emp).lastInsertRowid);
+  const op0 = kanban(db, emp, ids[0], { responsavel: u1 });
+  const op1 = kanban(db, emp, ids[1], { responsavel: u1 });
+  db.prepare('UPDATE oportunidades SET cliente_id=? WHERE id IN (?,?)').run(cliA, op0, op1);
+  assert.equal(avaliarAlertasAcompanhadas(db, AGORA), 2);
+  const lista = listarNotificacoes(db, u1, cliA);
+  assert.equal(lista.length, 2);
+  assert.equal(lista[0].kanban_etapa, 'Nova oportunidade');
+  // card 0 removido do Kanban; card 1 passou para a empresa B
+  db.prepare('DELETE FROM oportunidades WHERE id=?').run(op0);
+  db.prepare('UPDATE oportunidades SET cliente_id=? WHERE id=?').run(cliB, op1);
+  assert.equal(listarNotificacoes(db, u1, cliA).length, 0);
+  assert.equal(listarNotificacoes(db, u1, cliB).length, 0);                    // o aviso antigo era da empresa A
+  // favorito da empresa A traz o alerta da licitação 0 de volta, marcado como favorito
+  db.prepare("INSERT INTO favoritos (empresa_id, usuario_id, cliente_id, tipo, referencia) VALUES (?,?,?,'licitacao',?)").run(emp, u1, cliA, String(ids[0]));
+  const fav = listarNotificacoes(db, u1, cliA);
+  assert.equal(fav.length, 1); assert.equal(fav[0].favorito, true);
+  // etapa "descartada" não gera nem mostra alerta
+  const desc = Number(db.prepare("INSERT INTO kanban_etapas (empresa_id, nome, ordem, fase) VALUES (?, 'Descartada', 9, 'descartada')").run(emp).lastInsertRowid);
+  db.prepare('UPDATE oportunidades SET etapa_id=? WHERE id=?').run(desc, op1);
+  assert.equal(avaliarAlertasAcompanhadas(db, '2026-10-11T16:00:00'), 0);
+  assert.equal(listarNotificacoes(db, u1, cliB).length, 0);
 });

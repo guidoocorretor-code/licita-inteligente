@@ -1,5 +1,6 @@
 // Indicadores calculados exclusivamente a partir do banco de dados.
 import { statusDaVisao, agoraBrasilia } from './status.js';
+import { listarNotificacoes } from './alertas.js';
 
 const inSt = (visao) => statusDaVisao(visao).map((s) => `'${s}'`).join(',');
 
@@ -39,7 +40,7 @@ export function indicadores(db, { usuarioId, agora = agoraBrasilia() } = {}) {
     por_segmento: todos(`SELECT COALESCE(segmento,'(sem objeto)') rotulo, COUNT(*) n FROM licitacoes GROUP BY segmento ORDER BY n DESC`),
     por_modalidade: todos(`SELECT COALESCE(modalidade_nome,'(não informada)') rotulo, MIN(modalidade_id) id, COUNT(*) n FROM licitacoes GROUP BY modalidade_nome ORDER BY n DESC`),
     por_plataforma: todos(`SELECT COALESCE(plataforma_origem,'(não informada)') rotulo, COUNT(*) n FROM licitacoes GROUP BY plataforma_origem ORDER BY n DESC`),
-    alertas_pendentes: usuarioId ? um('SELECT COUNT(*) n FROM notificacoes WHERE usuario_id=? AND lida=0', usuarioId).n : 0,
+    alertas_pendentes: usuarioId ? listarNotificacoes(db, usuarioId, null, { limite: 500 }).filter((n) => !n.lida).length : 0,
     conectores_com_falha: todos(`SELECT codigo, nome, situacao_conexao, ultimo_erro, ultima_sincronizacao FROM fontes
       WHERE habilitada=1 AND situacao_conexao IN ('erro','bloqueada_rede')`),
   };
