@@ -156,11 +156,12 @@ const s = (tag, attrs = {}) => { const el = document.createElementNS(SVG, tag); 
  * Gráfico de rosca com legenda (nome, quantidade e %). Mostra no máximo `max` fatias;
  * o restante é somado em "Outros". Usado só para partes de um todo com poucas categorias.
  */
-export function rosca(itens, { max = 5, rotulo = (i) => i.rotulo, aoClicar } = {}) {
+// ordemFixa: mantém a ordem e a cor de cada item (i.cor), para a cor seguir o tipo e não o tamanho
+export function rosca(itens, { max = 5, rotulo = (i) => i.rotulo, aoClicar, ordemFixa = false, rotuloTotal = 'total' } = {}) {
   const validos = itens.filter((i) => i.n > 0);
   if (!validos.length) return vazio('Sem dados ainda.');
-  const ordenados = [...validos].sort((a, b) => b.n - a.n);
-  const fatias = ordenados.slice(0, max).map((i, k) => ({ ...i, nome: rotulo(i), cor: CORES_CAT[k] }));
+  const ordenados = ordemFixa ? validos : [...validos].sort((a, b) => b.n - a.n);
+  const fatias = ordenados.slice(0, max).map((i, k) => ({ ...i, nome: rotulo(i), cor: (ordemFixa && i.cor) || CORES_CAT[k] }));
   const resto = ordenados.slice(max).reduce((t, i) => t + i.n, 0);
   if (resto) fatias.push({ nome: `Outros (${ordenados.length - max})`, n: resto, cor: COR_OUTROS, outros: true });
   const total = fatias.reduce((t, f) => t + f.n, 0);
@@ -186,7 +187,7 @@ export function rosca(itens, { max = 5, rotulo = (i) => i.rotulo, aoClicar } = {
     svg.append(el);
   }
   const tTotal = s('text', { x: C, y: C - 2, 'text-anchor': 'middle', class: 'rosca-total' }); tTotal.textContent = NUM.format(total);
-  const tRot = s('text', { x: C, y: C + 14, 'text-anchor': 'middle', class: 'rosca-rotulo' }); tRot.textContent = 'total';
+  const tRot = s('text', { x: C, y: C + 14, 'text-anchor': 'middle', class: 'rosca-rotulo' }); tRot.textContent = rotuloTotal;
   svg.append(tTotal, tRot);
 
   const legenda = h('ul', { class: 'rosca-legenda' }, fatias.map((f) => h('li', { title: `${f.nome}: ${NUM.format(f.n)} (${pct(f.n)})`,

@@ -392,7 +392,11 @@ r.post('/notificacoes/:id/lida', (req, res) => {
 });
 r.post('/notificacoes/lidas', (req, res) => {
   const c = doCliente(req);
-  db().prepare(`UPDATE notificacoes SET lida=1 WHERE usuario_id=?${c.sql}`).run(req.usuario.id, ...c.p); res.json({ ok: true });
+  // ids: só estes (ex.: "marcar este tipo como lido"); sem ids: todos
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(inteiro).filter(Boolean).slice(0, 1000) : null;
+  if (ids && !ids.length) return res.json({ ok: true });
+  db().prepare(`UPDATE notificacoes SET lida=1 WHERE usuario_id=?${c.sql}${ids ? ` AND id IN (${ids.map(() => '?').join(',')})` : ''}`)
+    .run(req.usuario.id, ...c.p, ...(ids || [])); res.json({ ok: true });
 });
 
 // ---------------- Kanban (etapa interna separada da situação oficial) ----------------
