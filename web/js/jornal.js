@@ -63,8 +63,8 @@ export async function jornal(alvo, rota, est) {
       !d.cliente ? h('p', { class: 'pequeno texto-alerta' }, 'Nenhuma empresa escolhida no topo: o jornal sai sem o cabeçalho da empresa.') : null,
       h('p', { class: 'pequeno suave', style: { wordBreak: 'break-all' } }, 'Link para copiar e mandar por WhatsApp: ', h('a', { href: d.url, target: '_blank', rel: 'noopener' }, d.url))),
     [{ texto: 'Enviar', classe: 'primario', acao: async () => {
-      try { const r = await api(`/jornal/envios/${d.envio.id}/email`, { metodo: 'POST', corpo: { para: para.value.trim() } }); toast(`Jornal enviado para ${r.para}.`, 6000); carregarEnviados(); return true; }
-      catch (e) { toast(e.message, 8000); return false; }
+      try { const r = await api(`/jornal/envios/${d.envio.id}/email`, { metodo: 'POST', corpo: { para: para.value.trim() } }); toast(`O provedor de e-mail aceitou o envio para ${r.para}. Se não chegar em alguns minutos, peça para olhar o spam.`, 8000); carregarEnviados(); return true; }
+      catch (e) { toast(e.message, 10000); carregarEnviados(); return false; }
     } }]);
   };
   const marcarPagina = (sim) => { for (const c of caixas) { const id = Number(c.dataset.id); if (sim) sel.add(id); else sel.delete(id); } atualizar(); };
@@ -106,7 +106,7 @@ export async function jornal(alvo, rota, est) {
         h('thead', {}, h('tr', {}, ['Montado em', 'Empresa', 'Licitações', 'E-mail', 'Abriu o link', 'Resposta'].map((t) => h('th', {}, t)))),
         h('tbody', {}, r.envios.map((e) => h('tr', {},
           h('td', {}, dataUtc(e.criado_em)), h('td', {}, e.cliente || '—'), h('td', { class: 'num' }, e.licitacoes),
-          h('td', {}, e.email_status === 'enviado' ? `enviado para ${e.email_para}` : e.email_status === 'erro' ? h('span', { class: 'texto-alerta', title: e.email_erro || '' }, 'falhou') : e.email_status === 'sem_smtp' ? 'e-mail não configurado' : '—'),
+          h('td', {}, e.email_status === 'enviado' ? `enviado para ${e.email_para}` : e.email_status === 'erro' ? h('span', { class: 'texto-alerta' }, `não enviado para ${e.email_para}: ${e.email_erro || 'erro desconhecido'}`) : e.email_status === 'sem_smtp' ? 'e-mail não configurado' : '—'),
           h('td', {}, e.ultimo_acesso ? dataUtc(e.ultimo_acesso) : 'ainda não'),
           h('td', {}, e.respondido_em
             ? h('span', { class: e.interesses?.length ? 'texto-sucesso' : '' }, `${e.respondente}: ${e.interesses?.length ? `interesse em ${e.interesses.length}` : 'nenhuma marcada'}${e.observacao ? ` · "${e.observacao}"` : ''}`)
