@@ -2,7 +2,7 @@
 // (marcar cards, imprimir com o cabeçalho da empresa, PDF clicável e e-mail ao representante legal com o
 // link em que ele marca as licitações de interesse; a resposta volta como alerta e favorito).
 import { api, qs, clienteSelecionado } from './api.js';
-import { h, render, toast, carregando, vazio, dataUtc, modal } from './ui.js';
+import { h, render, toast, carregando, vazio, dataUtc, modal, paginacao } from './ui.js';
 
 const TIPOS_EVENTO = { publicacao: 'Nova publicação', alteracao: 'Alteração/retificação', situacao: 'Mudança de situação', documento: 'Novo documento', resultado: 'Resultado/homologação', item: 'Item' };
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -28,11 +28,34 @@ export async function jornal(alvo, rota, est) {
   const ir = (pagina = 1) => { location.hash = `#/jornal${qs({ ...filtros(), pagina })}`; };
   const sel = lerSelecao();
   const contador = h('strong', {});
+  const foraDaPagina = h('button', { class: 'btn pequeno', type: 'button', hidden: true, onclick: () => verSelecionadas(), title: 'A seleção continua ao trocar de página ou de filtro' });
   const caixas = [];
   const atualizar = () => {
     contador.textContent = `${sel.size} selecionada(s)`;
     for (const c of caixas) c.checked = sel.has(Number(c.dataset.id));
+    const nestaPagina = new Set(caixas.map((c) => Number(c.dataset.id)).filter((id) => sel.has(id))).size; // a mesma licitação pode ter 2 eventos na página
+    const fora = sel.size - nestaPagina;
+    foraDaPagina.hidden = fora <= 0;
+    foraDaPagina.textContent = `⚠ ${fora} de outras páginas ou filtros · ver`;
     gravarSelecao(sel);
+  };
+  // Lista tudo o que vai no jornal, inclusive o que foi marcado em outra página ou outro filtro, com opção de tirar
+  const verSelecionadas = async () => {
+    if (!sel.size) return toast('Nenhuma licitação marcada.');
+    let r;
+    try { r = await api(`/jornal/selecao${qs({ ids: [...sel].join(',') })}`); } catch (e) { return toast(e.message, 6000); }
+    const porId = new Map(r.dados.map((l) => [l.id, l]));
+    const corpo = h('div', { class: 'lista-selecao', style: { maxHeight: '55vh', overflow: 'auto' } });
+    const desenhar = () => render(corpo, sel.size ? [...sel].map((id) => {
+      const l = porId.get(id);
+      return h('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--borda)', padding: '6px 0' } },
+        h('div', { style: { flex: '1' } }, h('div', {}, l ? (l.objeto || '').slice(0, 140) : `Licitação nº ${id} (não encontrada)`),
+          l ? h('div', { class: 'suave pequeno' }, [l.orgao_nome, [l.municipio, l.uf].filter(Boolean).join('/')].filter(Boolean).join(' · ')) : null),
+        h('button', { class: 'btn pequeno perigo', type: 'button', onclick: () => { sel.delete(id); atualizar(); desenhar(); } }, 'Tirar'));
+    }) : vazio('Nenhuma licitação marcada.'));
+    desenhar();
+    modal('Licitações marcadas para o jornal', h('div', {}, h('p', { class: 'pequeno suave' }, 'É exatamente isto que vai no PDF e no e-mail.'), corpo),
+      [{ texto: 'Desmarcar todas', classe: 'perigo', acao: () => { sel.clear(); atualizar(); } }]);
   };
   const lista = h('div', {}, carregando());
   const enviados = h('div', {});
@@ -59,11 +82,13 @@ export async function jornal(alvo, rota, est) {
     const para = h('input', { type: 'email', value: d.cliente?.resp_email || d.cliente?.email || '', placeholder: 'email@empresa.com.br', style: { width: '100%' } });
     modal('Enviar jornal por e-mail', h('div', {},
       h('p', {}, `${d.itens.length} licitação(ões). O e-mail leva o PDF e o link em que o empresário marca as que tem interesse; a resposta chega para você no sino (🔔) e nos Favoritos, lista "Interesse do cliente".`),
+      h('ol', { class: 'pequeno', style: { maxHeight: '180px', overflow: 'auto', paddingLeft: '20px' } },
+        ...d.itens.map((l) => h('li', {}, `${(l.objeto || '').slice(0, 110)} · ${[l.municipio, l.uf].filter(Boolean).join('/')}`))),
       h('label', {}, `E-mail do representante legal${d.cliente?.resp_nome ? ` (${d.cliente.resp_nome})` : ''}`), para,
       !d.cliente ? h('p', { class: 'pequeno texto-alerta' }, 'Nenhuma empresa escolhida no topo: o jornal sai sem o cabeçalho da empresa.') : null,
       h('p', { class: 'pequeno suave', style: { wordBreak: 'break-all' } }, 'Link para copiar e mandar por WhatsApp: ', h('a', { href: d.url, target: '_blank', rel: 'noopener' }, d.url))),
     [{ texto: 'Enviar', classe: 'primario', acao: async () => {
-      try { const r = await api(`/jornal/envios/${d.envio.id}/email`, { metodo: 'POST', corpo: { para: para.value.trim() } }); toast(`O provedor de e-mail aceitou o envio para ${r.para}. Se não chegar em alguns minutos, peça para olhar o spam.`, 8000); carregarEnviados(); return true; }
+      try { const r = await api(`/jornal/envios/${d.envio.id}/email`, { metodo: 'POST', corpo: { para: para.value.trim() } }); toast(`O provedor de e-mail aceitou o envio para ${r.para}. A seleção foi limpa para o próximo jornal.`, 8000); sel.clear(); atualizar(); carregarEnviados(); return true; }
       catch (e) { toast(e.message, 10000); carregarEnviados(); return false; }
     } }]);
   };
@@ -77,7 +102,7 @@ export async function jornal(alvo, rota, est) {
   };
 
   const barra = h('div', { class: 'cartao barra-jornal' },
-    h('div', { class: 'linha' }, contador,
+    h('div', { class: 'linha' }, contador, foraDaPagina,
       h('button', { class: 'btn pequeno', type: 'button', onclick: () => marcarPagina(true) }, '☑ Marcar esta página'),
       h('button', { class: 'btn pequeno', type: 'button', onclick: marcarTodos, title: 'Todas as licitações do filtro atual (até 60)' }, '☑ Marcar todos os resultados'),
       h('button', { class: 'btn pequeno', type: 'button', onclick: () => { sel.clear(); atualizar(); } }, 'Limpar')),
@@ -153,10 +178,7 @@ export async function jornal(alvo, rota, est) {
           h('span', { class: `etiqueta participacao-${s.custo}`, title: s.resumo }, `Participação: ${s.participacao}`)),
         e.valor_anterior != null ? h('div', { class: 'suave pequeno' }, `De: ${e.valor_anterior} → Para: ${e.valor_novo}`) : null));
   }),
-  h('div', { class: 'paginacao' },
-    h('button', { class: 'btn', disabled: r.pagina <= 1, onclick: () => ir(r.pagina - 1) }, '← Anterior'),
-    h('span', { class: 'suave' }, `Página ${r.pagina} de ${r.paginas}`),
-    h('button', { class: 'btn', disabled: r.pagina >= r.paginas, onclick: () => ir(r.pagina + 1) }, 'Próxima →')));
+  paginacao(r.pagina, r.paginas, ir));
   atualizar();
 }
 

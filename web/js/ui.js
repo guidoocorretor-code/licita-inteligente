@@ -89,6 +89,26 @@ export function modal(titulo, conteudo, acoes = [], { fechar: rotuloFechar = 'Fe
   return fechar;
 }
 
+// Paginação com os números das páginas (1 2 3 … 10) para ir direto à página desejada.
+// Mostra a primeira, a última e duas de cada lado da atual; o resto vira "…".
+export function numerosPaginas(atual, total, vizinhas = 2) {
+  const out = [];
+  for (let p = 1; p <= total; p++) {
+    if (p === 1 || p === total || Math.abs(p - atual) <= vizinhas) out.push(p);
+    else if (out[out.length - 1] !== '…') out.push('…');
+  }
+  return out;
+}
+export function paginacao(atual, total, ir) {
+  total = Math.max(1, total || 1);
+  return h('nav', { class: 'paginacao', 'aria-label': 'Páginas' },
+    h('button', { class: 'btn', disabled: atual <= 1, onclick: () => ir(atual - 1) }, '← Anterior'),
+    h('div', { class: 'paginas-num' }, ...numerosPaginas(atual, total).map((p) => (p === '…'
+      ? h('span', { class: 'suave' }, '…')
+      : h('button', { class: `btn pequeno${p === atual ? ' primario' : ''}`, 'aria-current': p === atual ? 'page' : null, disabled: p === atual, onclick: () => ir(p) }, String(p))))),
+    h('button', { class: 'btn', disabled: atual >= total, onclick: () => ir(atual + 1) }, 'Próxima →'));
+}
+
 // Barras horizontais em páginas de `max` linhas, com ‹ › para ver as demais.
 // A escala é a mesma em todas as páginas (o maior valor geral), para as barras continuarem comparáveis.
 export function barras(itens, { max = 10, rotulo = (i) => i.rotulo, limite = 200 } = {}) {

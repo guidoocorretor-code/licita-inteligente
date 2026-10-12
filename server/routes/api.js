@@ -192,6 +192,13 @@ r.get('/jornal/ids', (req, res) => {
   const ids = db().prepare(`SELECT l.id, MAX(e.detectado_em) d ${sql} GROUP BY l.id ORDER BY d DESC LIMIT ?`).all(...p, MAX_ITENS_ENVIO + 1).map((x) => x.id);
   res.json({ ids: ids.slice(0, MAX_ITENS_ENVIO), limite: MAX_ITENS_ENVIO, cortado: ids.length > MAX_ITENS_ENVIO });
 });
+// Resumo das licitações marcadas (para conferir a seleção que está fora da página atual)
+r.get('/jornal/selecao', (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map(inteiro).filter((n) => n > 0).slice(0, 200);
+  if (!ids.length) return res.json({ dados: [] });
+  const dados = db().prepare(`SELECT id, objeto, orgao_nome, municipio, uf, data_encerramento_proposta FROM licitacoes WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  res.json({ dados });
+});
 // Jornal para o cliente: cria o registro (link de interesse) e serve impressão, PDF e e-mail
 const urlBaseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 const envioDaEmpresa = (req, res) => {
