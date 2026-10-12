@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { getDb, indexarItensEmSegundoPlano } from './db/index.js';
 import { classificarSistemasEmSegundoPlano } from './services/sistemas.js';
+import { reclassificarSegmentosEmSegundoPlano } from './services/segmentos.js';
 import { criarApp } from './app.js';
 import { iniciarAgendador } from './services/scheduler.js';
 import { configuracaoInicial } from './bootstrap.js';
@@ -13,4 +14,5 @@ app.listen(config.port, () => {
   if (config.schedulerAtivo) { iniciarAgendador(db); console.log('Agendador de sincronização ativo.'); }
   indexarItensEmSegundoPlano(db);
   classificarSistemasEmSegundoPlano(db);
+  reclassificarSegmentosEmSegundoPlano(db);
 });
