@@ -37,8 +37,8 @@ function codificar(texto) {
 export function criarPdf() {
   const W = 595.28; const H = 841.89; const M = 50;
   const paginas = [];
-  let ops = []; let y = H - M;
-  const novaPagina = () => { if (ops.length) paginas.push(ops.join('\n')); ops = []; y = H - M; };
+  let ops = []; let links = []; let y = H - M;
+  const novaPagina = () => { if (ops.length) paginas.push({ conteudo: ops.join('\n'), links }); ops = []; links = []; y = H - M; };
   const garantir = (alt) => { if (y - alt < M + 20) novaPagina(); };
 
   const quebrar = (texto, tam, negrito, maxW) => {
@@ -62,12 +62,17 @@ export function criarPdf() {
   };
 
   const api = {
-    /** Parágrafo com quebra automática. */
-    texto(t, { tam = 10, negrito = false, cor = [0, 0, 0], x = M, maxW = W - 2 * M - (x - M), espaco = 1.35, depois = 2 } = {}) {
+    /** Parágrafo com quebra automática. Com `url`, o texto vira link clicável (sublinhado). */
+    texto(t, { tam = 10, negrito = false, cor = [0, 0, 0], x = M, maxW = W - 2 * M - (x - M), espaco = 1.35, depois = 2, url = null } = {}) {
       for (const l of quebrar(t, tam, negrito, maxW)) {
         garantir(tam * espaco);
         y -= tam * espaco;
         ops.push(`BT /${negrito ? 'F2' : 'F1'} ${tam} Tf ${cor.join(' ')} rg ${x.toFixed(2)} ${y.toFixed(2)} Td (${codificar(l)}) Tj ET`);
+        if (url) {
+          const w = largura(l, tam, negrito);
+          ops.push(`${cor.join(' ')} RG 0.5 w ${x.toFixed(2)} ${(y - 1.5).toFixed(2)} m ${(x + w).toFixed(2)} ${(y - 1.5).toFixed(2)} l S`);
+          links.push({ r: [x, y - 3, x + w, y + tam], url });
+        }
       }
       y -= depois;
       return api;
@@ -151,11 +156,12 @@ export function criarPdf() {
       const catalogo = add(null); const arvore = add(null);
       const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
       const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-      const filhos = paginas.map((conteudo, i) => {
+      const filhos = paginas.map(({ conteudo, links: lks }, i) => {
         const pe = `BT /F1 8 Tf 0.45 0.45 0.45 rg ${M} 28 Td (${codificar(limpar(`${rodape}${rodape ? '   ' : ''}Página ${i + 1} de ${total}`))}) Tj ET`;
         const corpo = Buffer.from(`${conteudo}\n${pe}`, 'latin1');
         const fluxo = add(`<< /Length ${corpo.length} >>\nstream\n${corpo.toString('latin1')}\nendstream`);
-        return add(`<< /Type /Page /Parent ${arvore} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${fluxo} 0 R >>`);
+        const annots = lks.length ? ` /Annots [${lks.map((k) => `<< /Type /Annot /Subtype /Link /Rect [${k.r.map((n) => n.toFixed(2)).join(' ')}] /Border [0 0 0] /A << /S /URI /URI (${codificar(String(k.url).replace(/[^\x21-\x7e]/g, encodeURIComponent))}) >> >>`).join(' ')}]` : '';
+        return add(`<< /Type /Page /Parent ${arvore} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${fluxo} 0 R${annots} >>`);
       });
       objs[catalogo - 1] = `<< /Type /Catalog /Pages ${arvore} 0 R >>`;
       objs[arvore - 1] = `<< /Type /Pages /Kids [${filhos.map((n) => `${n} 0 R`).join(' ')}] /Count ${filhos.length} >>`;

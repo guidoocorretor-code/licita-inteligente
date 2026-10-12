@@ -124,3 +124,9 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 ## Gestão de lances (área de teste)
 - `web/js/robo-estrategia.js`: regra pura do robô (`decidir`, `proximoValor`, `PADRAO` = disparo 40 s, 20 s entre lances próprios, 3 s após o melhor lance). É a mesma regra que a extensão do modo real vai importar. Testes em `tests/unit/robo.test.js`.
 - `web/js/lances.js`: simulador no navegador (concorrentes fictícios, modo aberto com prorrogação de 2 min ou fim fixo, velocidade 1/5/10×). Não chama o servidor e não envia lance a nenhum portal.
+
+## Jornal para o cliente
+- `services/jornal-cliente.js`: tabela `jornal_envios` (seleção, empresa, e-mail, acesso e resposta). Link `/j/<nonce>.<HMAC>` (mesmo esquema do link de cotação, 60 dias). A mesma seleção em 24h reaproveita o envio.
+- Rotas: `POST /api/jornal/envios`, `GET /api/jornal/envios/:id.pdf`, `POST /api/jornal/envios/:id/email`, `GET /api/jornal/envios`, `GET /api/jornal/ids`; públicas `GET|POST /publico/jornal/:token` (página `web/jornal.html` + `js/jornal-publico.js`).
+- A resposta gera notificação (tipo `jornal`) para quem montou o jornal e favoritos na lista "Interesse do cliente". A página pública não mostra CNPJ nem e-mails.
+- `pdf-simples.js`: `texto(..., { url })` cria anotação de link (/Annots /URI).

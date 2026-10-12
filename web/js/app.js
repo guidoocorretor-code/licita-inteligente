@@ -5,6 +5,7 @@ import * as E from './empresas.js';
 import * as F from './fornecedores.js';
 import * as PR from './propostas.js';
 import * as LA from './lances.js';
+import * as J from './jornal.js';
 
 export const estado = { usuario: null, empresa: null, meta: null, clientes: [] };
 
@@ -40,7 +41,7 @@ const MENU = [
 ];
 
 const ROTAS = {
-  dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: P.jornal, favoritos: P.favoritos,
+  dashboard: P.dashboard, buscar: P.buscar, licitacao: P.detalhe, jornal: J.jornal, favoritos: P.favoritos,
   kanban: P.kanban, empresas: E.empresas, documentos: E.vencimentos, oportunidades: P.kanban, calendario: P.calendario, fornecedores: F.fornecedores, cotacoes: F.cotacoes, cotacao: F.cotacao, propostas: PR.propostas, proposta: PR.proposta, lances: LA.lances, precos: P.precos, pagometro: P.pagometro, notificacoes: P.notificacoes, fontes: P.fontes, configuracoes: P.configuracoes,
 };
 

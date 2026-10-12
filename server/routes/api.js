@@ -17,7 +17,7 @@ import { TIPOS_DOCUMENTO, PORTES, criarCliente, atualizarCliente, excluirCliente
 import { agoraBrasilia } from '../services/status.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
-import { statusEmail, enviarEmailTeste } from '../services/email.js';
+import { statusEmail, enviarEmailTeste, emailConfigurado } from '../services/email.js';
 import { listarNotificacoes } from '../services/alertas.js';
 import { consultarCnpj } from '../services/cnpj.js';
 import { lerSicafPdf } from '../services/sicaf.js';
@@ -32,6 +32,7 @@ import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { propostaDaOportunidade, salvarProposta, mudarStatusProposta, listarPropostas } from '../services/propostas.js';
 import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
 import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
+import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO } from '../services/jornal-cliente.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -164,19 +165,63 @@ r.post('/licitacoes/:id/atualizar', exigirPapel('analista'), async (req, res) =>
 });
 
 // ---------------- Jornal ----------------
-r.get('/jornal', (req, res) => {
+function filtroJornal(req) {
   const w = []; const p = [];
   if (req.query.tipo) { w.push('e.tipo = ?'); p.push(req.query.tipo); }
   if (req.query.uf) { w.push('l.uf = ?'); p.push(String(req.query.uf).toUpperCase()); }
   if (req.query.segmento) { w.push('l.segmento = ?'); p.push(req.query.segmento); }
   if (req.query.orgao) { w.push('l.orgao_nome LIKE ?'); p.push(`%${req.query.orgao}%`); }
   if (req.query.q) { w.push('(l.objeto LIKE ? OR e.descricao LIKE ?)'); p.push(`%${req.query.q}%`, `%${req.query.q}%`); }
+  // Só com propostas ainda abertas (prazo futuro ou não informado)
+  if (req.query.abertas === '1') { w.push("(l.data_encerramento_proposta IS NULL OR l.data_encerramento_proposta >= ?)"); p.push(agoraBrasilia()); }
+  return { sql: `FROM licitacao_eventos e JOIN licitacoes l ON l.id = e.licitacao_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''}`, p };
+}
+r.get('/jornal', (req, res) => {
+  const { sql, p } = filtroJornal(req);
   const pagina = Math.max(1, inteiro(req.query.pagina) || 1);
-  const sql = `FROM licitacao_eventos e JOIN licitacoes l ON l.id = e.licitacao_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''}`;
   const total = db().prepare(`SELECT COUNT(*) n ${sql}`).get(...p).n;
-  const dados = db().prepare(`SELECT e.*, l.objeto, l.orgao_nome, l.uf, l.municipio, l.modalidade_nome, l.segmento, l.status_calculado ${sql}
-    ORDER BY e.detectado_em DESC, e.id DESC LIMIT 30 OFFSET ?`).all(...p, (pagina - 1) * 30);
+  const dados = db().prepare(`SELECT e.*, l.objeto, l.orgao_nome, l.uf, l.municipio, l.modalidade_nome, l.segmento, l.status_calculado,
+      l.valor_estimado, l.valor_estimado_situacao, l.data_encerramento_proposta, l.sistema_eletronico, l.plataforma_origem, l.link_origem, l.link_pncp, l.numero_compra, l.ano ${sql}
+    ORDER BY e.detectado_em DESC, e.id DESC LIMIT 30 OFFSET ?`).all(...p, (pagina - 1) * 30)
+    .map((x) => ({ ...x, sistema: sistemaDaLicitacao(x) }));
   res.json({ total, pagina, paginas: Math.ceil(total / 30), dados });
+});
+// Licitações (sem repetir) de todos os resultados do filtro, para "marcar todos"
+r.get('/jornal/ids', (req, res) => {
+  const { sql, p } = filtroJornal(req);
+  const ids = db().prepare(`SELECT l.id, MAX(e.detectado_em) d ${sql} GROUP BY l.id ORDER BY d DESC LIMIT ?`).all(...p, MAX_ITENS_ENVIO + 1).map((x) => x.id);
+  res.json({ ids: ids.slice(0, MAX_ITENS_ENVIO), limite: MAX_ITENS_ENVIO, cortado: ids.length > MAX_ITENS_ENVIO });
+});
+// Jornal para o cliente: cria o registro (link de interesse) e serve impressão, PDF e e-mail
+const urlBaseDe = (req) => (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+const envioDaEmpresa = (req, res) => {
+  const e = db().prepare('SELECT id FROM jornal_envios WHERE id=? AND empresa_id=?').get(inteiro(req.params.id), req.usuario.empresa_id);
+  if (!e) { erro(res, 404, 'Jornal não encontrado.'); return null; }
+  return dadosEnvio(db(), e.id);
+};
+r.get('/jornal/envios', (req, res) => res.json({ envios: listarEnvios(db(), req.usuario.empresa_id, req.clienteId), email_configurado: emailConfigurado() }));
+r.post('/jornal/envios', exigirPapel('analista'), (req, res) => {
+  try {
+    const x = criarEnvio(db(), { empresaId: req.usuario.empresa_id, clienteId: req.clienteId, usuarioId: req.usuario.id, ids: req.body?.ids });
+    const d = dadosEnvio(db(), x.id);
+    res.status(201).json({ ...d, url: `${urlBaseDe(req)}/j/${x.token}` });
+  } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro ao montar o jornal.'); }
+});
+r.get('/jornal/envios/:id.pdf', (req, res) => {
+  const d = envioDaEmpresa(req, res); if (!d) return;
+  const nome = (d.cliente ? (d.cliente.nome_fantasia || d.cliente.razao_social) : 'licitacoes').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 40);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="jornal-${nome}-${d.envio.criado_em.slice(0, 10)}.pdf"`);
+  res.send(pdfJornal(d, { urlBase: urlBaseDe(req) }));
+});
+r.post('/jornal/envios/:id/email', exigirPapel('analista'), async (req, res) => {
+  const d = envioDaEmpresa(req, res); if (!d) return;
+  const para = String(req.body?.para || d.cliente?.resp_email || d.cliente?.email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return erro(res, 400, 'Informe o e-mail do representante legal (Cadastro > Empresa ou no campo).');
+  if (!emailConfigurado()) return erro(res, 503, 'E-mail não configurado no servidor (SMTP_URL). Use "Baixar PDF" e envie pelo seu e-mail ou WhatsApp.');
+  const st = await enviarJornal(db(), d.envio.id, { para, urlBase: urlBaseDe(req) });
+  if (st !== 'enviado') return erro(res, 502, `Não foi possível enviar: ${db().prepare('SELECT email_erro FROM jornal_envios WHERE id=?').get(d.envio.id)?.email_erro || st}`);
+  res.json({ ok: true, para });
 });
 
 // ---------------- Favoritos ----------------
