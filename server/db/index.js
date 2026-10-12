@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { semAcento } from '../lib/texto.js';
+import { migrarCopiasDocumentos } from '../services/copias-documentos.js';
 import { FONTES_PADRAO } from '../connectors/catalogo.js';
 import { migrarExecucao } from '../services/execucao.js';
 import { migrarFornecedores } from '../services/fornecedores.js';
@@ -31,6 +32,7 @@ export function abrirBanco(caminho = config.dbPath) {
   migrarJornalEnvios(conn);
   migrarFinanceiro(conn);
   migrarJornalPerfis(conn);
+  migrarCopiasDocumentos(conn);
   semearFontes(conn);
   return conn;
 }
