@@ -187,19 +187,63 @@ export function responderJornal(db, token, b = {}) {
     .run(respondente, JSON.stringify(marcadas), obs, e.id);
   const cli = e.cliente_id ? db.prepare('SELECT COALESCE(nome_fantasia, razao_social) n FROM clientes WHERE id=?').get(e.cliente_id)?.n : null;
   const quem = cli ? `${respondente} (${cli})` : respondente;
-  const msg = marcadas.length
-    ? `${quem} tem interesse em ${marcadas.length} licitação(ões) do jornal.${obs ? ` Obs.: ${obs}` : ''}`
-    : `${quem} respondeu o jornal sem marcar licitações.${obs ? ` Obs.: ${obs}` : ''}`;
+  const lics = resumoLicitacoes(db, marcadas);
+  const notificacoes = [];
   if (e.criado_por) {
+    // Um alerta por licitação marcada, já dizendo qual é (objeto e local), para não precisar abrir o jornal
     const ins = db.prepare("INSERT INTO notificacoes (empresa_id, usuario_id, cliente_id, tipo, titulo, mensagem, licitacao_id) VALUES (?,?,?,'jornal','Interesse do cliente',?,?)");
-    if (marcadas.length) for (const id of marcadas) ins.run(e.empresa_id, e.criado_por, e.cliente_id || 0, msg, id);
-    else ins.run(e.empresa_id, e.criado_por, e.cliente_id || 0, msg, null);
+    if (marcadas.length) {
+      for (const l of lics) {
+        const msg = `${quem} tem interesse em: ${(l.objeto || 'licitação sem objeto informado').slice(0, 200)}${l.local ? ` · ${l.local}` : ''}${obs ? ` · Obs.: ${obs}` : ''}`;
+        notificacoes.push(Number(ins.run(e.empresa_id, e.criado_por, e.cliente_id || 0, msg, l.id).lastInsertRowid));
+      }
+    } else notificacoes.push(Number(ins.run(e.empresa_id, e.criado_por, e.cliente_id || 0, `${quem} respondeu o jornal sem marcar licitações.${obs ? ` Obs.: ${obs}` : ''}`, null).lastInsertRowid));
     // As marcadas entram nos favoritos da empresa, na lista "Interesse do cliente", para virar oportunidade no Kanban
     const fav = db.prepare(`INSERT INTO favoritos (empresa_id, usuario_id, cliente_id, tipo, referencia, lista, nota) VALUES (?,?,?,'licitacao',?,'Interesse do cliente',?)
       ON CONFLICT(usuario_id, cliente_id, tipo, referencia, lista) DO UPDATE SET nota=excluded.nota`);
     for (const id of marcadas) fav.run(e.empresa_id, e.criado_por, e.cliente_id || 0, String(id), `Marcada por ${respondente} no jornal`);
   }
-  return { interesses: marcadas.length };
+  return { interesses: marcadas.length, envio_id: e.id, notificacoes };
+}
+
+/** Objeto, órgão e local das licitações (na ordem dos ids), para mostrar o que o cliente marcou. */
+export function resumoLicitacoes(db, ids) {
+  if (!ids?.length) return [];
+  const linhas = db.prepare(`SELECT id, objeto, orgao_nome, municipio, uf, data_encerramento_proposta FROM licitacoes WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const porId = new Map(linhas.map((l) => [l.id, l]));
+  return ids.map((id) => porId.get(id)).filter(Boolean)
+    .map((l) => ({ id: l.id, objeto: l.objeto, orgao: l.orgao_nome, local: [l.municipio, l.uf].filter(Boolean).join('/'), prazo: l.data_encerramento_proposta }));
+}
+
+/** E-mail imediato para quem montou o jornal, dizendo quais licitações o cliente marcou (respeita "Receber alertas por e-mail"). */
+export function montarEmailInteresse(d, { urlBase = '' } = {}) {
+  const base = urlBase.replace(/\/$/, '');
+  const quem = d.cliente ? `${d.respondente} (${d.cliente})` : d.respondente;
+  const assunto = d.lics.length ? `Interesse do cliente: ${quem} marcou ${d.lics.length} licitação(ões)` : `${quem} respondeu o jornal sem marcar licitações`;
+  const linha = (l) => `${(l.objeto || '').slice(0, 220)}${l.local ? ` · ${l.local}` : ''}${l.prazo ? ` · propostas até ${dataBr(l.prazo)}` : ''}`;
+  const texto = [`${quem} respondeu o jornal de licitações.`, '',
+    ...(d.lics.length ? d.lics.map((l, i) => `${i + 1}. ${linha(l)}${base ? `\n   ${base}/#/licitacao/${l.id}` : ''}`) : ['Nenhuma licitação marcada.']),
+    d.observacao ? `\nObservação: ${d.observacao}` : '', '', 'As marcadas já estão em Favoritos, lista "Interesse do cliente".'].join('\n');
+  const html = `<p><strong>${esc(quem)}</strong> respondeu o jornal de licitações.</p>`
+    + (d.lics.length ? `<ol>${d.lics.map((l) => `<li style="margin-bottom:10px">${esc(linha(l))}${base ? `<br><a href="${esc(`${base}/#/licitacao/${l.id}`)}">Abrir no sistema</a>` : ''}</li>`).join('')}</ol>` : '<p>Nenhuma licitação marcada.</p>')
+    + (d.observacao ? `<p><strong>Observação:</strong> ${esc(d.observacao)}</p>` : '')
+    + '<p style="color:#666;font-size:12px">As marcadas já estão em Favoritos, lista "Interesse do cliente".</p>';
+  return { assunto, texto, html };
+}
+
+export async function avisarInteresse(db, envioId, notificacoes = [], { urlBase = process.env.APP_URL || '' } = {}) {
+  const e = db.prepare('SELECT * FROM jornal_envios WHERE id=?').get(envioId);
+  if (!e?.criado_por) return { enviado: false };
+  const u = db.prepare(`SELECT u.nome, COALESCE(NULLIF(p.email_alertas, ''), u.email) email, COALESCE(p.alertas_email, 1) quer FROM usuarios u
+    LEFT JOIN usuario_preferencias p ON p.usuario_id = u.id WHERE u.id=? AND u.ativo=1`).get(e.criado_por);
+  if (!u || !u.quer) return { enviado: false };
+  const cliente = e.cliente_id ? db.prepare('SELECT COALESCE(nome_fantasia, razao_social) n FROM clientes WHERE id=?').get(e.cliente_id)?.n : null;
+  const m = montarEmailInteresse({ respondente: e.respondente, cliente, observacao: e.observacao, lics: resumoLicitacoes(db, JSON.parse(e.interesses || '[]')) }, { urlBase });
+  await enviarEmail({ para: u.email, assunto: m.assunto, texto: m.texto, html: m.html });
+  // Já avisado agora: não repete no resumo de alertas
+  const marcar = db.prepare('UPDATE notificacoes SET enviada_email = 1 WHERE id = ?');
+  for (const id of notificacoes) marcar.run(id);
+  return { enviado: true, para: u.email };
 }
 
 /** Envios recentes (para a tela mostrar quem respondeu). */
@@ -208,7 +252,7 @@ export function listarEnvios(db, empresaId, clienteId = null) {
       e.ultimo_acesso, e.respondido_em, e.respondente, e.interesses, e.observacao, e.licitacoes, e.expira_em
     FROM jornal_envios e LEFT JOIN clientes c ON c.id = e.cliente_id
     WHERE e.empresa_id=? ${clienteId ? 'AND e.cliente_id=?' : ''} ORDER BY e.id DESC LIMIT 20`).all(empresaId, ...(clienteId ? [clienteId] : []))
-    .map((r) => ({ ...r, licitacoes: JSON.parse(r.licitacoes).length, interesses: r.interesses ? JSON.parse(r.interesses) : null }));
+    .map((r) => ({ ...r, licitacoes: JSON.parse(r.licitacoes).length, interesses: r.interesses ? resumoLicitacoes(db, JSON.parse(r.interesses)) : null }));
 }
 
 /** Apaga envios da empresa (o link do cliente deixa de funcionar). Interesses já recebidos continuam nos Favoritos. */
