@@ -10,6 +10,8 @@ const num = (v) => {
   return Number.isFinite(n) ? n : NaN;
 };
 const round2 = (v) => Math.round(v * 100) / 100;
+// Preço e total com até 4 casas: o Compras.gov.br aceita valor unitário com 4 casas (lance mínimo de R$ 0,0001)
+const round4 = (v) => Math.round(v * 10000) / 10000;
 /** Arredonda para cima no centavo (o preço mínimo não pode cair abaixo da margem por arredondamento). */
 export const centavoAcima = (v) => Math.ceil(Math.round(v * 1e6) / 1e4) / 100;
 
@@ -84,14 +86,14 @@ export function propostaDaOportunidade(db, empresaId, oportunidadeId) {
       incluir: g ? !!g.incluir : i.usada_id != null,      // sem cotação: fora da proposta até alguém decidir
       marca: g ? g.marca : usada?.marca_modelo || null, modelo: g ? g.modelo : null,
       preco_unitario: preco,
-      total: preco != null && i.quantidade != null ? round2(preco * i.quantidade) : null,
+      total: preco != null && i.quantidade != null ? round4(preco * i.quantidade) : null,
       margem_pct: preco && i.custo_unitario != null ? round2(margemNoPreco(preco, i.custo_unitario, imp)) : null,
       acima_estimado: preco != null && estimado != null && preco > estimado,
       abaixo_custo: preco != null && i.custo_unitario != null && preco < i.custo_unitario,
     };
   });
   const incluidos = itens.filter((i) => i.incluir);
-  const total = incluidos.every((i) => i.total != null) && incluidos.length ? round2(incluidos.reduce((s, i) => s + i.total, 0)) : null;
+  const total = incluidos.every((i) => i.total != null) && incluidos.length ? round4(incluidos.reduce((s, i) => s + i.total, 0)) : null;
   return {
     oportunidade: { id: op.id, licitacao_id: op.licitacao_id, objeto: op.objeto, orgao_nome: op.orgao_nome, unidade_nome: lic.unidade_nome, municipio: op.municipio, uf: op.uf,
       modalidade_nome: lic.modalidade_nome, numero_compra: lic.numero_compra, ano: lic.ano, processo: lic.processo, data_encerramento_proposta: op.data_encerramento_proposta,
@@ -127,7 +129,7 @@ export function salvarProposta(db, empresaId, oportunidadeId, usuarioId, b) {
   const itens = (Array.isArray(b.itens) ? b.itens : []).filter((i) => existe.has(Number(i.numero_item))).map((i) => {
     const preco = num(i.preco_unitario);
     if (Number.isNaN(preco) || (preco != null && preco <= 0)) throw erro(400, `Item ${i.numero_item}: preço inválido.`);
-    return { numero_item: Number(i.numero_item), incluir: i.incluir ? 1 : 0, marca: texto(i.marca, 120), modelo: texto(i.modelo, 160), preco_unitario: preco == null ? null : round2(preco) };
+    return { numero_item: Number(i.numero_item), incluir: i.incluir ? 1 : 0, marca: texto(i.marca, 120), modelo: texto(i.modelo, 160), preco_unitario: preco == null ? null : round4(preco) };
   });
   const campos = { validade_dias: validade, prazo_entrega: texto(b.prazo_entrega, 300), condicoes_pagamento: texto(b.condicoes_pagamento, 300),
     local_entrega: texto(b.local_entrega, 300), garantia: texto(b.garantia, 300), observacoes: texto(b.observacoes, 2000), declaracoes: JSON.stringify(decl) };
@@ -176,6 +178,6 @@ export function listarPropostas(db, empresaId, { clienteId = null, status = 'tod
     WHERE ${w.join(' AND ')}
     ORDER BY CASE pr.status WHEN 'rascunho' THEN 0 WHEN 'pronta' THEN 1 WHEN 'enviada' THEN 2 ELSE 3 END,
       CASE WHEN l.data_encerramento_proposta IS NULL THEN 1 ELSE 0 END, l.data_encerramento_proposta LIMIT 500`).all(...p)
-    .map((r) => ({ ...r, total: r.total == null ? null : round2(r.total) }));
+    .map((r) => ({ ...r, total: r.total == null ? null : round4(r.total) }));
   return { propostas, contagem };
 }

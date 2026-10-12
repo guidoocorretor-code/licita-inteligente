@@ -16,7 +16,8 @@ export function h(tag, attrs = {}, ...filhos) {
   return el;
 }
 
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+// Até 4 casas: o órgão publica valor unitário com 4 casas (ex.: R$ 139,0815) e o lance aceita 0,0001; arredondar a 2 mostra valor errado
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const NUM = new Intl.NumberFormat('pt-BR');
 
 export const naoInformado = (txt = 'Não informado') => h('span', { class: 'nao-info' }, txt);
