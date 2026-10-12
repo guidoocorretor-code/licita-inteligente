@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import { semAcento } from '../lib/texto.js';
 import { FONTES_PADRAO } from '../connectors/catalogo.js';
 import { migrarExecucao } from '../services/execucao.js';
 import { migrarFornecedores } from '../services/fornecedores.js';
@@ -17,6 +18,8 @@ export function abrirBanco(caminho = config.dbPath) {
   if (caminho !== ':memory:') fs.mkdirSync(path.dirname(caminho), { recursive: true });
   const conn = new DatabaseSync(caminho);
   conn.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  // "Vitória" = "vitoria": comparação de texto sem acento e sem maiúsculas (LIKE do SQLite só ignora caixa em ASCII)
+  conn.function('sem_acento', { deterministic: true }, semAcento);
   const schema = fs.readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   conn.exec(schema);
   migrarClientes(conn);

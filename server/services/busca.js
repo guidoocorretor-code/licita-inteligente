@@ -2,6 +2,7 @@
 import { statusDaVisao, agoraBrasilia } from './status.js';
 import { SQL_CAPAG_LIC } from './capag.js';
 import { SISTEMAS } from './sistemas.js';
+import { semAcento } from '../lib/texto.js';
 
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
 export const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
@@ -87,7 +88,7 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   if (f.visao) status = [...status, ...statusDaVisao(f.visao)];
   inList('l.status_calculado', status);
 
-  if (f.municipio) { w.push('l.municipio LIKE ?'); p.push(`%${String(f.municipio).trim()}%`); }
+  if (f.municipio) { w.push('sem_acento(l.municipio) LIKE ?'); p.push(`%${semAcento(String(f.municipio).trim())}%`); }
   if (f.codigo_ibge) { w.push('l.codigo_ibge = ?'); p.push(String(f.codigo_ibge)); }
   if (f.orgao) {
     const d = String(f.orgao).replace(/\D/g, '');

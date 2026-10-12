@@ -3,6 +3,7 @@
 // que batem com o perfil; a primeira edição traz todas as abertas que batem. Aviso no sino e no e-mail de alertas.
 import { montarFiltro, expressoesRamo, termos, fts } from './busca.js';
 import { SISTEMAS } from './sistemas.js';
+import { semAcento } from '../lib/texto.js';
 
 export const MODALIDADES_JORNAL = {
   dispensa: { nome: 'Dispensa', ids: [8] },
@@ -76,23 +77,36 @@ export function normalizarFiltros(b = {}) {
   return f;
 }
 
-/** WHERE das licitações que batem com o perfil. `desde` (datetime UTC) = só as que entraram no sistema depois. */
+/**
+ * WHERE das licitações que batem com o perfil. `desde` (datetime UTC) = só as que entraram no sistema depois.
+ * "Onde/como" (estado, cidade, modalidade, valor, portal, fase, encerramento): todos precisam bater.
+ * "O que" (nicho, produtos, itens): basta bater UM deles. Somar campos de "o que" amplia o jornal, não estreita
+ * (antes era tudo junto e um jornal de obras com nicho + produtos + itens zerava).
+ */
 export function filtroDoPerfil(f, { agora, desde = null } = {}) {
   const base = {
-    uf: f.ufs, segmento: f.segmentos, ramo: f.produtos || undefined, status: f.fases,
+    uf: f.ufs, status: f.fases,
     modalidade: f.modalidades.flatMap((m) => MODALIDADES_JORNAL[m].ids),
     sistema: f.sistemas, valor_min: f.valor_min ?? undefined, valor_max: f.valor_max ?? undefined,
     criado_apos: desde || undefined,
   };
   const { where, params } = montarFiltro(base, agora);
   const w = []; const p = [...params];
-  if (f.cidades.length) { w.push(`(${f.cidades.map(() => 'l.municipio LIKE ?').join(' OR ')})`); p.push(...f.cidades.map((c) => `%${c}%`)); }
+  // Cidade: sem acento e sem maiúsculas ("vitoria" acha "Vitória")
+  if (f.cidades.length) { w.push(`(${f.cidades.map(() => 'sem_acento(l.municipio) LIKE ?').join(' OR ')})`); p.push(...f.cidades.map((c) => `%${semAcento(c)}%`)); }
+  const oque = []; const po = [];
+  if (f.segmentos.length) { oque.push(`l.segmento IN (${f.segmentos.map(() => '?').join(',')})`); po.push(...f.segmentos); }
+  if (f.produtos) {
+    const r = montarFiltro({ ramo: f.produtos }, agora);
+    if (r.where) { oque.push(r.where.replace(/^WHERE /, '')); po.push(...r.params); }
+  }
   // Itens: qualquer uma das expressões (";"), todas as palavras dela na descrição de um mesmo item
   const itens = String(f.itens || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
   if (itens.length) {
-    w.push('l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?))');
-    p.push(itens.map((ws) => `(${ws.map(fts).join(' AND ')})`).join(' OR '));
+    oque.push('l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?))');
+    po.push(itens.map((ws) => `(${ws.map(fts).join(' AND ')})`).join(' OR '));
   }
+  if (oque.length) { w.push(`(${oque.join(' OR ')})`); p.push(...po); }
   // Propostas ainda não encerradas, e o encerramento escolhido
   w.push('(l.data_encerramento_proposta IS NULL OR l.data_encerramento_proposta >= ?)'); p.push(agora);
   const e = f.encerramento || {};
@@ -103,6 +117,33 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
   }
   const extra = w.join(' AND ');
   return { where: where ? `${where} AND ${extra}` : `WHERE ${extra}`, params: p };
+}
+
+/**
+ * Funil da prévia: quantas abertas sobram a cada filtro aplicado, na ordem do formulário.
+ * Mostra qual filtro zerou o jornal (ex.: cidade digitada errado, modalidade que não serve para o nicho).
+ */
+export function funilDoPerfil(db, f, agora) {
+  const vazio = { ufs: [], cidades: [], segmentos: [], produtos: '', itens: '', modalidades: [], valor_min: null, valor_max: null, sistemas: [], fases: [], encerramento: { modo: 'qualquer' } };
+  const etapas = [
+    ['Estado(s)', { ufs: f.ufs }, f.ufs.length],
+    ['Cidade(s)', { cidades: f.cidades }, f.cidades.length],
+    ['Nicho, produtos ou itens', { segmentos: f.segmentos, produtos: f.produtos, itens: f.itens }, f.segmentos.length || f.produtos || f.itens],
+    ['Modalidade', { modalidades: f.modalidades }, f.modalidades.length],
+    ['Valor do edital', { valor_min: f.valor_min, valor_max: f.valor_max }, f.valor_min != null || f.valor_max != null],
+    ['Portais', { sistemas: f.sistemas }, f.sistemas.length],
+    ['Fase', { fases: f.fases }, true],
+    ['Encerramento', { encerramento: f.encerramento }, (f.encerramento || {}).modo !== 'qualquer'],
+  ];
+  const contar = (x) => { const { where, params } = filtroDoPerfil(x, { agora }); return db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n; };
+  let acc = { ...vazio };
+  const out = [];
+  for (const [nome, parte, ativo] of etapas) {
+    if (!ativo) continue;
+    acc = { ...acc, ...parte };
+    out.push({ etapa: nome, total: contar(acc) });
+  }
+  return out;
 }
 
 const lerPerfil = (x) => (x ? { ...x, filtros: JSON.parse(x.filtros), ativo: !!x.ativo } : null);
@@ -143,7 +184,10 @@ export function excluirPerfil(db, empresaId, id) {
 export function gerarEdicao(db, perfil, agora) {
   const hoje = agora.slice(0, 10);
   const existe = db.prepare('SELECT * FROM jornal_edicoes WHERE perfil_id=? AND data=?').get(perfil.id, hoje);
-  if (existe) return { ...existe, nova: false };
+  const unica = existe && !db.prepare('SELECT 1 FROM jornal_edicoes WHERE perfil_id=? AND data<?').get(perfil.id, hoje);
+  // Primeira edição que saiu vazia é refeita (ex.: perfil corrigido ou regra de filtro melhorada no mesmo dia)
+  if (existe && unica && existe.total === 0) db.prepare('DELETE FROM jornal_edicoes WHERE id=?').run(existe.id);
+  else if (existe) return { ...existe, nova: false };
   const anterior = db.prepare('SELECT gerado_em FROM jornal_edicoes WHERE perfil_id=? ORDER BY data DESC LIMIT 1').get(perfil.id);
   const { where, params } = filtroDoPerfil(perfil.filtros, { agora, desde: anterior?.gerado_em || null });
   const total = db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n;
