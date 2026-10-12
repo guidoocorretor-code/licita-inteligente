@@ -1,5 +1,8 @@
+import fs from 'node:fs';
+import { config } from '../config.js';
 import { Readable } from 'node:stream';
 import { urlDoDocumento, buscarArquivo, nomeDoArquivo, paginaFalha } from '../services/documentos-pncp.js';
+import { caminhoCopia, copiarDocumentosDoKanban } from '../services/copias-documentos.js';
 import express from 'express';
 import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
 import { getDb, transacao } from '../db/index.js';
@@ -146,6 +149,14 @@ r.get('/licitacoes/:id/documentos/:seq/arquivo', async (req, res) => {
   const lic = db().prepare('SELECT id, orgao_cnpj, ano, sequencial, link_pncp FROM licitacoes WHERE id=?').get(inteiro(req.params.id));
   const doc = lic && db().prepare('SELECT * FROM licitacao_documentos WHERE licitacao_id=? AND sequencial=?').get(lic.id, inteiro(req.params.seq));
   if (!doc) return erro(res, 404, 'Documento não encontrado.');
+  // Cópia salva (licitação em Meus Negócios): abre na hora, mesmo com o PNCP fora do ar
+  if (doc.copia_arquivo && fs.existsSync(caminhoCopia(doc.copia_arquivo))) {
+    const nomeC = doc.copia_nome || 'documento';
+    res.setHeader('Content-Type', doc.copia_tipo || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `${/pdf/i.test(doc.copia_tipo || '') ? 'inline' : 'attachment'}; filename="${nomeC.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(nomeC)}`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return fs.createReadStream(caminhoCopia(doc.copia_arquivo)).on('error', () => res.destroy()).pipe(res);
+  }
   const url = urlDoDocumento(lic, doc);
   const falhar = (motivo) => res.status(502).type('html').send(paginaFalha({ motivo, doc, linkPncp: lic.link_pncp, urlArquivo: url }));
   if (!url) return falhar('O endereço deste arquivo não veio do PNCP.');
@@ -423,6 +434,8 @@ r.post('/kanban', exigirPapel('analista'), (req, res) => {
   db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'criacao','Oportunidade criada')").run(id, req.usuario.id);
   auditar(req, 'kanban_criar', 'oportunidade', id);
   res.status(201).json({ id });
+  // Já começa a guardar a cópia dos arquivos do edital (sem esperar o agendador)
+  if (config.schedulerAtivo) copiarDocumentosDoKanban(db()).catch(() => {});
 });
 r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
   const emp = req.usuario.empresa_id; const id = inteiro(req.params.id);

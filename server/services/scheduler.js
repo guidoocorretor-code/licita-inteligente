@@ -12,6 +12,7 @@ import { precisaAtualizarCatalogo, sincronizarCatalogo } from './precos.js';
 import { espacoEmDisco } from '../lib/disco.js';
 import { avaliarAlertasVencimentos } from './clientes.js';
 import { gerarEdicoesDoDia } from './jornal-perfis.js';
+import { limparCopias, copiarDocumentosDoKanban } from './copias-documentos.js';
 
 export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   let ultimoEmail = 0;
@@ -28,6 +29,8 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
       ultimoEmail = Date.now();
       enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));
     }
+    // Cópias dos arquivos do Kanban: apaga as de cards descartados/recebidos (sempre, libera disco)
+    try { limparCopias(db); } catch (e) { console.error('[copias]', e.message); }
     // Disco quase cheio: para de baixar dados novos (alertas e o site continuam) até alguém liberar espaço
     const disco = espacoEmDisco();
     if (disco?.baixo) {
@@ -53,6 +56,9 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
         if (precisaAtualizarCapag(db)) atualizarCapag(db).then((r) => console.log('[capag]', JSON.stringify(r))).catch((e) => console.error('[capag]', e.message));
       } catch (e) { console.error('[capag]', e.message); }
     }
+    // Cópias dos arquivos do edital das licitações do Kanban (para abrir com o PNCP fora do ar)
+    copiarDocumentosDoKanban(db).then((r) => { if (r.copiados || r.falhas) console.log('[copias]', JSON.stringify(r)); })
+      .catch((e) => console.error('[copias]', e.message));
     // Itens das licitações abertas (para a busca achar "mouse" dentro de "materiais de informática"): sem esperar o tick
     completarItensAbertas(db).then((r) => { if (r.baixadas || r.falhas) console.log('[itens]', JSON.stringify(r)); })
       .catch((e) => console.error('[itens]', e.message));

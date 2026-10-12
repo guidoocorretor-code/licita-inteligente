@@ -382,7 +382,8 @@ export async function detalhe(alvo, rota, est) {
       d.documentos.length ? h('ul', {}, d.documentos.map((doc) => h('li', {},
         // O servidor baixa do PNCP e entrega; se o PNCP falhar, abre uma página com o motivo e o link oficial
         h('a', { href: `/api/licitacoes/${l.id}/documentos/${doc.sequencial}/arquivo`, target: '_blank', rel: 'noopener' }, `${doc.tipo || 'Documento'} — ${doc.titulo || doc.sequencial}`),
-        h('span', { class: 'suave pequeno' }, ` · ${data(doc.data_publicacao) || ''}${doc.ativo === 0 ? ' · inativo' : ''}`))))
+        h('span', { class: 'suave pequeno' }, ` · ${data(doc.data_publicacao) || ''}${doc.ativo === 0 ? ' · inativo' : ''}`),
+        doc.copia_em ? h('span', { class: 'etiqueta', title: 'Cópia guardada no sistema: abre mesmo com o PNCP fora do ar. É apagada quando o card vai para Descartados ou Recebido.' }, `cópia salva ${dataUtc(doc.copia_em)}`) : null)))
         : vazio(l.detalhes_sincronizados_em ? 'Nenhum documento publicado na fonte.' : 'Documentos ainda não sincronizados.')),
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Histórico de alterações e eventos'),
       d.eventos.length ? d.eventos.map((e) => h('div', { class: 'evento' },
