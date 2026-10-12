@@ -614,3 +614,16 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 }
 .form-custo { display: grid; grid-template-columns: 200px minmax(0, 1fr) 140px 160px auto; gap: 8px; margin-top: 12px; align-items: center; }
 @media (max-width: 760px) { .form-custo { grid-template-columns: 1fr; } }
+
+/* Jornais salvos */
+.perfis-jornal { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 12px; }
+.perfil-jornal { border: 1px solid var(--borda); border-left: 4px solid var(--cor-primaria); border-radius: 8px; padding: 10px 12px; background: var(--superficie); }
+.perfil-jornal.inativo { opacity: .65; }
+.grade-ufs { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 4px; }
+.grade-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 10px; }
+.opcao-check { display: inline-flex; align-items: center; gap: 5px; font-size: .88rem; font-weight: 400; cursor: pointer; }
+.form-perfil .linha input[type=number] { max-width: 180px; }
+.alerta-detalhe { white-space: pre-line; }
+.a-jornal { --ac: #4d7c0f; --af: #ecfccb; }
+.modal:has(.form-perfil) { max-width: 900px; }
+.form-perfil input[type=date], .form-perfil input[type=time] { width: auto; }

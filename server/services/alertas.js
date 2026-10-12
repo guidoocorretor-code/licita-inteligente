@@ -135,6 +135,7 @@ export function categoriaAlerta(n) {
     case 'nota_emitir': return 'nota_emitir';
     case 'nota_cobrar': return 'nota_cobrar';
     case 'pesquisa_salva': return 'oportunidade';
+    case 'jornal_diario': return 'jornal';
     default: return 'outro';
   }
 }

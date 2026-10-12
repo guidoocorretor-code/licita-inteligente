@@ -25,6 +25,8 @@ import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
+import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, filtroDoPerfil, normalizarFiltros,
+  resumoFiltros, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
@@ -180,7 +182,26 @@ function filtroJornal(req) {
   if (req.query.abertas === '1') { w.push("(l.data_encerramento_proposta IS NULL OR l.data_encerramento_proposta >= ?)"); p.push(agoraBrasilia()); }
   return { sql: `FROM licitacao_eventos e JOIN licitacoes l ON l.id = e.licitacao_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''}`, p };
 }
+// Jornal salvo (perfil): as licitações da edição do dia (ou todas as abertas que batem), no formato do feed
+const COLS_LIC_JORNAL = `l.id licitacao_id, l.criado_em detectado_em, l.objeto, l.orgao_nome, l.uf, l.municipio, l.modalidade_nome, l.segmento, l.status_calculado,
+  l.valor_estimado, l.valor_estimado_situacao, l.data_encerramento_proposta, l.sistema_eletronico, l.plataforma_origem, l.link_origem, l.link_pncp, l.numero_compra, l.ano`;
+function licitacoesDoPerfil(req) {
+  const perfil = perfilDaEmpresa(db(), req.usuario.empresa_id, inteiro(req.query.perfil));
+  const edicao = req.query.edicao === 'todas' ? 'todas' : dataOk(req.query.edicao) || edicoesDoPerfil(db(), perfil.id)[0]?.data || 'todas';
+  return { perfil, edicao, ...idsDoPerfil(db(), perfil, { edicao, agora: agoraBrasilia() }) };
+}
 r.get('/jornal', (req, res) => {
+  if (req.query.perfil) {
+    try {
+      const { edicao, ids, total } = licitacoesDoPerfil(req);
+      const pagina = Math.max(1, inteiro(req.query.pagina) || 1);
+      const fatia = ids.slice((pagina - 1) * 30, pagina * 30);
+      const porId = new Map(fatia.length ? db().prepare(`SELECT ${COLS_LIC_JORNAL} FROM licitacoes l WHERE l.id IN (${fatia.map(() => '?').join(',')})`).all(...fatia).map((x) => [x.licitacao_id, x]) : []);
+      const dados = fatia.map((id) => porId.get(id)).filter(Boolean)
+        .map((x) => ({ ...x, tipo: edicao === 'todas' ? 'aberta' : 'nova', descricao: x.modalidade_nome || 'Modalidade não informada', sistema: sistemaDaLicitacao(x) }));
+      return res.json({ total: ids.length, total_bateram: total, pagina, paginas: Math.ceil(ids.length / 30), dados, edicao });
+    } catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro ao abrir o jornal.'); }
+  }
   const { sql, p } = filtroJornal(req);
   const pagina = Math.max(1, inteiro(req.query.pagina) || 1);
   const total = db().prepare(`SELECT COUNT(*) n ${sql}`).get(...p).n;
@@ -198,6 +219,10 @@ r.get('/jornal/municipios', (req, res) => {
 });
 // Licitações (sem repetir) de todos os resultados do filtro, para "marcar todos"
 r.get('/jornal/ids', (req, res) => {
+  if (req.query.perfil) {
+    try { const { ids } = licitacoesDoPerfil(req); return res.json({ ids: ids.slice(0, MAX_ITENS_ENVIO), limite: MAX_ITENS_ENVIO, cortado: ids.length > MAX_ITENS_ENVIO }); }
+    catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
+  }
   const { sql, p } = filtroJornal(req);
   const ids = db().prepare(`SELECT l.id, MAX(e.detectado_em) d ${sql} GROUP BY l.id ORDER BY d DESC LIMIT ?`).all(...p, MAX_ITENS_ENVIO + 1).map((x) => x.id);
   res.json({ ids: ids.slice(0, MAX_ITENS_ENVIO), limite: MAX_ITENS_ENVIO, cortado: ids.length > MAX_ITENS_ENVIO });
@@ -216,6 +241,40 @@ const envioDaEmpresa = (req, res) => {
   if (!e) { erro(res, 404, 'Jornal não encontrado.'); return null; }
   return dadosEnvio(db(), e.id);
 };
+// ---- Jornais salvos (perfis com edição diária) ----
+r.get('/jornal/perfis', (req, res) => res.json({
+  perfis: listarPerfis(db(), req.usuario.empresa_id, req.clienteId).map((p) => ({ ...p, resumo: resumoFiltros(p.filtros) })),
+  modalidades: Object.fromEntries(Object.entries(MODALIDADES_JORNAL).map(([k, v]) => [k, v.nome])), fases: FASES_JORNAL,
+}));
+r.get('/jornal/perfis/:id', (req, res) => {
+  try { const p = perfilDaEmpresa(db(), req.usuario.empresa_id, inteiro(req.params.id)); res.json({ ...p, resumo: resumoFiltros(p.filtros), edicoes: edicoesDoPerfil(db(), p.id) }); }
+  catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
+});
+// Quantas abertas batem agora com o filtro do formulário (antes de salvar)
+r.post('/jornal/perfis/previa', exigirPapel('analista'), (req, res) => {
+  try {
+    const { where, params } = filtroDoPerfil(normalizarFiltros(req.body?.filtros || {}), { agora: agoraBrasilia() });
+    res.json({ total: db().prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n });
+  } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
+});
+const salvarEGerar = (req, id) => {
+  const pid = salvarPerfil(db(), req.usuario.empresa_id, req.usuario.id, req.body || {}, id);
+  const p = perfilDaEmpresa(db(), req.usuario.empresa_id, pid);
+  const ed = p.ativo ? gerarEdicao(db(), p, agoraBrasilia()) : null; // a primeira edição sai na hora
+  return { id: pid, edicao: ed ? { data: ed.data, total: ed.total } : null };
+};
+r.post('/jornal/perfis', exigirPapel('analista'), (req, res) => {
+  try { const out = salvarEGerar(req, null); auditar(req, 'jornal_perfil_criar', 'jornal_perfil', out.id); res.status(201).json(out); }
+  catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro ao salvar o jornal.'); }
+});
+r.put('/jornal/perfis/:id', exigirPapel('analista'), (req, res) => {
+  try { const out = salvarEGerar(req, inteiro(req.params.id)); auditar(req, 'jornal_perfil_editar', 'jornal_perfil', out.id); res.json(out); }
+  catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro ao salvar o jornal.'); }
+});
+r.delete('/jornal/perfis/:id', exigirPapel('analista'), (req, res) => {
+  try { excluirPerfil(db(), req.usuario.empresa_id, inteiro(req.params.id)); auditar(req, 'jornal_perfil_excluir', 'jornal_perfil', inteiro(req.params.id)); res.json({ ok: true }); }
+  catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
+});
 r.get('/jornal/envios', (req, res) => res.json({ envios: listarEnvios(db(), req.usuario.empresa_id, req.clienteId), email_configurado: emailConfigurado() }));
 r.post('/jornal/envios/excluir', exigirPapel('analista'), (req, res) => {
   try { res.json({ excluidos: excluirEnvios(db(), req.usuario.empresa_id, req.body?.ids) }); }

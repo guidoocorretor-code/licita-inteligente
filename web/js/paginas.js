@@ -841,6 +841,7 @@ export const CATEGORIAS_ALERTA = {
   nota_emitir: { nome: 'Emitir nota fiscal', icone: '🧾', cor: 'nota', dica: 'Produto enviado ou serviço executado: emita a nota e mova o card para "Nota fiscal emitida".' },
   nota_cobrar: { nome: 'Cobrar pagamento', icone: '💰', cor: 'cobrar', dica: 'Nota emitida e pagamento não registrado. Cobre o órgão; ao receber, mova o card para "Recebido".' },
   certidao: { nome: 'Certidão vencendo', icone: '📄', cor: 'certidao', dica: 'Renove antes do vencimento para não perder licitações.' },
+  jornal: { nome: 'Jornal do dia', icone: '📰', cor: 'jornal', dica: 'Oportunidades novas dos seus jornais salvos. Abra para marcar e enviar ao cliente.' },
   oportunidade: { nome: 'Nova oportunidade', icone: '🔎', cor: 'neutro', dica: 'Licitação nova que bate com uma pesquisa salva.' },
   outro: { nome: 'Outros avisos', icone: '🔔', cor: 'neutro', dica: '' },
 };
@@ -849,7 +850,7 @@ function cartaoAlerta(n, aoLer) {
   const c = CATEGORIAS_ALERTA[n.categoria] || CATEGORIAS_ALERTA.outro;
   const local = [n.lic_municipio, n.lic_uf].filter(Boolean).join('/');
   const ehLic = !!n.licitacao_id;
-  const link = ehLic ? `#/licitacao/${n.licitacao_id}` : n.cliente_id ? `#/empresas/${n.cliente_id}` : null;
+  const link = ehLic ? `#/licitacao/${n.licitacao_id}` : n.link || (n.cliente_id ? `#/empresas/${n.cliente_id}` : null);
   // Prazo e lembretes repetem o objeto na mensagem; mudanças e interesse trazem um detalhe próprio
   const detalhe = ['situacao', 'edital', 'resultado', 'interesse', 'outro'].includes(n.categoria) || !ehLic ? n.mensagem
     : ['nota_emitir', 'nota_cobrar'].includes(n.categoria) ? (n.mensagem || '').split('. ')[0] : null;
@@ -870,7 +871,7 @@ function cartaoAlerta(n, aoLer) {
         n.kanban_etapa ? `Kanban: ${n.kanban_etapa}` : null,
       ].filter(Boolean).join(' · ')),
       h('div', { class: 'alerta-acoes' },
-        link ? h('a', { class: 'btn pequeno', href: link }, ehLic ? 'Abrir licitação' : 'Abrir empresa') : null,
+        link ? h('a', { class: 'btn pequeno', href: link }, ehLic ? 'Abrir licitação' : n.link ? 'Abrir jornal' : 'Abrir empresa') : null,
         n.kanban_etapa ? h('a', { class: 'btn pequeno', href: '#/kanban' }, 'Ver no Kanban') : null,
         n.lida ? null : h('button', { class: 'btn pequeno', onclick: () => aoLer(n) }, 'Marcar como lida'))));
 }

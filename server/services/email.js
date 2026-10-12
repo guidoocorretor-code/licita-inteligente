@@ -88,7 +88,7 @@ export function montarEmail(usuario, notificacoes, { urlBase = '', appName = 'Li
   const max = 30;
   const lista = notificacoes.slice(0, max);
   const resto = notificacoes.length - lista.length;
-  const link = (n) => (urlBase && n.licitacao_id ? `${urlBase}/#/licitacao/${n.licitacao_id}` : null);
+  const link = (n) => (!urlBase ? null : n.licitacao_id ? `${urlBase}/#/licitacao/${n.licitacao_id}` : n.link ? `${urlBase}/${n.link}` : null);
   const assunto = notificacoes.length === 1 ? `[${appName}] ${notificacoes[0].titulo}` : `[${appName}] ${notificacoes.length} novos alertas`;
   const texto = [`Olá, ${usuario.nome}.`, '', ...lista.flatMap((n) => [`• ${n.titulo}`, `  ${n.mensagem || ''}`, link(n) ? `  ${link(n)}` : '', '']),
     resto > 0 ? `… e mais ${resto} alerta(s) no sistema.` : '', '',
