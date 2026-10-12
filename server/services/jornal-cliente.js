@@ -16,7 +16,8 @@ const tokenDe = (nonce) => `${nonce}.${assinar(nonce)}`;
 const DIAS_VALIDADE = 60;
 export const MAX_ITENS_ENVIO = 60;
 
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+// Até 4 casas: o órgão publica valor unitário com 4 casas (ex.: R$ 139,0815) e o lance aceita 0,0001; arredondar a 2 mostra valor errado
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const cnpjFmt = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 /** Data do PNCP (horário de Brasília, sem fuso) em dd/mm/aaaa hh:mm. */
 export const dataBr = (iso) => {

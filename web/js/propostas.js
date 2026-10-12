@@ -6,7 +6,7 @@ import { reaisPorExtenso, inteiroPorExtenso } from './extenso.js';
 
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
 const BRL = (casas = 2) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: casas });
-const brl = (v) => (v == null ? '—' : BRL(v < 1 ? 4 : 2).format(v));
+const brl = (v) => (v == null ? '—' : BRL(4).format(v));
 const pct = (v) => (v == null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
 const num = (v) => (v == null ? '' : String(v).replace('.', ','));
 const lerNum = (v) => { const t = String(v ?? '').trim(); if (!t) return null; const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t); return Number.isFinite(n) ? n : NaN; };

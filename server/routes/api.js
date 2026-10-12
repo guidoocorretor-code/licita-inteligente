@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+import { urlDoDocumento, buscarArquivo, nomeDoArquivo, paginaFalha } from '../services/documentos-pncp.js';
 import express from 'express';
 import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
 import { getDb, transacao } from '../db/index.js';
@@ -137,6 +139,27 @@ r.get('/licitacoes/exportar', async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${nome}.csv"`);
   res.send(paraCsv(linhas));
+});
+
+// Arquivo do edital: o servidor baixa do PNCP e entrega (ou explica por que não deu, com o link oficial)
+r.get('/licitacoes/:id/documentos/:seq/arquivo', async (req, res) => {
+  const lic = db().prepare('SELECT id, orgao_cnpj, ano, sequencial, link_pncp FROM licitacoes WHERE id=?').get(inteiro(req.params.id));
+  const doc = lic && db().prepare('SELECT * FROM licitacao_documentos WHERE licitacao_id=? AND sequencial=?').get(lic.id, inteiro(req.params.seq));
+  if (!doc) return erro(res, 404, 'Documento não encontrado.');
+  const url = urlDoDocumento(lic, doc);
+  const falhar = (motivo) => res.status(502).type('html').send(paginaFalha({ motivo, doc, linkPncp: lic.link_pncp, urlArquivo: url }));
+  if (!url) return falhar('O endereço deste arquivo não veio do PNCP.');
+  const r0 = await buscarArquivo(url);
+  if (!r0.ok) { console.warn(`[documentos] licitação ${lic.id} doc ${doc.sequencial}: ${r0.motivo} (${url})`); return falhar(r0.motivo); }
+  const tipo = r0.resp.headers.get('content-type') || 'application/octet-stream';
+  const nome = nomeDoArquivo(doc, r0.resp.headers.get('content-disposition'), tipo);
+  res.setHeader('Content-Type', tipo);
+  res.setHeader('Content-Disposition', `${/pdf/i.test(tipo) ? 'inline' : 'attachment'}; filename="${nome.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(nome)}`);
+  const tam = r0.resp.headers.get('content-length'); if (tam) res.setHeader('Content-Length', tam);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  try {
+    Readable.fromWeb(r0.resp.body).on('error', () => res.destroy()).on('end', r0.fim).pipe(res);
+  } catch (e) { r0.fim(); falhar('Falha ao receber o arquivo do PNCP.'); }
 });
 
 r.get('/licitacoes/:id', (req, res) => {
@@ -496,7 +519,7 @@ function valoresExecucao(b) {
     if (tipo === 'valor') {
       const n = Number(v);
       if (!Number.isFinite(n) || n < 0 || n > 1e12) throw Object.assign(new Error(`${ROTULO_EXECUCAO[k]} inválido.`), { status: 400 });
-      out[k] = Math.round(n * 100) / 100;
+      out[k] = Math.round(n * 10000) / 10000; // até 4 casas, como o valor do lance
     } else if (tipo === 'data') {
       if (!dataOk(v)) throw Object.assign(new Error(`${ROTULO_EXECUCAO[k]}: data inválida.`), { status: 400 });
       out[k] = String(v).slice(0, 10);

@@ -3,7 +3,8 @@
 import { h, render, toast } from './ui.js';
 import { decidir, PADRAO } from './robo-estrategia.js';
 
-const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+// Até 4 casas: o órgão publica valor unitário com 4 casas (ex.: R$ 139,0815) e o lance aceita 0,0001; arredondar a 2 mostra valor errado
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const brl = (v) => (v == null ? '—' : BRL.format(v));
 const lerNum = (t) => { const s = String(t ?? '').trim(); if (!s) return null; const n = Number(s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s); return Number.isFinite(n) ? n : null; };
 const fmtNum = (v) => (v == null ? '' : String(v).replace('.', ','));

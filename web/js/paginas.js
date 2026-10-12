@@ -378,8 +378,10 @@ export async function detalhe(alvo, rota, est) {
           h('td', {}, `${data(c.vigencia_inicio, false) || '?'} a ${data(c.vigencia_fim, false) || '?'}`),
           h('td', {}, c.link_pncp ? h('a', { href: c.link_pncp, target: '_blank', rel: 'noopener noreferrer' }, 'PNCP ↗') : null))))))) : null,
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, `Documentos e anexos (${d.documentos.length})`),
+      l.link_pncp ? h('p', { class: 'suave pequeno' }, 'Clique para abrir o arquivo. Se o PNCP estiver fora do ar, use ', h('a', { href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer' }, 'a página oficial do edital no PNCP ↗'), '.') : null,
       d.documentos.length ? h('ul', {}, d.documentos.map((doc) => h('li', {},
-        h('a', { href: doc.url, target: '_blank', rel: 'noopener noreferrer' }, `${doc.tipo || 'Documento'} — ${doc.titulo || doc.sequencial}`),
+        // O servidor baixa do PNCP e entrega; se o PNCP falhar, abre uma página com o motivo e o link oficial
+        h('a', { href: `/api/licitacoes/${l.id}/documentos/${doc.sequencial}/arquivo`, target: '_blank', rel: 'noopener' }, `${doc.tipo || 'Documento'} — ${doc.titulo || doc.sequencial}`),
         h('span', { class: 'suave pequeno' }, ` · ${data(doc.data_publicacao) || ''}${doc.ativo === 0 ? ' · inativo' : ''}`))))
         : vazio(l.detalhes_sincronizados_em ? 'Nenhum documento publicado na fonte.' : 'Documentos ainda não sincronizados.')),
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Histórico de alterações e eventos'),
@@ -1088,7 +1090,7 @@ const fmtDoc = (d) => {
   return x || null;
 };
 // Preço unitário: centavos de centavo aparecem em itens baratos (ex.: R$ 0,0450 por folha)
-const brl = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 }).format(v);
+const brl = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(v);
 const moedaUnit = (v) => (v == null ? naoInformado() : brl(v));
 const TIPO_CAT = { material_pdm: 'Material (PDM)', material_item: 'Material (código CATMAT)', servico: 'Serviço (código CATSER)' };
 const LEI_14133 = 'https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14133.htm';

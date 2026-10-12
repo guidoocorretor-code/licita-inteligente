@@ -15,7 +15,7 @@ export const zap = (tel, texto) => {
   return n.length >= 10 ? `https://wa.me/55${n}${texto ? `?text=${encodeURIComponent(texto)}` : ''}` : null;
 };
 // Preço unitário pode ter centavos de centavo (ex.: R$ 0,0450 por folha)
-const brl = (v) => (v == null ? naoInformado() : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 }).format(v));
+const brl = (v) => (v == null ? naoInformado() : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(v));
 const pct = (v) => (v == null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
 const num = (v) => (v == null ? '' : String(v).replace('.', ','));
 // "1.234,56" -> "1234.56"; "12,5" -> "12.5"; "12.5" fica como está
@@ -444,7 +444,7 @@ function margemResumo(d) {
 // ---------- Impressão / PDF ----------
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const NI = '<span class="ni">não informado</span>';
-const pBrl = (v) => (v == null ? NI : esc(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 }).format(v)));
+const pBrl = (v) => (v == null ? NI : esc(new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(v)));
 const pPct = (v) => (v == null ? '—' : esc(`${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`));
 
 /** Abre uma página de impressão (o navegador salva em PDF em "Destino: Salvar como PDF"). */
@@ -668,7 +668,7 @@ export async function cotacao(alvo, rota, est) {
   const aguardando = d.pedidos.filter((p) => p.status === 'aguardando');
   // Valor do item no edital: o total informado pela fonte; se faltar, quantidade × unitário
   const totalEdital = (i) => (i.valor_total_estimado != null ? i.valor_total_estimado
-    : i.valor_unitario_estimado != null && i.quantidade != null ? Math.round(i.valor_unitario_estimado * i.quantidade * 100) / 100 : null);
+    : i.valor_unitario_estimado != null && i.quantidade != null ? Math.round(i.valor_unitario_estimado * i.quantidade * 10000) / 10000 : null);
   const linhaItem = (i) => {
     // só os que ainda não cotaram este item
     const esperando = aguardando.filter((p) => p.itens.includes(i.numero_item) && !i.cotacoes.some((c) => c.fornecedor_id === p.fornecedor_id));
