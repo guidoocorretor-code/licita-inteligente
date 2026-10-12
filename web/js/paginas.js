@@ -1214,13 +1214,25 @@ async function precosAba(alvo, rota, est) {
         vazio(r.status.n ? 'Nada encontrado no catálogo com essas palavras. Tente uma palavra mais genérica (ex.: "cadeira" em vez de "cadeira giratória preta").' : 'O catálogo ainda não foi baixado.'), direto));
       return;
     }
+    const botaoCat = (c) => h('button', { class: 'item-cat', onclick: () => ir({ tipo: c.tipo === 'servico' ? 'servico' : 'material_pdm', codigo: c.codigo, item: '', unidade: '' }) },
+      h('span', { class: `etiqueta ${c.tipo === 'servico' ? 'azul' : 'verde'}` }, c.tipo === 'servico' ? 'Serviço' : 'Material'),
+      h('strong', {}, c.nome), c.sugerido ? h('span', { class: 'etiqueta azul pequena', title: c.sugerido }, '★ mais usado nas compras') : null,
+      h('span', { class: 'suave pequeno' }, `${c.classe || ''} · código ${c.codigo}${c.sugerido ? ` · ${c.sugerido}` : ''}`));
+    // Material e serviço separados: serviço que só cita as palavras (ex.: outsourcing de impressão "com papel A4")
+    // fica num bloco fechado quando há material, para não esconder o produto procurado
+    const materiais = lista.filter((c) => c.tipo !== 'servico');
+    const servicos = lista.filter((c) => c.tipo === 'servico');
+    const blocoServicos = !servicos.length ? null : materiais.length
+      ? h('details', { class: 'servicos-cat' },
+        h('summary', {}, `Serviços que citam essas palavras (${servicos.length})`),
+        h('p', { class: 'suave pequeno' }, 'Ex.: locação ou outsourcing de impressão citam "papel" e "A4", mas são contratação de serviço, não compra do produto.'),
+        h('div', { class: 'lista-cat' }, servicos.map(botaoCat)))
+      : h('div', {}, h('h3', {}, `Serviços (${servicos.length})`), h('div', { class: 'lista-cat' }, servicos.map(botaoCat)));
     render(resultado, h('div', { class: 'cartao' },
       h('h2', {}, `Escolha o item do catálogo (${lista.length}${lista.length >= 30 ? '+' : ''})`),
       h('p', { class: 'suave pequeno' }, 'Material aparece pelo PDM (o "tipo" do produto, que reúne as variações). Serviço aparece pelo código CATSER.'),
-      h('div', { class: 'lista-cat' }, lista.map((c) => h('button', { class: 'item-cat', onclick: () => ir({ tipo: c.tipo === 'servico' ? 'servico' : 'material_pdm', codigo: c.codigo, item: '', unidade: '' }) },
-        h('span', { class: `etiqueta ${c.tipo === 'servico' ? 'azul' : 'verde'}` }, c.tipo === 'servico' ? 'Serviço' : 'Material'),
-        h('strong', {}, c.nome), c.sugerido ? h('span', { class: 'etiqueta azul pequena', title: c.sugerido }, '★ mais usado nas compras') : null,
-        h('span', { class: 'suave pequeno' }, `${c.classe || ''} · código ${c.codigo}${c.sugerido ? ` · ${c.sugerido}` : ''}`)))),
+      materiais.length ? h('div', {}, servicos.length ? h('h3', {}, `Materiais (${materiais.length})`) : null, h('div', { class: 'lista-cat' }, materiais.map(botaoCat))) : null,
+      blocoServicos,
       direto));
   } catch (e) { render(resultado, erroBox(e)); }
 }
