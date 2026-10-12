@@ -779,13 +779,33 @@ export async function calendario(alvo, rota, est) {
   for (const e of eventos) (porDia[e.quando.slice(0, 10)] ||= []).push(e);
   const chip = (e) => h('a', { class: `chip-cal ${TIPO_CAL[e.tipo][1]}`, href: linkCal(e), title: `${e.tipo === 'vencimento' ? e.titulo : TIPO_CAL[e.tipo][0]}${e.dia_inteiro ? '' : ' às ' + e.quando.slice(11, 16)} · ${e.objeto || ''} · ${e.orgao_nome || ''}` },
     e.dia_inteiro ? '' : h('b', {}, e.quando.slice(11, 16) + ' '), (e.objeto || '—').slice(0, 40));
+  // Clique no dia: abre a lista completa daquele dia (horário, tipo, objeto, órgão, etapa do Kanban)
+  const SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+  const abrirDia = (d, evs) => {
+    const titulo = `${SEMANA[d.getUTCDay()]}, ${d.getUTCDate()} de ${MESES[d.getUTCMonth()]} de ${d.getUTCFullYear()}`;
+    const ordenados = [...evs].sort((a, b) => (a.dia_inteiro ? 1 : 0) - (b.dia_inteiro ? 1 : 0) || a.quando.localeCompare(b.quando));
+    const fechar = modal(titulo.charAt(0).toUpperCase() + titulo.slice(1), ordenados.length
+      ? h('div', { class: 'lista-dia-cal' }, ordenados.map((e) => h('div', { class: `item-dia-cal ${TIPO_CAL[e.tipo][1]}` },
+        h('div', { class: 'item-dia-hora' }, e.dia_inteiro ? 'Dia todo' : e.quando.slice(11, 16)),
+        h('div', { class: 'item-dia-corpo' },
+          h('span', { class: `etiqueta ${TIPO_CAL[e.tipo][1]}` }, TIPO_CAL[e.tipo][0]),
+          h('a', { class: 'item-dia-objeto', href: linkCal(e), onclick: () => fechar() }, e.tipo === 'vencimento' ? `${e.titulo} · ${e.objeto}` : e.objeto || '—'),
+          h('div', { class: 'suave pequeno' }, [e.orgao_nome, [e.municipio, e.uf].filter(Boolean).join('/'), e.etapa && `Kanban: ${e.etapa}`].filter(Boolean).join(' · '))))))
+      : vazio('Nada marcado para este dia.'));
+  };
   const celulas = [];
   for (let d = inicioGrade; d <= fimGrade; d = new Date(d.getTime() + 86400000)) {
-    const k = iso(d); const evs = porDia[k] || [];
-    celulas.push(h('div', { class: `dia-cal${d.getUTCMonth() !== mes - 1 ? ' fora' : ''}${k === hojeIso ? ' hoje' : ''}` },
+    const k = iso(d); const evs = porDia[k] || []; const dia = d;
+    const abrir = () => abrirDia(dia, evs);
+    celulas.push(h('div', { class: `dia-cal clicavel${d.getUTCMonth() !== mes - 1 ? ' fora' : ''}${k === hojeIso ? ' hoje' : ''}`,
+      role: 'button', tabindex: '0', title: evs.length ? `Ver os ${evs.length} prazos do dia` : 'Ver o dia',
+      'aria-label': `${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}: ${evs.length ? `${evs.length} prazo(s)` : 'sem prazos'}`,
+      // Clique no prazo continua abrindo a licitação; no resto da célula, abre o dia
+      onclick: (e) => { if (!e.target.closest('a')) abrir(); },
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); } } },
       h('div', { class: 'num' }, String(d.getUTCDate())),
       evs.slice(0, 3).map(chip),
-      evs.length > 3 ? h('div', { class: 'suave pequeno' }, `+${evs.length - 3}`) : null));
+      evs.length > 3 ? h('div', { class: 'mais-cal' }, `+${evs.length - 3} mais`) : null));
   }
   const assinar = async () => {
     if (link.ativo && !confirmar('Gerar um novo link desativa o link anterior. Continuar?')) return;

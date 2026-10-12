@@ -654,3 +654,13 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .servicos-cat { margin-top: 14px; border-top: 1px solid var(--borda); padding-top: 10px; }
 .servicos-cat > summary { cursor: pointer; font-weight: 600; color: var(--texto-suave); }
 .servicos-cat[open] > summary { margin-bottom: 6px; }
+/* Calendário: clique no dia abre a lista daquele dia */
+.dia-cal.clicavel { cursor: pointer; transition: border-color .12s, background .12s; }
+.dia-cal.clicavel:hover { border-color: var(--cor-primaria); background: var(--fundo); }
+.dia-cal.clicavel:focus-visible { outline: 2px solid var(--cor-primaria); outline-offset: 1px; }
+.mais-cal { font-size: .76rem; font-weight: 600; color: var(--cor-primaria); }
+.lista-dia-cal { display: grid; gap: 8px; }
+.item-dia-cal { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--borda); border-radius: 8px; }
+.item-dia-hora { font-weight: 700; font-variant-numeric: tabular-nums; }
+.item-dia-corpo { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
+.item-dia-objeto { color: var(--texto); font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
