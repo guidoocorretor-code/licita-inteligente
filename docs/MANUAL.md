@@ -114,3 +114,11 @@ Menu Gestão > **Gestão de lances** (fica antes de Propostas, porque a proposta
 - Regras do robô: só dá lance **nos últimos 40 s**; espera **20 s** entre os seus lances e **3 s** depois do melhor lance (regras do Compras.gov.br); para quando o melhor lance chega no seu piso. No modo aberto, isso significa que o robô só entra depois de 80 s sem lances; cada lance dele devolve o relógio a 2 min.
 - **Desligar robô** deixa você assumir; **Parar tudo** encerra a simulação.
 - O modo real (extensão no seu Chrome, com você logado no portal; o sistema não guarda senha e não passa por captcha) depende de uma página salva da tela de disputa do Compras.gov.br para ser construído.
+
+## Jornal de licitações para o cliente
+- Cada card mostra **valor do edital**, **propostas até**, **sistema da disputa** (ex.: Compras.gov.br) e **participação**: gratuita, paga (taxa do sistema) ou "não verificada" quando não temos fonte do custo. Marque "Só com propostas abertas" para deixar de fora as que já fecharam.
+- Marque os cards um a um, **Marcar esta página** ou **Marcar todos os resultados** (até 60). A seleção continua marcada ao trocar de página.
+- Escolha a empresa no topo: o jornal sai com o **cabeçalho dela** (razão social, CNPJ, endereço, representante legal).
+- **Imprimir**, **Baixar PDF** ou **Enviar por e-mail** (vai para o e-mail do representante legal do cadastro, que dá para trocar na hora). No PDF, o título de cada licitação é um link para o resumo do edital, e há o link "Baixar o edital no PNCP".
+- O empresário abre o link (sem login, vale 60 dias), marca as licitações de interesse e clica em "Enviar meu interesse". Você recebe no sino (🔔) e as marcadas entram em **Favoritos**, lista "Interesse do cliente". Em "Jornais enviados e respostas" você vê se ele abriu e o que respondeu.
+- O envio por e-mail depende do e-mail do servidor (SMTP_URL). Sem ele, baixe o PDF e mande pelo seu e-mail ou WhatsApp; o link funciona igual.

@@ -534,3 +534,14 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .log-lances { max-height: 320px; overflow: auto; font-size: .85rem; padding-left: 0; list-style: none; }
 .log-lances li { padding: 2px 0; border-bottom: 1px solid var(--borda, #eef0f3); }
 .log-lances li.meu { color: var(--ok); } .log-lances li.alerta { color: var(--perigo); } .log-lances li.info, .log-lances li.fim { font-weight: 600; }
+
+/* Jornal de licitações: seleção de cards e dados do edital */
+.barra-jornal { position: sticky; top: 0; z-index: 3; margin-top: 14px; display: grid; gap: 8px; }
+.barra-jornal .linha { flex-wrap: wrap; align-items: center; }
+.evento-jornal .quando { display: flex; gap: 8px; align-items: flex-start; }
+.marca-jornal { width: 20px; height: 20px; flex: none; }
+.dados-jornal { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: .88rem; align-items: center; }
+.dados-jornal .rot { color: var(--texto-suave); }
+.etiqueta.participacao-gratuito { background: #e3f4ea; color: #157347; }
+.etiqueta.participacao-pago { background: #fff1d6; color: #8a5300; }
+.etiqueta.participacao-nao_verificado { background: #eef0f3; color: var(--texto-suave); }

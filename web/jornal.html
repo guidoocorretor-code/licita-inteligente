@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Jornal de licitações</title>
+  <style>
+    :root { --azul: #0f3d6e; --borda: #d5dbe1; --suave: #5b6876; --fundo: #f4f6f8; --perigo: #b42318; --ok: #157347; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1f2933; background: var(--fundo); }
+    header { background: var(--azul); color: #fff; padding: 16px; }
+    header h1 { margin: 0; font-size: 19px; } header div { opacity: .85; font-size: 13px; }
+    main { max-width: 860px; margin: 0 auto; padding: 16px; }
+    .cartao { background: #fff; border: 1px solid var(--borda); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    .suave { color: var(--suave); font-size: 13px; }
+    .item { border-top: 1px solid var(--borda); padding: 14px 0; } .item:first-of-type { border-top: 0; padding-top: 0; }
+    .item .tit { font-weight: 700; } .item .desc { white-space: pre-wrap; margin: 4px 0 8px; }
+    .grade { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+    input, select, textarea { width: 100%; font: inherit; padding: 9px 10px; border: 1px solid var(--borda); border-radius: 8px; background: #fff; }
+    input:focus, select:focus, textarea:focus { outline: 2px solid #8fb4e3; border-color: var(--azul); }
+    button { font: inherit; font-weight: 700; background: var(--azul); color: #fff; border: 0; border-radius: 8px; padding: 12px 18px; width: 100%; cursor: pointer; }
+    button:disabled { opacity: .6; }
+    .aviso { padding: 12px 14px; border-radius: 8px; margin-bottom: 14px; }
+    .aviso.erro { background: #fde8e7; color: var(--perigo); } .aviso.ok { background: #e3f4ea; color: var(--ok); } .aviso.info { background: #e8f0fb; color: var(--azul); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 14px; } dt { color: var(--suave); } dd { margin: 0; }
+    @media (max-width: 560px) { .grade { grid-template-columns: 1fr; } dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
+      .lic { scroll-margin-top: 12px; } .lic.alvo { outline: 3px solid #f5b400; }
+    .lic .topo { display: flex; gap: 12px; align-items: flex-start; }
+    .lic .topo input[type=checkbox] { width: 22px; height: 22px; margin-top: 3px; flex: none; }
+    .lic h2 { font-size: 16px; margin: 0 0 4px; }
+    .etq { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 9px; margin: 2px 4px 2px 0; background: #e8f0fb; color: var(--azul); }
+    .etq.gratuito { background: #e3f4ea; color: var(--ok); } .etq.pago { background: #fff1d6; color: #8a5300; } .etq.nao_verificado { background: #eef0f3; color: var(--suave); }
+    .valores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+    .valores div { background: var(--fundo); border-radius: 8px; padding: 8px 10px; } .valores strong { display: block; font-size: 15px; }
+    details { margin-top: 8px; } summary { cursor: pointer; color: var(--azul); font-weight: 600; }
+    .itens { font-size: 13px; margin: 6px 0 0; padding-left: 18px; } .itens li { margin-bottom: 4px; }
+    a.pncp { display: inline-block; margin-top: 8px; color: var(--azul); font-weight: 600; }
+    .fixo { position: sticky; bottom: 0; background: #fff; border-top: 1px solid var(--borda); padding: 12px 16px; box-shadow: 0 -4px 12px rgba(0,0,0,.05); }
+    .fixo .linha { max-width: 860px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+    .fixo button { width: auto; }
+    @media (max-width: 560px) { .valores { grid-template-columns: 1fr; } .fixo .linha { grid-template-columns: 1fr; } .fixo button { width: 100%; } }
+  </style>
+</head>
+<body>
+  <header><h1>Jornal de licitações</h1><div id="sub">Carregando…</div></header>
+  <main id="conteudo"></main>
+  <div class="fixo" id="rodape" hidden></div>
+  <script type="module" src="/js/jornal-publico.js"></script>
+</body>
+</html>

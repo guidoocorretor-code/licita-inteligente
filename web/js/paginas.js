@@ -398,34 +398,6 @@ export async function detalhe(alvo, rota, est) {
         : vazio('Sem eventos.')));
 }
 
-// ============================ JORNAL ============================
-const TIPOS_EVENTO = { publicacao: 'Nova publicação', alteracao: 'Alteração/retificação', situacao: 'Mudança de situação', documento: 'Novo documento', resultado: 'Resultado/homologação', item: 'Item' };
-export async function jornal(alvo, rota, est) {
-  const f = Object.fromEntries(rota.query.entries());
-  const q = h('input', { type: 'search', value: f.q || '', placeholder: 'Palavra-chave', id: 'j-q' });
-  const tipo = h('select', { id: 'j-tipo' }, h('option', { value: '' }, 'Todos os tipos'), Object.entries(TIPOS_EVENTO).map(([k, v]) => h('option', { value: k, selected: f.tipo === k }, v)));
-  const uf = h('select', { id: 'j-uf' }, h('option', { value: '' }, 'Todas as UFs'), est.meta.ufs.map((u) => h('option', { value: u, selected: f.uf === u }, u)));
-  const seg = h('select', { id: 'j-seg' }, h('option', { value: '' }, 'Todos os segmentos'), est.meta.segmentos.map((s) => h('option', { value: s, selected: f.segmento === s }, s)));
-  const orgao = h('input', { type: 'text', value: f.orgao || '', placeholder: 'Órgão', id: 'j-org' });
-  const ir = (pagina = 1) => { location.hash = `#/jornal${qs({ q: q.value, tipo: tipo.value, uf: uf.value, segmento: seg.value, orgao: orgao.value, pagina })}`; };
-  const lista = h('div', {}, carregando());
-  render(alvo, cabecalho('Jornal de licitações', 'Feed cronológico de publicações, alterações, documentos, mudanças de situação e resultados detectados nas sincronizações.'),
-    h('form', { class: 'cartao filtros', onsubmit: (e) => { e.preventDefault(); ir(); } }, q, tipo, uf, seg, orgao, h('button', { class: 'btn primario' }, 'Filtrar')),
-    h('div', { class: 'cartao', style: { marginTop: '14px' } }, lista));
-  const r = await api(`/jornal${qs(f)}`);
-  if (!r.total) return render(lista, vazio('Nenhum evento registrado ainda.'));
-  render(lista, ...r.dados.map((e) => h('div', { class: 'evento' },
-    h('div', { class: 'quando' }, dataUtc(e.detectado_em)),
-    h('div', {}, h('span', { class: 'etiqueta azul' }, TIPOS_EVENTO[e.tipo] || e.tipo), ' ',
-      h('a', { href: `#/licitacao/${e.licitacao_id}` }, (e.objeto || '').slice(0, 180)),
-      h('div', { class: 'suave pequeno' }, `${e.descricao} · ${e.orgao_nome || ''} · ${[e.municipio, e.uf].filter(Boolean).join('/')}`),
-      e.valor_anterior != null ? h('div', { class: 'suave pequeno' }, `De: ${e.valor_anterior} → Para: ${e.valor_novo}`) : null))),
-  h('div', { class: 'paginacao' },
-    h('button', { class: 'btn', disabled: r.pagina <= 1, onclick: () => ir(r.pagina - 1) }, '← Anterior'),
-    h('span', { class: 'suave' }, `Página ${r.pagina} de ${r.paginas}`),
-    h('button', { class: 'btn', disabled: r.pagina >= r.paginas, onclick: () => ir(r.pagina + 1) }, 'Próxima →')));
-}
-
 // ============================ FAVORITOS ============================
 export async function favoritos(alvo, _r, est) {
   render(alvo, carregando());
