@@ -46,7 +46,8 @@ const colunas = (conn, t) => conn.prepare(`PRAGMA table_info(${t})`).all().map((
 export function migrarExecucao(conn) {
   if (!colunas(conn, 'kanban_etapas').includes('fase')) conn.exec('ALTER TABLE kanban_etapas ADD COLUMN fase TEXT');
   const novas = { valor_proposta: 'REAL', valor_ganho: 'REAL', resultado_em: 'TEXT', empenho_numero: 'TEXT', empenho_valor: 'REAL', empenho_data: 'TEXT',
-    entrega_prazo: 'TEXT', entrega_data: 'TEXT', nf_numero: 'TEXT', nf_valor: 'REAL', nf_data: 'TEXT', recebido_valor: 'REAL', recebido_data: 'TEXT' };
+    entrega_prazo: 'TEXT', entrega_data: 'TEXT', nf_numero: 'TEXT', nf_valor: 'REAL', nf_data: 'TEXT', recebido_valor: 'REAL', recebido_data: 'TEXT',
+    descarte_motivo: 'TEXT', descartado_em: 'TEXT', descartado_por: 'INTEGER' };
   const temOp = colunas(conn, 'oportunidades');
   for (const [c, tipo] of Object.entries(novas)) if (!temOp.includes(c)) conn.exec(`ALTER TABLE oportunidades ADD COLUMN ${c} ${tipo}`);
   const temCli = colunas(conn, 'clientes');

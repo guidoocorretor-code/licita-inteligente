@@ -23,6 +23,7 @@ import { consultarCnpj } from '../services/cnpj.js';
 import { lerSicafPdf } from '../services/sicaf.js';
 import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
+import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
@@ -323,8 +324,10 @@ r.post('/kanban', exigirPapel('analista'), (req, res) => {
   if (!db().prepare('SELECT 1 FROM licitacoes WHERE id=?').get(licId)) return erro(res, 404, 'Licitação não encontrada.');
   const primeira = db().prepare('SELECT id FROM kanban_etapas WHERE empresa_id=? ORDER BY ordem LIMIT 1').get(emp);
   const cli = req.clienteId || 0;
-  const existe = db().prepare('SELECT id FROM oportunidades WHERE empresa_id=? AND licitacao_id=? AND cliente_id=?').get(emp, licId, cli);
-  if (existe) return res.json({ id: existe.id, existente: true });
+  // Já na esteira (inclusive descartada): não duplica; avisa a etapa e, se descartada, o motivo
+  const existe = db().prepare(`SELECT o.id, o.descarte_motivo, o.descartado_em, e.nome etapa, e.fase FROM oportunidades o JOIN kanban_etapas e ON e.id = o.etapa_id
+    WHERE o.empresa_id=? AND o.licitacao_id=? AND o.cliente_id=?`).get(emp, licId, cli);
+  if (existe) return res.json({ id: existe.id, existente: true, etapa: existe.etapa, fase: existe.fase, motivo: existe.descarte_motivo, descartado_em: existe.descartado_em });
   const out = db().prepare('INSERT INTO oportunidades (empresa_id, cliente_id, licitacao_id, etapa_id, responsavel_id) VALUES (?,?,?,?,?)').run(emp, cli, licId, primeira.id, req.usuario.id);
   const id = Number(out.lastInsertRowid);
   db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'criacao','Oportunidade criada')").run(id, req.usuario.id);
@@ -333,10 +336,25 @@ r.post('/kanban', exigirPapel('analista'), (req, res) => {
 });
 r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
   const emp = req.usuario.empresa_id; const id = inteiro(req.params.id);
-  const op = db().prepare('SELECT * FROM oportunidades WHERE id=? AND empresa_id=?').get(id, emp);
+  const op = db().prepare('SELECT o.*, e.fase FROM oportunidades o JOIN kanban_etapas e ON e.id = o.etapa_id WHERE o.id=? AND o.empresa_id=?').get(id, emp);
   if (!op) return erro(res, 404, 'Oportunidade não encontrada.');
   const { etapa_id, responsavel_id, prazo_interno, posicao, cliente_id } = req.body || {};
+  const destino = etapa_id != null ? db().prepare('SELECT * FROM kanban_etapas WHERE id=? AND empresa_id=?').get(inteiro(etapa_id), emp) : null;
+  if (etapa_id != null && !destino) return erro(res, 400, 'Etapa inválida.');
+  const camposExec = valoresExecucao(req.body || {});
+  const outros = (cliente_id !== undefined && (cliente_id ? inteiro(cliente_id) : 0) !== op.cliente_id)
+    || (responsavel_id !== undefined && (responsavel_id === null ? null : inteiro(responsavel_id)) !== op.responsavel_id)
+    || (prazo_interno !== undefined && (prazo_interno || null) !== op.prazo_interno);
+  // A receber / Recebido: só com a senha de um administrador (o passo nota → recebido e completar campo vazio estão liberados)
+  let autorizou = null;
+  if (precisaSenhaAdmin(op, { destino, campos: camposExec, outros })) autorizou = conferirSenhaAdmin(db(), emp, req.usuario.id, req.body?.senha_admin);
+  const descartando = destino && destino.fase === 'descartada' && op.fase !== 'descartada';
+  const motivo = descartando ? justificativaDescarte(req.body?.justificativa) : null;
   transacao(db(), () => {
+    if (autorizou) {
+      db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'autorizacao',?)").run(id, req.usuario.id, `Alteração autorizada com a senha de ${autorizou.nome}`);
+      auditar(req, 'kanban_autorizacao_admin', 'oportunidade', id, { admin_id: autorizou.id });
+    }
     if (cliente_id !== undefined) {
       // vincular (ou trocar/desvincular) a empresa assessorada da oportunidade
       const cid = cliente_id ? inteiro(cliente_id) : 0;
@@ -362,9 +380,14 @@ r.patch('/kanban/:id', exigirPapel('analista'), (req, res) => {
       const fechada = [...FASES_GANHAS, 'perdida'].includes(et.fase);
       if (fechada && !op.resultado_em) db().prepare("UPDATE oportunidades SET resultado_em=date('now','-3 hours') WHERE id=?").run(id);
       if (!fechada && et.fase !== 'descartada') db().prepare('UPDATE oportunidades SET resultado_em=NULL WHERE id=?').run(id);
+      if (descartando) {
+        db().prepare("UPDATE oportunidades SET descarte_motivo=?, descartado_em=date('now','-3 hours'), descartado_por=? WHERE id=?").run(motivo, req.usuario.id, id);
+        db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'descarte',?)").run(id, req.usuario.id, motivo);
+      } else if (et.fase !== 'descartada' && op.descarte_motivo) {
+        db().prepare('UPDATE oportunidades SET descarte_motivo=NULL, descartado_em=NULL, descartado_por=NULL WHERE id=?').run(id); // o motivo antigo fica no histórico
+      }
     }
-    const execucao = valoresExecucao(req.body || {});
-    const mudou = Object.entries(execucao).filter(([k, v]) => v !== op[k]);
+    const mudou = Object.entries(camposExec).filter(([k, v]) => v !== op[k]);
     if (mudou.length) {
       db().prepare(`UPDATE oportunidades SET ${mudou.map(([k]) => `${k}=?`).join(', ')}, atualizado_em=datetime('now') WHERE id=?`).run(...mudou.map(([, v]) => v), id);
       db().prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'valores',?)")
@@ -426,9 +449,11 @@ r.get('/kanban/:id/historico', (req, res) => {
   res.json(db().prepare(`SELECT h.*, u.nome usuario_nome FROM oportunidade_historico h LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE oportunidade_id=? ORDER BY h.id DESC`).all(op.id));
 });
 r.delete('/kanban/:id', exigirPapel('gestor'), (req, res) => {
-  const out = db().prepare('DELETE FROM oportunidades WHERE id=? AND empresa_id=?').run(inteiro(req.params.id), req.usuario.empresa_id);
-  if (!out.changes) return erro(res, 404, 'Oportunidade não encontrada.');
-  auditar(req, 'kanban_excluir', 'oportunidade', req.params.id); res.json({ ok: true });
+  const op = db().prepare('SELECT o.*, e.fase FROM oportunidades o JOIN kanban_etapas e ON e.id = o.etapa_id WHERE o.id=? AND o.empresa_id=?').get(inteiro(req.params.id), req.usuario.empresa_id);
+  if (!op) return erro(res, 404, 'Oportunidade não encontrada.');
+  const autorizou = precisaSenhaAdmin(op, { excluir: true }) ? conferirSenhaAdmin(db(), req.usuario.empresa_id, req.usuario.id, req.body?.senha_admin) : null;
+  db().prepare('DELETE FROM oportunidades WHERE id=?').run(op.id);
+  auditar(req, 'kanban_excluir', 'oportunidade', req.params.id, autorizou ? { admin_id: autorizou.id } : undefined); res.json({ ok: true });
 });
 
 // ---------------- Calendário de prazos (Fase 3) ----------------
@@ -504,7 +529,9 @@ r.get('/painel/fornecedores', (req, res) => {
   try { res.json(painelFornecedores(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null })); } catch (e) { falha(res, e); }
 });
 r.get('/painel/empresas', (req, res) => {
-  res.json({ ...painelEmpresas(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, hoje: hojeBr(), agora: agoraBrasilia() }), fases: FASES });
+  const de = dataOk(req.query.de) ? req.query.de : null; const ate = dataOk(req.query.ate) ? req.query.ate : null;
+  if (de && ate && de > ate) return erro(res, 400, 'Período inválido: a data inicial é depois da final.');
+  res.json({ ...painelEmpresas(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, hoje: hojeBr(), agora: agoraBrasilia(), de, ate }), fases: FASES });
 });
 // Lê as validades do PDF do SICAF para pré-preencher o formulário (não grava nada; o usuário confere e salva)
 r.post('/clientes/:id/sicaf/ler', exigirPapel('analista'), receberPdf, async (req, res) => {

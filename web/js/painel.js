@@ -107,21 +107,45 @@ const resultado = (r) => {
 
 // ---------- Indicadores ----------
 const semV = (x) => (x?.sem_valor ? ` · ${x.sem_valor} sem valor` : '');
-const kpi = (rot, valor, apoio, { dica: d = '', classe = '', cor } = {}) => h('div', { class: `cartao pe-kpi ${classe}`, title: d, style: cor ? { borderTopColor: cor } : null },
-  h('div', { class: 'rotulo' }, rot), h('div', { class: 'valor' }, valor), apoio ? h('div', { class: 'apoio' }, apoio) : null);
+const kpi = (rot, valor, apoio, { dica: d = '', classe = '', cor, etapa } = {}) => h('div', { class: `cartao pe-kpi ${classe}`, title: d, style: cor ? { borderTopColor: cor } : null },
+  h('div', { class: 'rotulo' }, rot, etapa ? h('span', { class: 'etapa' }, ` · ${etapa}`) : null), h('div', { class: 'valor' }, valor), apoio ? h('div', { class: 'apoio' }, apoio) : null);
 
-function kpis(r) {
-  const x = r.execucao; const p = r.projecao;
+function kpis(r, periodo) {
+  const x = r.execucao; const p = r.projecao; const f = r.faturamento || { n: 0, valor: 0, sem_valor: 0, sem_data: 0 };
+  const nCards = (o, txt) => `${numero(o.n)} ${txt}${o.pelo_edital ? ` · ${o.pelo_edital} pelo valor do edital` : ''}${semV(o)}`;
+  // Uma caixa por fase do Kanban depois da disputa, com o nome da etapa embaixo do título
   return h('div', { class: 'pe-kpis' },
     kpi('Projeção de faturamento', curto(p.garantido + (p.potencial || 0)), p.potencial != null ? `${curto(p.garantido)} garantido + ${curto(p.potencial)} provável` : `${curto(p.garantido)} garantido`,
       { classe: 'destaque', dica: 'Garantido = vencidas ainda não recebidas. Provável = valor em disputa × taxa de vitória (só com 5 resultados registrados).' }),
-    kpi('Em disputa', curto(r.disputa.valor), `${numero(r.disputa.n)} disputa(s)${r.disputa.pelo_edital ? ` · ${r.disputa.pelo_edital} pelo valor do edital` : ''}${semV(r.disputa)}`,
+    kpi('Em disputa', curto(r.disputa.valor), nCards(r.disputa, 'disputa(s)'),
       { cor: COR.disputa, dica: 'Valor da proposta informado no card; sem ele, o valor estimado do edital inteiro (pode incluir lotes que a empresa não disputa).' }),
-    kpi('A faturar', curto(r.a_faturar.valor), `${numero(r.a_faturar.n)} vencida(s) sem nota${r.a_faturar.pelo_edital ? ` · ${r.a_faturar.pelo_edital} pelo valor do edital` : ''}${semV(r.a_faturar)}`, { cor: COR.ganho, dica: 'Vencidas, aguardando empenho, empenhadas e entregues: dinheiro ganho que ainda não virou nota fiscal.' }),
-    kpi('A receber', curto(x.a_receber.valor), x.a_receber.mais_30d.n ? `⚠ ${curto(x.a_receber.mais_30d.valor)} há mais de 30 dias` : `${numero(x.a_receber.n)} nota(s) emitida(s)${semV(x.a_receber)}`,
-      { cor: COR.receber, classe: x.a_receber.mais_30d.n ? 'alerta' : '', dica: 'Notas fiscais emitidas ainda não pagas pelo órgão.' }),
-    kpi('Recebido em 12 meses', curto(x.recebido_12m.valor), `${numero(x.recebido_12m.n)} pagamento(s)${x.recebido_sem_data ? ` · ${x.recebido_sem_data} sem data` : ''}${semV(x.recebido_total)}`,
-      { cor: COR.recebido, dica: 'Pagamentos com data de recebimento nos últimos 12 meses. Recebido sem data informada não entra.' }));
+    kpi('Vencida', curto(x.vencida.valor), nCards(x.vencida, 'card(s)'), { cor: COR.ganho, dica: 'Ganhou a disputa e ainda não chegou o empenho.' }),
+    kpi('A faturar', curto(x.aguardando_empenho.valor), nCards(x.aguardando_empenho, 'card(s)'), { cor: COR.ganho, etapa: 'Aguardando empenho', dica: 'Cards na etapa "Aguardando empenho".' }),
+    kpi('A entregar', curto(x.a_entregar.valor), nCards(x.a_entregar, 'card(s)'), { cor: COR.ganho, etapa: 'Empenhado (a entregar)', dica: 'Empenho recebido; falta entregar o produto ou executar o serviço.' }),
+    kpi('Aguardando nota', curto(x.entregue.valor), nCards(x.entregue, 'card(s)'), { cor: COR.ganho, etapa: 'Produto enviado / serviço executado', dica: 'Entregue; falta emitir a nota fiscal.' }),
+    kpi('A receber', curto(x.a_receber.valor), x.a_receber.mais_30d.n ? `⚠ ${curto(x.a_receber.mais_30d.valor)} há mais de 30 dias` : nCards(x.a_receber, 'nota(s)'),
+      { cor: COR.receber, etapa: 'Nota fiscal emitida', classe: x.a_receber.mais_30d.n ? 'alerta' : '', dica: 'Notas fiscais emitidas ainda não pagas pelo órgão.' }),
+    periodo
+      ? kpi('Recebido no período', curto(x.recebido_total.valor), nCards(x.recebido_total, 'pagamento(s)'), { cor: COR.recebido, dica: 'Cards em "Recebido" com data de recebimento dentro do período.' })
+      : kpi('Recebido em 12 meses', curto(x.recebido_12m.valor), `${numero(x.recebido_12m.n)} pagamento(s)${x.recebido_sem_data ? ` · ${x.recebido_sem_data} sem data` : ''}`,
+        { cor: COR.recebido, etapa: 'Recebido', dica: 'Pagamentos com data de recebimento nos últimos 12 meses. Recebido sem data informada não entra.' }),
+    kpi(periodo ? 'Faturado no período' : 'Faturado (total)', curto(f.valor), `${numero(f.n)} nota(s) emitida(s)${f.sem_valor ? ` · ${f.sem_valor} sem valor` : ''}${f.sem_data ? ` · ${f.sem_data} sem data da nota` : ''}`,
+      { cor: COR.receber, dica: 'Soma das notas fiscais emitidas (cards em "Nota fiscal emitida" ou "Recebido") pela data da nota.' }));
+}
+
+/** Todas as etapas do Kanban, na ordem do quadro, com quantidade e valor (inclui prospecção, perdidas e descartadas). */
+const COR_FASE = { prospeccao: COR.neutro, disputa: COR.disputa, ganha: COR.ganho, empenho: COR.ganho, a_entregar: COR.ganho, entregue: COR.ganho,
+  faturada: COR.receber, recebida: COR.recebido, perdida: COR.perdido, descartada: COR.neutro };
+function etapasKanban(r) {
+  const linhas = r.por_etapa || [];
+  const maior = Math.max(1, ...linhas.map((l) => l.n));
+  return h('section', { class: 'pe-bloco pe-etapas' }, h('h3', {}, 'Todas as etapas do Kanban'),
+    h('div', { class: 'pe-barras' }, linhas.map((l) => h('div', { class: `pe-barra${l.n ? '' : ' zerada'}`, title: `${l.nome}: ${numero(l.n)} card(s)${l.valor ? ` · ${moeda(l.valor)}` : ''}${l.sem_valor ? ` · ${l.sem_valor} sem valor` : ''}` },
+      h('span', { class: 'rot' }, l.nome),
+      h('span', { class: 'trilho' }, l.n ? h('span', { class: 'preench', style: { width: `${Math.max(3, (l.n / maior) * 100)}%`, background: COR_FASE[l.fase] || COR.neutro } }) : null),
+      h('span', { class: 'val' }, l.n ? (l.valor ? curto(l.valor) : 's/ valor') : '—'),
+      h('span', { class: 'qtd' }, l.n ? numero(l.n) : '')))),
+    h('div', { class: 'suave pequeno pe-nota' }, 'Barra = quantidade de cards. Valor = proposta, valor ganho, empenho, nota ou recebido, conforme a etapa.'));
 }
 
 // Quatro blocos em grade 2×2: onde está o dinheiro, resultado das disputas, faturamento previsto e um bloco extra
@@ -205,7 +229,7 @@ function ramo(e, est, recarregar) {
     e.cnaes.length ? h('button', { type: 'button', class: 'btn pequeno', onclick: () => editarRamo(e, recarregar) }, '✏️ Escrever palavras') : null));
 }
 
-function cartaoEmpresa(e, est, recarregar) {
+function cartaoEmpresa(e, est, recarregar, periodo) {
   const semValor = PASSOS_SEM_VALOR(e);
   return h('div', { class: 'cartao painel-empresa', id: `pe-${e.id}` },
     h('div', { class: 'pe-topo' },
@@ -215,10 +239,11 @@ function cartaoEmpresa(e, est, recarregar) {
         h('button', { class: 'btn pequeno', type: 'button', onclick: () => abrirKanbanDe(e.id) }, 'Kanban da empresa'),
         h('a', { class: 'btn pequeno', href: `#/empresas/${e.id}` }, 'Cadastro'))),
     ramo(e, est, recarregar),
-    kpis(e),
+    kpis(e, periodo),
     semValor ? h('div', { class: 'aviso amarelo pequeno' }, `${semValor} oportunidade(s) sem valor informado não entram nas somas. `,
       h('a', { href: '#/kanban', onclick: (ev) => { ev.preventDefault(); abrirKanbanDe(e.id); } }, 'Completar no Kanban')) : null,
     graficos(e, h('section', { class: 'pe-bloco pe-agenda' }, h('h3', {}, 'Próximos compromissos'), proximos(e.proximos))),
+    etapasKanban(e),
     h('details', { class: 'pe-cnaes' },
       h('summary', {}, `CNAEs da Receita (${e.cnaes.length})`),
       e.cnaes.length ? h('ul', {}, e.cnaes.map((c) => h('li', {}, h('code', {}, c.codigo), ` ${c.descricao}`, c.principal ? h('strong', {}, ' (principal)') : null)))
@@ -244,11 +269,66 @@ function porEmpresa(empresas) {
       h('li', {}, h('span', { class: 'amostra', style: { background: COR.disputa } }), h('span', { class: 'nome' }, 'Em disputa'))));
 }
 
+// ---------- Período (mês, trimestre, semestre, ano ou datas livres) ----------
+const MESES_P = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const doisDig = (n) => String(n).padStart(2, '0');
+const fimMes = (a, m) => `${a}-${doisDig(m)}-${doisDig(new Date(Date.UTC(a, m, 0)).getUTCDate())}`;
+/** Converte a escolha em datas (aaaa-mm-dd, inclusive). Exportada para teste. */
+export function intervaloPeriodo({ tipo, ano, mes, tri, sem, de, ate }) {
+  const a = Number(ano);
+  if (tipo === 'mes' && a && mes) return { de: `${a}-${doisDig(mes)}-01`, ate: fimMes(a, Number(mes)) };
+  if (tipo === 'tri' && a && tri) { const m1 = (Number(tri) - 1) * 3 + 1; return { de: `${a}-${doisDig(m1)}-01`, ate: fimMes(a, m1 + 2) }; }
+  if (tipo === 'sem' && a && sem) { const m1 = sem === '2' || sem === 2 ? 7 : 1; return { de: `${a}-${doisDig(m1)}-01`, ate: fimMes(a, m1 + 5) }; }
+  if (tipo === 'ano' && a) return { de: `${a}-01-01`, ate: `${a}-12-31` };
+  if (tipo === 'livre' && (de || ate)) return { de: de || null, ate: ate || null };
+  return { de: null, ate: null };
+}
+function lerPeriodo(q) {
+  const hoje = new Date();
+  const x = { tipo: q.get('tipo') || 'tudo', ano: q.get('ano') || String(hoje.getFullYear()), mes: q.get('mes') || String(hoje.getMonth() + 1),
+    tri: q.get('tri') || String(Math.floor(hoje.getMonth() / 3) + 1), sem: q.get('sem') || (hoje.getMonth() < 6 ? '1' : '2'), de: q.get('de') || '', ate: q.get('ate') || '' };
+  return { ...x, ...intervaloPeriodo(x) };
+}
+const dataBrCurta = (iso) => (iso ? iso.split('-').reverse().join('/') : '…');
+function barraPeriodo(per, info) {
+  const tipo = h('select', { 'aria-label': 'Tipo de período' }, [['tudo', 'Tudo'], ['mes', 'Mês'], ['tri', 'Trimestre'], ['sem', 'Semestre'], ['ano', 'Ano'], ['livre', 'Período (datas)']]
+    .map(([v, t]) => h('option', { value: v, selected: per.tipo === v }, t)));
+  const anoAtual = new Date().getFullYear();
+  const ano = h('select', { 'aria-label': 'Ano' }, Array.from({ length: 6 }, (_, i) => anoAtual - 5 + i).reverse().map((a) => h('option', { value: a, selected: String(a) === per.ano }, a)));
+  const mes = h('select', { 'aria-label': 'Mês' }, MESES_P.map((m, i) => h('option', { value: i + 1, selected: String(i + 1) === per.mes }, m)));
+  const tri = h('select', { 'aria-label': 'Trimestre' }, [1, 2, 3, 4].map((t) => h('option', { value: t, selected: String(t) === per.tri }, `${t}º trimestre`)));
+  const sem = h('select', { 'aria-label': 'Semestre' }, [1, 2].map((t) => h('option', { value: t, selected: String(t) === per.sem }, `${t}º semestre`)));
+  const de = h('input', { type: 'date', value: per.de && per.tipo === 'livre' ? per.de : '', 'aria-label': 'De' });
+  const ate = h('input', { type: 'date', value: per.ate && per.tipo === 'livre' ? per.ate : '', 'aria-label': 'Até' });
+  const mostrar = () => {
+    const t = tipo.value;
+    ano.hidden = !['mes', 'tri', 'sem', 'ano'].includes(t); mes.hidden = t !== 'mes'; tri.hidden = t !== 'tri'; sem.hidden = t !== 'sem';
+    de.hidden = t !== 'livre'; ate.hidden = t !== 'livre';
+  };
+  tipo.addEventListener('change', mostrar); mostrar();
+  const aplicar = (ev) => {
+    ev?.preventDefault();
+    const t = tipo.value;
+    if (t === 'livre' && de.value && ate.value && de.value > ate.value) { toast('A data inicial é depois da final.'); return; }
+    const q = t === 'tudo' ? {} : t === 'livre' ? { tipo: t, de: de.value, ate: ate.value } : { tipo: t, ano: ano.value, ...(t === 'mes' ? { mes: mes.value } : t === 'tri' ? { tri: tri.value } : t === 'sem' ? { sem: sem.value } : {}) };
+    location.hash = `#/dashboard/empresas${qs(q)}`;
+  };
+  const resumo = per.de || per.ate
+    ? h('span', { class: 'suave pequeno' }, `De ${dataBrCurta(per.de)} a ${dataBrCurta(per.ate)}. Cada card conta pela data da etapa em que está (ex.: Recebido pela data do pagamento, A receber pela data da nota).`,
+      info?.fora_sem_data ? h('strong', {}, ` ${info.fora_sem_data} card(s) sem a data da etapa ficaram de fora: complete no Kanban.`) : null)
+    : h('span', { class: 'suave pequeno' }, 'Mostrando tudo o que está no Kanban.');
+  return h('form', { class: 'cartao pe-periodo', onsubmit: aplicar },
+    h('div', { class: 'linha' }, h('strong', {}, '📅 Período'), tipo, mes, tri, sem, ano, de, ate, h('button', { class: 'btn primario', type: 'submit' }, 'Aplicar')),
+    resumo);
+}
+
 export async function painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa }) {
   render(alvo, cabecalho('Dashboard', 'Empresas assessoradas: do edital ao dinheiro na conta'), abasDashboard('empresas'), carregando());
+  const per = lerPeriodo(rota.query);
   let p;
-  try { p = await api('/painel/empresas'); } catch (e) { render(alvo, cabecalho('Dashboard'), abasDashboard('empresas'), erroBox(e)); return; }
+  try { p = await api(`/painel/empresas${qs({ de: per.de, ate: per.ate })}`); } catch (e) { render(alvo, cabecalho('Dashboard'), abasDashboard('empresas'), barraPeriodo(per), erroBox(e)); return; }
   const recarregar = () => painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa });
+  const periodo = p.periodo ? per : null;
   const t = p.total;
   const avisos = [];
   if (!p.empresas.length) {
@@ -263,13 +343,14 @@ export async function painelEmpresas(alvo, rota, est, { cabecalho, avisoEmpresa 
     cabecalho('Dashboard', `Empresas assessoradas: do edital ao dinheiro na conta · ${data(p.hoje, false)}`),
     abasDashboard('empresas'),
     avisoEmpresa(est, 'Números'),
+    barraPeriodo(per, p.periodo),
     ...avisos,
     p.empresas.length ? [
       varias ? h('div', { class: 'cartao painel-empresa pe-consolidado' },
         h('div', { class: 'pe-topo' }, h('div', { class: 'pe-nome' }, h('h2', {}, `Todas as empresas (${t.empresas})`),
           h('div', { class: 'suave pequeno' }, `${numero(t.oportunidades)} oportunidade(s) no Kanban`))),
-        kpis(t), graficos(t, porEmpresa(p.empresas))) : null,
-      h('div', { class: 'painel-empresas' }, p.empresas.map((e) => cartaoEmpresa(e, est, recarregar))),
+        kpis(t, periodo), graficos(t, porEmpresa(p.empresas)), etapasKanban(t)) : null,
+      h('div', { class: 'painel-empresas' }, p.empresas.map((e) => cartaoEmpresa(e, est, recarregar, periodo))),
       h('details', { class: 'cartao como-ler pequeno' },
         h('summary', {}, 'Como os números são calculados'),
         h('ul', {},

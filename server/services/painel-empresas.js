@@ -10,6 +10,18 @@ const diasEntre = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 8640000
 const somaDias = (iso, d) => new Date(Date.parse(iso) + d * 86400000).toISOString().slice(0, 10);
 const A_FATURAR = ['ganha', 'empenho', 'a_entregar', 'entregue'];
 
+/** Data em que o card chegou ao ponto que a fase representa (usada no filtro por período). */
+export function dataDaFase(o) {
+  const d = {
+    recebida: o.recebido_data, faturada: o.nf_data, entregue: o.entrega_data, a_entregar: o.empenho_data,
+    empenho: o.resultado_em, ganha: o.resultado_em, perdida: o.resultado_em, descartada: o.descartado_em,
+    prospeccao: o.data_encerramento_proposta, disputa: o.data_encerramento_proposta,
+  }[o.fase];
+  return d ? String(d).slice(0, 10) : null;
+}
+/** Período: { de, ate } em aaaa-mm-dd (inclusive). Sem período, tudo. */
+const noPeriodo = (dia, p) => !!dia && (!p.de || dia >= p.de) && (!p.ate || dia <= p.ate);
+
 /** Resumo de um conjunto de oportunidades (de uma empresa, ou de todas). */
 export function resumir(ops, hoje) {
   const fase = {};
@@ -102,11 +114,32 @@ function ramoDaEmpresa(db, palavras, uf, hoje, agora) {
     uf: uf || null, abertas_uf: naUf ? naUf.n : null, valor_abertas_uf: naUf ? naUf.v : null };
 }
 
-export function painelEmpresas(db, empresaId, { clienteId = null, hoje, agora }) {
-  const ops = db.prepare(`SELECT o.*, e.fase, e.nome etapa_nome, l.objeto, l.orgao_nome, l.uf, l.municipio, l.valor_estimado,
+/** Notas fiscais emitidas no período (faturamento): cards em "Nota fiscal emitida" ou "Recebido" com data da nota. */
+function faturamento(ops, periodo) {
+  const notas = ops.filter((o) => ['faturada', 'recebida'].includes(o.fase) && noPeriodo(o.nf_data, periodo));
+  return { n: notas.length, valor: notas.reduce((t, o) => t + (o.nf_valor ?? 0), 0), sem_valor: notas.filter((o) => o.nf_valor == null).length,
+    sem_data: ops.filter((o) => ['faturada', 'recebida'].includes(o.fase) && !o.nf_data).length };
+}
+
+/** Quantidade e valor em cada etapa do Kanban, na ordem do quadro (inclui prospecção, perdidas e descartadas). */
+function porEtapa(etapas, ops) {
+  return etapas.map((et) => {
+    const meus = ops.filter((o) => o.etapa_id === et.id);
+    const vals = meus.map((o) => valorDe(o, et.fase || 'prospeccao').valor);
+    return { id: et.id, nome: et.nome, fase: et.fase, n: meus.length, valor: vals.reduce((t, v) => t + (v ?? 0), 0), sem_valor: vals.filter((v) => v == null).length };
+  });
+}
+
+export function painelEmpresas(db, empresaId, { clienteId = null, hoje, agora, de = null, ate = null }) {
+  const todas = db.prepare(`SELECT o.*, e.fase, e.nome etapa_nome, l.objeto, l.orgao_nome, l.uf, l.municipio, l.valor_estimado,
       l.data_encerramento_proposta, l.status_calculado
     FROM oportunidades o JOIN kanban_etapas e ON e.id = o.etapa_id JOIN licitacoes l ON l.id = o.licitacao_id
     WHERE o.empresa_id = ? AND (? IS NULL OR o.cliente_id = ?)`).all(empresaId, clienteId, clienteId);
+  const periodo = { de, ate };
+  const comPeriodo = !!(de || ate);
+  // Com período, cada card conta pela data da fase em que está (ex.: Recebido pela data do pagamento); sem data, fica de fora e é contado à parte
+  const ops = comPeriodo ? todas.filter((o) => noPeriodo(dataDaFase(o), periodo)) : todas;
+  const etapas = db.prepare('SELECT id, nome, fase FROM kanban_etapas WHERE empresa_id=? ORDER BY ordem').all(empresaId);
   const clientes = listarClientes(db, empresaId, hoje).filter((c) => (clienteId ? c.id === clienteId : c.ativo));
   const docs = listarDocumentos(db, empresaId, { clienteId, hoje });
 
@@ -122,16 +155,20 @@ export function painelEmpresas(db, empresaId, { clienteId = null, hoje, agora })
       ramo_sugerido: cnaes.length ? sugerirRamo(cnaes, c.razao_social) : null,
       oportunidades: meus.length,
       ...resumir(meus, hoje),
-      proximos: proximos(meus, docs.filter((d) => d.cliente_id === c.id), hoje, agora),
+      por_etapa: porEtapa(etapas, meus),
+      faturamento: faturamento(todas.filter((o) => o.cliente_id === c.id), periodo),
+      proximos: proximos(todas.filter((o) => o.cliente_id === c.id), docs.filter((d) => d.cliente_id === c.id), hoje, agora), // compromissos: sempre os próximos, sem período
     };
   });
   // Ordem: quem tem mais dinheiro em jogo (garantido + em disputa) primeiro
   empresas.sort((a, b) => (b.projecao.garantido + b.projecao.em_disputa) - (a.projecao.garantido + a.projecao.em_disputa) || a.nome.localeCompare(b.nome));
   const doConjunto = clienteId ? ops : ops.filter((o) => clientes.some((c) => c.id === o.cliente_id));
+  const doConjuntoTodas = clienteId ? todas : todas.filter((o) => clientes.some((c) => c.id === o.cliente_id));
   return {
     hoje,
-    total: { empresas: empresas.length, oportunidades: doConjunto.length, ...resumir(doConjunto, hoje) },
-    sem_empresa: clienteId ? 0 : ops.filter((o) => !o.cliente_id).length,
+    periodo: comPeriodo ? { de, ate, fora_sem_data: doConjuntoTodas.filter((o) => !dataDaFase(o)).length } : null,
+    total: { empresas: empresas.length, oportunidades: doConjunto.length, ...resumir(doConjunto, hoje), por_etapa: porEtapa(etapas, doConjunto), faturamento: faturamento(doConjuntoTodas, periodo) },
+    sem_empresa: clienteId ? 0 : todas.filter((o) => !o.cliente_id).length,
     empresas,
   };
 }

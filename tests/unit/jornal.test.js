@@ -53,8 +53,10 @@ test('jornal: link assinado, resumo público com PNCP e resposta de interesse vi
   const objeto = db.prepare('SELECT objeto FROM licitacoes WHERE id=?').get(lic).objeto;
   assert.ok(n[0].mensagem.includes(objeto.slice(0, 60)));                      // o alerta diz QUAL licitação
   assert.deepEqual(r.notificacoes, [n[0].id]);
-  const fav = db.prepare("SELECT * FROM favoritos WHERE lista='Interesse do cliente'").all();
-  assert.equal(fav.length, 1); assert.equal(fav[0].cliente_id, cli);
+  const ops = db.prepare('SELECT o.*, e.ordem FROM oportunidades o JOIN kanban_etapas e ON e.id = o.etapa_id').all();
+  assert.equal(ops.length, 1); assert.equal(ops[0].cliente_id, cli); assert.equal(ops[0].licitacao_id, lic); assert.equal(ops[0].ordem, 0); // entra no Kanban, 1ª etapa
+  responderJornal(db, e.token, { interesses: [lic], respondente: 'João' });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM oportunidades').get().n, 1);                     // responder de novo não duplica
   const env = listarEnvios(db, emp);
   assert.deepEqual(env[0].interesses.map((l) => l.id), [lic]); assert.ok(env[0].interesses[0].objeto); assert.equal(env[0].respondente, 'João');
   assert.throws(() => criarEnvio(db, { empresaId: emp, usuarioId: uid, ids: [] }), /pelo menos uma/);

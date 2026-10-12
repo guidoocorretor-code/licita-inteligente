@@ -15,11 +15,10 @@ const MENU = [
   ['empresas', 'Empresa'],
   ['Oportunidades'],
   ['dashboard', 'Dashboard'],
+  ['kanban', 'Kanban'],
   ['buscar', 'Buscar licitações'],
   ['jornal', 'Jornal de licitações'],
   ['oportunidades', 'Minhas oportunidades'],
-  ['favoritos', 'Favoritos'],
-  ['kanban', 'Kanban'],
   ['notificacoes', 'Alertas'],
   ['Gestão'],
   ['precos', 'Análise de mercado'],
@@ -46,9 +45,10 @@ const ROTAS = {
 };
 
 function rotaAtual() {
-  const [nome, ...resto] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('/');
-  const [base, query] = nome.split('?');
-  return { nome: base, args: resto, query: new URLSearchParams(location.hash.split('?')[1] || '') , _q: query };
+  // A consulta (?a=1) vale para a rota inteira, inclusive com subpáginas (#/dashboard/empresas?tipo=mes)
+  const [caminho, query] = (location.hash.replace(/^#\/?/, '') || 'dashboard').split('?');
+  const [nome, ...resto] = caminho.split('/');
+  return { nome: nome || 'dashboard', args: resto, query: new URLSearchParams(query || ''), _q: query };
 }
 
 // Empresa assessorada em foco: Kanban, favoritos, alertas, calendário e vencimentos mostram só os dela
