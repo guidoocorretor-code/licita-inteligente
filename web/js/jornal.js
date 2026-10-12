@@ -102,15 +102,35 @@ export async function jornal(alvo, rota, est) {
     try {
       const r = await api('/jornal/envios');
       if (!r.envios.length) return render(enviados, vazio('Nenhum jornal montado ainda.'));
-      render(enviados, h('div', { class: 'tabela-wrap' }, h('table', {},
-        h('thead', {}, h('tr', {}, ['Montado em', 'Empresa', 'Licitações', 'E-mail', 'Abriu o link', 'Resposta'].map((t) => h('th', {}, t)))),
-        h('tbody', {}, r.envios.map((e) => h('tr', {},
+      const marcados = new Set();
+      const caixasEnv = [];
+      const btnExcluir = h('button', { class: 'btn', disabled: true, onclick: excluir }, 'Excluir marcados');
+      const atualizarEnv = () => { for (const c of caixasEnv) c.checked = marcados.has(Number(c.dataset.id)); btnExcluir.disabled = !marcados.size; btnExcluir.textContent = marcados.size ? `Excluir marcados (${marcados.size})` : 'Excluir marcados'; };
+      const semInteresse = (e) => !e.interesses?.length;
+      async function excluir() {
+        modal('Excluir envios', h('p', {}, `Excluir ${marcados.size} envio(s)? O link desses jornais para de funcionar para o cliente. Interesses já recebidos continuam em Favoritos.`),
+          [{ texto: 'Excluir', classe: 'perigo', acao: async () => {
+            try { const x = await api('/jornal/envios/excluir', { metodo: 'POST', corpo: { ids: [...marcados] } }); toast(`${x.excluidos} envio(s) excluído(s).`); carregarEnviados(); return true; }
+            catch (e) { toast(e.message, 6000); return false; }
+          } }]);
+      }
+      render(enviados,
+        h('div', { class: 'linha', style: { marginBottom: '8px' } },
+          h('button', { class: 'btn', title: 'Marca os que o cliente não respondeu e os que voltaram sem nenhuma licitação marcada', onclick: () => { r.envios.filter(semInteresse).forEach((e) => marcados.add(e.id)); atualizarEnv(); } }, 'Marcar os sem interesse'),
+          h('button', { class: 'btn', onclick: () => { marcados.clear(); atualizarEnv(); } }, 'Limpar marcação'), btnExcluir),
+        h('div', { class: 'tabela-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, ['', 'Montado em', 'Empresa', 'Licitações', 'E-mail', 'Abriu o link', 'Resposta'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, r.envios.map((e) => {
+          const cx = h('input', { type: 'checkbox', 'aria-label': 'Marcar envio', onchange: () => { if (cx.checked) marcados.add(e.id); else marcados.delete(e.id); atualizarEnv(); } });
+          cx.dataset.id = e.id; caixasEnv.push(cx);
+          return h('tr', {}, h('td', {}, cx),
           h('td', {}, dataUtc(e.criado_em)), h('td', {}, e.cliente || '—'), h('td', { class: 'num' }, e.licitacoes),
           h('td', {}, e.email_status === 'enviado' ? `enviado para ${e.email_para}` : e.email_status === 'erro' ? h('span', { class: 'texto-alerta' }, `não enviado para ${e.email_para}: ${e.email_erro || 'erro desconhecido'}`) : e.email_status === 'sem_smtp' ? 'e-mail não configurado' : '—'),
           h('td', {}, e.ultimo_acesso ? dataUtc(e.ultimo_acesso) : 'ainda não'),
           h('td', {}, e.respondido_em
             ? h('span', { class: e.interesses?.length ? 'texto-sucesso' : '' }, `${e.respondente}: ${e.interesses?.length ? `interesse em ${e.interesses.length}` : 'nenhuma marcada'}${e.observacao ? ` · "${e.observacao}"` : ''}`)
-            : 'aguardando')))))),
+            : 'aguardando'));
+        })))),
       r.envios.some((e) => e.interesses?.length) ? h('p', { class: 'pequeno suave' }, 'As licitações marcadas pelo cliente estão em ', h('a', { href: '#/favoritos' }, 'Favoritos'), ', lista "Interesse do cliente".') : null);
     } catch (e) { render(enviados, vazio(e.message)); }
   }

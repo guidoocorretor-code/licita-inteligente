@@ -5,7 +5,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { faltam, ordenarPorPrazo, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
+import { faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
 
 // Base de TESTE: uma licitação real do fixture do PNCP e uma empresa assessorada de exemplo
 function preparar() {
@@ -87,4 +87,13 @@ test('prazo: conta em horário de Brasília e ordena do mais curto para o mais l
   const itens = [{ id: 1, faltam: null }, { id: 2, faltam: { urgencia: 'baixa' }, data_encerramento_proposta: '2026-11-01' },
     { id: 3, faltam: { urgencia: 'encerrada' }, data_encerramento_proposta: '2026-10-01' }, { id: 4, faltam: { urgencia: 'alta' }, data_encerramento_proposta: '2026-10-13' }];
   assert.deepEqual(ordenarPorPrazo(itens).map((l) => l.id), [4, 2, 1, 3]);
+});
+
+test('excluir envios: só da própria empresa; o link deixa de funcionar', () => {
+  const { db, emp, uid, lic, cli } = preparar();
+  const e = criarEnvio(db, { empresaId: emp, clienteId: cli, usuarioId: uid, ids: [lic] });
+  assert.equal(excluirEnvios(db, emp + 1, [e.id]), 0);                      // outra empresa não apaga
+  assert.equal(excluirEnvios(db, emp, [e.id, 'x']), 1);
+  assert.throws(() => jornalPublico(db, e.token), /inválido|ativo/);
+  assert.throws(() => excluirEnvios(db, emp, []), /pelo menos um/);
 });

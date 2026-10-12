@@ -32,7 +32,7 @@ import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { propostaDaOportunidade, salvarProposta, mudarStatusProposta, listarPropostas } from '../services/propostas.js';
 import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
 import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
-import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO } from '../services/jornal-cliente.js';
+import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, excluirEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO } from '../services/jornal-cliente.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -200,6 +200,10 @@ const envioDaEmpresa = (req, res) => {
   return dadosEnvio(db(), e.id);
 };
 r.get('/jornal/envios', (req, res) => res.json({ envios: listarEnvios(db(), req.usuario.empresa_id, req.clienteId), email_configurado: emailConfigurado() }));
+r.post('/jornal/envios/excluir', exigirPapel('analista'), (req, res) => {
+  try { res.json({ excluidos: excluirEnvios(db(), req.usuario.empresa_id, req.body?.ids) }); }
+  catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro ao excluir.'); }
+});
 r.post('/jornal/envios', exigirPapel('analista'), (req, res) => {
   try {
     const x = criarEnvio(db(), { empresaId: req.usuario.empresa_id, clienteId: req.clienteId, usuarioId: req.usuario.id, ids: req.body?.ids });
@@ -623,7 +627,8 @@ r.patch('/kanban/:id/cotacoes/parametros', exigirPapel('analista'), (req, res) =
 // ---------------- Preferências de alerta e e-mail (Fase 3) ----------------
 r.get('/preferencias', (req, res) => {
   const p = db().prepare('SELECT alertas_email, email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id);
-  res.json({ alertas_email: p ? !!p.alertas_email : true, email_alertas: p?.email_alertas || '', email_login: req.usuario.email, email: statusEmail().configurado });
+  res.json({ alertas_email: p ? !!p.alertas_email : true, email_alertas: p?.email_alertas || '', email_login: req.usuario.email, email: statusEmail().configurado,
+    envio: (({ provedor, remetente, ultimoEnvio, ultimoErro }) => ({ provedor, remetente, ultimo_envio: ultimoEnvio, ultimo_erro: ultimoErro }))(statusEmail()) });
 });
 r.patch('/preferencias', (req, res) => {
   const atual = db().prepare('SELECT alertas_email, email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id) || { alertas_email: 1, email_alertas: null };
@@ -643,7 +648,7 @@ r.get('/email/status', exigirPapel('admin'), (req, res) => res.json(statusEmail(
 r.post('/email/teste', async (req, res) => {
   const p = db().prepare('SELECT email_alertas FROM usuario_preferencias WHERE usuario_id=?').get(req.usuario.id);
   const destino = p?.email_alertas || req.usuario.email;
-  try { await enviarEmailTeste({ nome: req.usuario.nome, email: destino }); res.json({ ok: true, mensagem: `E-mail de teste enviado para ${destino}.` }); }
+  try { await enviarEmailTeste({ nome: req.usuario.nome, email: destino }); res.json({ ok: true, mensagem: `O provedor de e-mail aceitou o envio para ${destino}.` }); }
   catch (e) { erro(res, 400, e.message); }
 });
 

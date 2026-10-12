@@ -95,6 +95,9 @@ test('valor não informado não vira zero; taxa de vitória só projeta com 5 re
   assert.equal(r.execucao.vencida.sem_valor, 1); assert.equal(r.execucao.vencida.valor, 0);
   assert.equal(r.taxa_vitoria.pct, 0.5); assert.equal(r.taxa_vitoria.confiavel, false);
   assert.equal(r.projecao.potencial, null);
+  // Vencida sem valor ganho nem proposta: usa o estimado do edital, marcado como "pelo edital"
+  const v = resumir([{ fase: 'ganha', valor_ganho: null, valor_proposta: null, valor_estimado: 8000 }, { fase: 'ganha', valor_ganho: 500, valor_estimado: 9000 }], hoje);
+  assert.equal(v.execucao.vencida.valor, 8500); assert.equal(v.execucao.vencida.pelo_edital, 1); assert.equal(v.execucao.vencida.sem_valor, 0);
 });
 
 test('painel de empresas: do edital ao recebimento, por empresa', async () => {
@@ -150,7 +153,7 @@ test('painel de empresas: do edital ao recebimento, por empresa', async () => {
   assert.ok(tipos.includes('entrega') && tipos.includes('recebimento') && tipos.includes('sessao'));
   assert.ok(a.proximos.find((x) => x.tipo === 'entrega' && /ATRASADA/.test(x.texto)));
   const b = p.empresas.find((e) => e.id === beta);
-  assert.equal(b.execucao.vencida.n, 1); assert.equal(b.execucao.vencida.sem_valor, 1); assert.equal(b.ramo, null);
+  assert.equal(b.execucao.vencida.n, 1); assert.equal(b.execucao.vencida.sem_valor, 0); assert.equal(b.execucao.vencida.pelo_edital, 1); assert.ok(b.execucao.vencida.valor > 0); // ganhou sem valor: usa o edital, marcado assert.equal(b.ramo, null);
   // Total = só as empresas cadastradas (o card sem empresa fica de fora e é avisado à parte)
   assert.equal(p.total.oportunidades, 11);
   // Empresa selecionada no topo: só ela

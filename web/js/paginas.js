@@ -468,7 +468,7 @@ const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentari
 // Valores sugeridos vêm do próprio card (ex.: valor da nota = valor do empenho) e só gravam se o usuário salvar.
 const hojeLocal = () => new Date().toLocaleDateString('sv-SE');
 const PEDIR_NA_ETAPA = {
-  ganha: { titulo: 'Licitação vencida', campos: [['valor_ganho', 'Valor ganho', 'valor', (c) => c.valor_proposta]] },
+  ganha: { titulo: 'Licitação vencida', campos: [['valor_ganho', 'Valor ganho', 'valor', (c) => c.valor_proposta ?? c.valor_estimado]] },
   a_entregar: { titulo: 'Empenho recebido', campos: [['empenho_numero', 'Nº do empenho', 'texto'], ['empenho_valor', 'Valor empenhado', 'valor', (c) => c.valor_ganho ?? c.valor_proposta],
     ['empenho_data', 'Data do empenho', 'data', hojeLocal], ['entrega_prazo', 'Prazo de entrega', 'data']] },
   entregue: { titulo: 'Produto entregue / serviço executado', campos: [['entrega_data', 'Entregue em', 'data', hojeLocal]] },
@@ -911,6 +911,9 @@ export async function configuracoes(alvo, _r, est) {
   const ativo = h('input', { type: 'checkbox', checked: pref.alertas_email });
   blocos.push(h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Alertas por e-mail'),
     pref.email ? null : h('div', { class: 'aviso amarelo' }, 'O envio de e-mail ainda não está ativado no servidor (variável BREVO_API_KEY ou SMTP_URL). Os alertas continuam aparecendo no sistema.'),
+    pref.envio?.provedor === 'brevo' ? h('div', { class: 'suave pequeno' }, `Envio pelo Brevo · remetente: ${pref.envio.remetente || 'não definido (crie EMAIL_REMETENTE)'}`) : null,
+    pref.envio?.provedor === 'smtp' ? h('div', { class: 'aviso amarelo' }, 'Envio por SMTP (SMTP_URL). No Railway Hobby o SMTP é bloqueado e o e-mail não sai: crie BREVO_API_KEY e EMAIL_REMETENTE nas variáveis do Railway e faça o Redeploy.') : null,
+    pref.envio?.ultimo_erro ? h('div', { class: 'aviso vermelho pequeno' }, `Último erro de envio: ${pref.envio.ultimo_erro}`) : null,
     h('label', { class: 'linha' }, ativo, 'Receber resumo dos alertas por e-mail'),
     h('div', { class: 'campo', style: { marginTop: '10px' } }, h('label', {}, 'Enviar alertas para (vazio = e-mail de login)'), destino),
     h('div', { class: 'linha' },
@@ -918,8 +921,11 @@ export async function configuracoes(alvo, _r, est) {
         try { await api('/preferencias', { metodo: 'PATCH', corpo: { alertas_email: ativo.checked, email_alertas: destino.value } }); toast('Preferências salvas.'); }
         catch (e) { toast(e.message); }
       } }, 'Salvar'),
-      h('button', { class: 'btn', disabled: !pref.email, onclick: async () => {
-        try { const r = await api('/email/teste', { metodo: 'POST', corpo: {} }); toast(r.mensagem, 6000); } catch (e) { toast(e.message, 8000); }
+      h('button', { class: 'btn', disabled: !pref.email, title: pref.email ? '' : 'E-mail do sistema não configurado no servidor', onclick: async (ev) => {
+        const b = ev.currentTarget; b.disabled = true; b.textContent = 'Enviando…';
+        try { const r = await api('/email/teste', { metodo: 'POST', corpo: {} }); toast(`${r.mensagem} Se não chegar em alguns minutos, olhe o spam.`, 8000); }
+        catch (e) { toast(e.message, 12000); }
+        finally { b.disabled = false; b.textContent = 'Enviar e-mail de teste'; }
       } }, 'Enviar e-mail de teste'))));
   if (ehAdmin(est)) {
     const [us, aud] = await Promise.all([api('/usuarios'), api('/auditoria')]);

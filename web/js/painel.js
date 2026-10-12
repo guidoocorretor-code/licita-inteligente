@@ -69,12 +69,12 @@ function barrasEtapas(r) {
   const maior = Math.max(1, ...linhas.map((l) => l.valor));
   return h('div', { class: 'pe-barras' }, linhas.map((l) => h('div', {
     class: `pe-barra${l.n ? '' : ' zerada'}`,
-    title: `${l.rot}: ${numero(l.n)} oportunidade(s) · ${moeda(l.valor)}${l.sem_valor ? ` · ${l.sem_valor} sem valor informado` : ''}` },
+    title: `${l.rot}: ${numero(l.n)} oportunidade(s) · ${moeda(l.valor)}${l.pelo_edital ? ` · ${l.pelo_edital} pelo valor estimado do edital (informe o valor ganho no card)` : ''}${l.sem_valor ? ` · ${l.sem_valor} sem valor informado` : ''}` },
   h('span', { class: 'rot' }, l.rot),
   h('span', { class: 'trilho' }, l.valor ? h('span', { class: 'preench', style: { width: `${Math.max(2, (l.valor / maior) * 100)}%`, background: l.cor } })
     : l.n ? h('span', { class: 'preench sem-valor', style: { width: '8%', background: l.cor } }) : null),
   h('span', { class: `val${l.n && !l.valor ? ' falta' : ''}` }, l.n ? (l.valor ? curto(l.valor) : 's/ valor') : '—'),
-  h('span', { class: 'qtd' }, l.n ? `${numero(l.n)}${l.sem_valor && l.valor ? '*' : ''}` : ''))));
+  h('span', { class: 'qtd' }, l.n ? `${numero(l.n)}${(l.sem_valor && l.valor) || l.pelo_edital ? '*' : ''}` : ''))));
 }
 
 /** Barra empilhada da projeção: a faturar + a receber (garantido) + provável das disputas. */
@@ -117,7 +117,7 @@ function kpis(r) {
       { classe: 'destaque', dica: 'Garantido = vencidas ainda não recebidas. Provável = valor em disputa × taxa de vitória (só com 5 resultados registrados).' }),
     kpi('Em disputa', curto(r.disputa.valor), `${numero(r.disputa.n)} disputa(s)${r.disputa.pelo_edital ? ` · ${r.disputa.pelo_edital} pelo valor do edital` : ''}${semV(r.disputa)}`,
       { cor: COR.disputa, dica: 'Valor da proposta informado no card; sem ele, o valor estimado do edital inteiro (pode incluir lotes que a empresa não disputa).' }),
-    kpi('A faturar', curto(r.a_faturar.valor), `${numero(r.a_faturar.n)} vencida(s) sem nota${semV(r.a_faturar)}`, { cor: COR.ganho, dica: 'Vencidas, aguardando empenho, empenhadas e entregues: dinheiro ganho que ainda não virou nota fiscal.' }),
+    kpi('A faturar', curto(r.a_faturar.valor), `${numero(r.a_faturar.n)} vencida(s) sem nota${r.a_faturar.pelo_edital ? ` · ${r.a_faturar.pelo_edital} pelo valor do edital` : ''}${semV(r.a_faturar)}`, { cor: COR.ganho, dica: 'Vencidas, aguardando empenho, empenhadas e entregues: dinheiro ganho que ainda não virou nota fiscal.' }),
     kpi('A receber', curto(x.a_receber.valor), x.a_receber.mais_30d.n ? `⚠ ${curto(x.a_receber.mais_30d.valor)} há mais de 30 dias` : `${numero(x.a_receber.n)} nota(s) emitida(s)${semV(x.a_receber)}`,
       { cor: COR.receber, classe: x.a_receber.mais_30d.n ? 'alerta' : '', dica: 'Notas fiscais emitidas ainda não pagas pelo órgão.' }),
     kpi('Recebido em 12 meses', curto(x.recebido_12m.valor), `${numero(x.recebido_12m.n)} pagamento(s)${x.recebido_sem_data ? ` · ${x.recebido_sem_data} sem data` : ''}${semV(x.recebido_total)}`,
@@ -127,10 +127,12 @@ function kpis(r) {
 // Quatro blocos em grade 2×2: onde está o dinheiro, resultado das disputas, faturamento previsto e um bloco extra
 const graficos = (r, extra) => h('div', { class: 'pe-graficos' },
   h('section', { class: 'pe-bloco' }, h('h3', {}, 'Onde está o dinheiro'), barrasEtapas(r),
-    PASSOS_SEM_VALOR(r) ? h('div', { class: 'suave pequeno pe-nota' }, '* inclui oportunidade sem valor informado (não entra na soma)') : null),
+    PASSOS_SEM_VALOR(r) ? h('div', { class: 'suave pequeno pe-nota' }, '* inclui oportunidade sem valor informado (não entra na soma)') : null,
+    PASSOS_PELO_EDITAL(r) ? h('div', { class: 'suave pequeno pe-nota' }, '* vencida sem valor ganho: soma o valor estimado do edital. Abra o card no Kanban e informe o valor ganho para o número ficar exato.') : null),
   h('section', { class: 'pe-bloco' }, h('h3', {}, 'Resultado das disputas'), resultado(r)),
   h('section', { class: 'pe-bloco' }, h('h3', {}, 'Faturamento previsto'), barraProjecao(r)),
   extra);
+const PASSOS_PELO_EDITAL = (r) => ['ganha', 'empenho'].reduce((t, k) => t + (ETAPAS.find(([e]) => e === k)[2](r)?.pelo_edital || 0), 0);
 const PASSOS_SEM_VALOR = (r) => ETAPAS.reduce((t, [, , f]) => t + (f(r)?.sem_valor || 0), 0);
 
 // ---------- Blocos da empresa ----------
