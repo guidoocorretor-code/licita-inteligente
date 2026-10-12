@@ -89,7 +89,7 @@ export async function jornal(alvo, rota, est) {
     carregarEnviados();
     const para = h('input', { type: 'email', value: d.cliente?.resp_email || d.cliente?.email || '', placeholder: 'email@empresa.com.br', style: { width: '100%' } });
     modal('Enviar jornal por e-mail', h('div', {},
-      h('p', {}, `${d.itens.length} licitação(ões). O e-mail leva o PDF e o link em que o empresário marca as que tem interesse; a resposta chega para você no sino (🔔) e nos Favoritos, lista "Interesse do cliente".`),
+      h('p', {}, `${d.itens.length} licitação(ões). O e-mail leva o PDF e o link em que o empresário marca as que tem interesse; a resposta chega para você por e-mail e no sino (🔔), e as marcadas entram no Kanban da empresa.`),
       h('ol', { class: 'pequeno', style: { maxHeight: '180px', overflow: 'auto', paddingLeft: '20px' } },
         ...d.itens.map((l) => h('li', {}, `${(l.objeto || '').slice(0, 110)} · ${[l.municipio, l.uf].filter(Boolean).join('/')}`))),
       h('label', {}, `E-mail do representante legal${d.cliente?.resp_nome ? ` (${d.cliente.resp_nome})` : ''}`), para,
@@ -141,7 +141,7 @@ export async function jornal(alvo, rota, est) {
       const atualizarEnv = () => { for (const c of caixasEnv) c.checked = marcados.has(Number(c.dataset.id)); btnExcluir.disabled = !marcados.size; btnExcluir.textContent = marcados.size ? `Excluir marcados (${marcados.size})` : 'Excluir marcados'; };
       const semInteresse = (e) => !e.interesses?.length;
       async function excluir() {
-        modal('Excluir envios', h('p', {}, `Excluir ${marcados.size} envio(s)? O link desses jornais para de funcionar para o cliente. Interesses já recebidos continuam em Favoritos.`),
+        modal('Excluir envios', h('p', {}, `Excluir ${marcados.size} envio(s)? O link desses jornais para de funcionar para o cliente. Interesses já recebidos continuam no Kanban.`),
           [{ texto: 'Excluir', classe: 'perigo', acao: async () => {
             try { const x = await api('/jornal/envios/excluir', { metodo: 'POST', corpo: { ids: [...marcados] } }); toast(`${x.excluidos} envio(s) excluído(s).`); carregarEnviados(); return true; }
             catch (e) { toast(e.message, 6000); return false; }
@@ -168,7 +168,7 @@ export async function jornal(alvo, rota, est) {
               e.observacao ? h('div', { class: 'pequeno' }, `Obs.: "${e.observacao}"`) : null)
             : 'aguardando'));
         })))),
-      r.envios.some((e) => e.interesses?.length) ? h('p', { class: 'pequeno suave' }, 'As licitações marcadas pelo cliente estão em ', h('a', { href: '#/favoritos' }, 'Favoritos'), ', lista "Interesse do cliente".') : null);
+      r.envios.some((e) => e.interesses?.length) ? h('p', { class: 'pequeno suave' }, 'As licitações marcadas pelo cliente entram no ', h('a', { href: '#/kanban' }, 'Kanban'), ' da empresa, na primeira etapa.') : null);
     } catch (e) { render(enviados, vazio(e.message)); }
   }
 

@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { SISTEMAS } from './sistemas.js';
 import { criarPdf } from '../lib/pdf-simples.js';
 import { enviarEmail } from './email.js';
+import { ETAPAS_PADRAO } from './execucao.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const assinar = (nonce) => crypto.createHmac('sha256', config.jwtSecret).update(`jornal-link:${nonce}`).digest('base64url').slice(0, 32);
@@ -198,12 +199,26 @@ export function responderJornal(db, token, b = {}) {
         notificacoes.push(Number(ins.run(e.empresa_id, e.criado_por, e.cliente_id || 0, msg, l.id).lastInsertRowid));
       }
     } else notificacoes.push(Number(ins.run(e.empresa_id, e.criado_por, e.cliente_id || 0, `${quem} respondeu o jornal sem marcar licitações.${obs ? ` Obs.: ${obs}` : ''}`, null).lastInsertRowid));
-    // As marcadas entram nos favoritos da empresa, na lista "Interesse do cliente", para virar oportunidade no Kanban
-    const fav = db.prepare(`INSERT INTO favoritos (empresa_id, usuario_id, cliente_id, tipo, referencia, lista, nota) VALUES (?,?,?,'licitacao',?,'Interesse do cliente',?)
-      ON CONFLICT(usuario_id, cliente_id, tipo, referencia, lista) DO UPDATE SET nota=excluded.nota`);
-    for (const id of marcadas) fav.run(e.empresa_id, e.criado_por, e.cliente_id || 0, String(id), `Marcada por ${respondente} no jornal`);
+    // As marcadas entram no Kanban da empresa, na primeira etapa (o que já está na esteira, inclusive descartado, não se mexe)
+    if (marcadas.length) entrarNoKanban(db, e, marcadas, respondente);
   }
   return { interesses: marcadas.length, envio_id: e.id, notificacoes };
+}
+
+function entrarNoKanban(db, e, ids, respondente) {
+  if (!db.prepare('SELECT 1 FROM kanban_etapas WHERE empresa_id=?').get(e.empresa_id)) {
+    const ins = db.prepare('INSERT INTO kanban_etapas (empresa_id, nome, ordem, fase) VALUES (?,?,?,?)');
+    ETAPAS_PADRAO.forEach(([nome, fase], i) => ins.run(e.empresa_id, nome, i, fase));
+  }
+  const primeira = db.prepare('SELECT id FROM kanban_etapas WHERE empresa_id=? ORDER BY ordem LIMIT 1').get(e.empresa_id);
+  const existe = db.prepare('SELECT 1 FROM oportunidades WHERE empresa_id=? AND licitacao_id=? AND cliente_id=?');
+  const ins = db.prepare('INSERT INTO oportunidades (empresa_id, cliente_id, licitacao_id, etapa_id, responsavel_id) VALUES (?,?,?,?,?)');
+  const hist = db.prepare("INSERT INTO oportunidade_historico (oportunidade_id, usuario_id, tipo, texto) VALUES (?,?,'criacao',?)");
+  for (const id of ids) {
+    if (existe.get(e.empresa_id, id, e.cliente_id || 0)) continue;
+    const op = Number(ins.run(e.empresa_id, e.cliente_id || 0, id, primeira.id, e.criado_por).lastInsertRowid);
+    hist.run(op, e.criado_por, `Interesse marcado por ${respondente} no jornal de licitações`);
+  }
 }
 
 /** Objeto, órgão e local das licitações (na ordem dos ids), para mostrar o que o cliente marcou. */
@@ -223,11 +238,11 @@ export function montarEmailInteresse(d, { urlBase = '' } = {}) {
   const linha = (l) => `${(l.objeto || '').slice(0, 220)}${l.local ? ` · ${l.local}` : ''}${l.prazo ? ` · propostas até ${dataBr(l.prazo)}` : ''}`;
   const texto = [`${quem} respondeu o jornal de licitações.`, '',
     ...(d.lics.length ? d.lics.map((l, i) => `${i + 1}. ${linha(l)}${base ? `\n   ${base}/#/licitacao/${l.id}` : ''}`) : ['Nenhuma licitação marcada.']),
-    d.observacao ? `\nObservação: ${d.observacao}` : '', '', 'As marcadas já estão em Favoritos, lista "Interesse do cliente".'].join('\n');
+    d.observacao ? `\nObservação: ${d.observacao}` : '', '', 'As marcadas já estão no Kanban da empresa, na primeira etapa.'].join('\n');
   const html = `<p><strong>${esc(quem)}</strong> respondeu o jornal de licitações.</p>`
     + (d.lics.length ? `<ol>${d.lics.map((l) => `<li style="margin-bottom:10px">${esc(linha(l))}${base ? `<br><a href="${esc(`${base}/#/licitacao/${l.id}`)}">Abrir no sistema</a>` : ''}</li>`).join('')}</ol>` : '<p>Nenhuma licitação marcada.</p>')
     + (d.observacao ? `<p><strong>Observação:</strong> ${esc(d.observacao)}</p>` : '')
-    + '<p style="color:#666;font-size:12px">As marcadas já estão em Favoritos, lista "Interesse do cliente".</p>';
+    + '<p style="color:#666;font-size:12px">As marcadas já estão no Kanban da empresa, na primeira etapa.</p>';
   return { assunto, texto, html };
 }
 
@@ -255,7 +270,7 @@ export function listarEnvios(db, empresaId, clienteId = null) {
     .map((r) => ({ ...r, licitacoes: JSON.parse(r.licitacoes).length, interesses: r.interesses ? resumoLicitacoes(db, JSON.parse(r.interesses)) : null }));
 }
 
-/** Apaga envios da empresa (o link do cliente deixa de funcionar). Interesses já recebidos continuam nos Favoritos. */
+/** Apaga envios da empresa (o link do cliente deixa de funcionar). Interesses já recebidos continuam no Kanban. */
 export function excluirEnvios(db, empresaId, ids) {
   const lista = [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 200);
   if (!lista.length) throw erro(400, 'Marque pelo menos um envio.');

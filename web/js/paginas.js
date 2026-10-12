@@ -130,7 +130,7 @@ function seloCredenciamento(l) {
     dias != null && dias > 60 ? 'Credenciamento · prazo longo' : 'Credenciamento');
 }
 
-function linhaLicitacao(l, est, { aoFavoritar } = {}) {
+function linhaLicitacao(l, est, { aoKanban } = {}) {
   const prazo = prazoRestante(l.data_encerramento_proposta);
   const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
   const urgente = diasRestantes !== null && diasRestantes > 0 && diasRestantes <= 3;
@@ -166,7 +166,7 @@ function linhaLicitacao(l, est, { aoFavoritar } = {}) {
       h('span', { class: 'valor-grande', title: l.valor_estimado === 0 ? 'A fonte informou valor estimado zero (comum quando o orçamento é sigiloso).' : '' }, moeda(l.valor_estimado, l.valor_estimado_situacao), l.valor_estimado === 0 ? h('span', { class: 'suave pequeno' }, ' (zero na fonte)') : null),
       prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela'), title: 'Tempo restante para envio de propostas' }, `⏱ faltam ${prazo}`) : null,
       h('div', { class: 'linha' },
-        aoFavoritar ? h('button', { class: 'btn pequeno', title: 'Favoritar', onclick: () => aoFavoritar(l) }, '☆') : null,
+        aoKanban ? h('button', { class: 'btn pequeno', title: 'Subir para o Kanban (entra na primeira etapa)', onclick: () => aoKanban(l) }, '+ Kanban') : null,
         l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null)));
 }
 
@@ -272,17 +272,13 @@ export async function buscar(alvo, rota, est) {
       ps.map((p) => h('a', { class: 'btn pequeno', href: `#/buscar${qs(JSON.parse(p.filtros_json))}` }, p.alertar ? '🔔 ' : '', p.nome)));
   }).catch(() => {});
 
-  const favoritar = async (l) => {
-    try { await api('/favoritos', { metodo: 'POST', corpo: { tipo: 'licitacao', referencia: String(l.id) } }); toast('Adicionado aos favoritos.'); }
-    catch (e) { toast(e.message); }
-  };
   try {
     const res = await api(`/licitacoes${qs({ ...filtros, tamanho: 20 })}`);
     const aviso = avisoCoberturaItens(res.cobertura_itens, filtros);
     if (!res.total) { render(lista, aviso, vazio('Nenhuma licitação encontrada com esses filtros.')); return; }
     render(lista, aviso,
       h('div', { class: 'suave pequeno' }, `${numero(res.total)} licitação(ões) encontrada(s).`),
-      ...res.dados.map((l) => linhaLicitacao(l, est, { aoFavoritar: favoritar })),
+      ...res.dados.map((l) => linhaLicitacao(l, est, { aoKanban: podeEditar(est) ? (x) => enviarAoKanban(x, est) : null })),
       paginacao(res.pagina, res.paginas, (pagina) => aplicar({ pagina })));
   } catch (e) { render(lista, erroBox(e)); }
 }
@@ -305,10 +301,9 @@ export async function detalhe(alvo, rota, est) {
   } }, d.favorito ? '★ Favorita' : '☆ Favoritar');
   const emFoco = empresaEmFoco(est);
   const btnKanban = d.oportunidade
-    ? [h('a', { class: 'btn', href: '#/kanban' }, `Kanban: ${d.oportunidade.etapa_nome}`), h('a', { class: 'btn', href: `#/cotacao/${d.oportunidade.id}` }, '💲 Cotações')]
-    : podeEditar(est) ? h('button', { class: 'btn primario', onclick: async () => {
-      try { await api('/kanban', { metodo: 'POST', corpo: { licitacao_id: l.id } }); toast(emFoco ? `Enviada ao Kanban de ${nomeEmpresa(emFoco)}.` : 'Enviada ao Kanban.'); detalhe(alvo, rota, est); } catch (e) { toast(e.message); }
-    } }, emFoco ? `+ Kanban de ${nomeEmpresa(emFoco)}` : '+ Acompanhar no Kanban') : null;
+    ? [h('a', { class: 'btn', href: '#/kanban' }, `Kanban: ${d.oportunidade.etapa_nome}`), h('a', { class: 'btn', href: `#/cotacao/${d.oportunidade.id}` }, '💲 Cotações'),
+      d.oportunidade.descarte_motivo ? h('div', { class: 'aviso amarelo pequeno', style: { flexBasis: '100%' } }, h('strong', {}, 'Descartada: '), d.oportunidade.descarte_motivo) : null]
+    : podeEditar(est) ? h('button', { class: 'btn primario', onclick: () => enviarAoKanban(l, est, () => detalhe(alvo, rota, est)) }, emFoco ? `+ Kanban de ${nomeEmpresa(emFoco)}` : '+ Acompanhar no Kanban') : null;
   const empresasDaLic = d.empresas?.length ? h('div', { class: 'suave pequeno', style: { marginTop: '6px' } }, '🏢 Acompanhada por: ',
     d.empresas.map((e, i) => [i ? ', ' : '', h('a', { href: `#/empresas/${e.id}` }, e.nome)])) : null;
   const btnAtualizar = podeEditar(est) && l.numero_controle_pncp ? h('button', { class: 'btn', onclick: async (e) => {
@@ -459,7 +454,60 @@ function camposExecucao(c, fase) {
   return { el, ler };
 }
 
-const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores', cotacao: 'Cotação', proposta: 'Proposta' };
+const TIPO_HIST = { criacao: 'Criação', movimento: 'Mudou de etapa', comentario: 'Comentário', atribuicao: 'Responsável', prazo: 'Prazo interno', empresa: 'Empresa vinculada', valores: 'Valores', cotacao: 'Cotação', proposta: 'Proposta', descarte: 'Motivo do descarte', autorizacao: '🔒 Autorização do administrador' };
+
+// "Nota fiscal emitida" e "Recebido" só mudam com a senha de um administrador (o servidor confere; nada fica guardado aqui).
+// fn(extra) faz a chamada; se o servidor pedir a senha (423), abre a janela e tenta de novo com ela.
+async function comSenhaAdmin(fn) {
+  try { return await fn({}); } catch (e) { if (e.status !== 423) throw e; }
+  return new Promise((resolve, reject) => {
+    const campo = h('input', { type: 'password', autocomplete: 'off', placeholder: 'Senha de um administrador' });
+    const msg = h('p', { class: 'pequeno texto-alerta' });
+    modal('🔒 Senha do administrador', h('div', {},
+      h('p', {}, 'Este card está em "Nota fiscal emitida" ou "Recebido". Para alterar, voltar de etapa ou excluir, um administrador precisa digitar a senha dele.'),
+      campo, msg, h('p', { class: 'pequeno suave' }, 'A autorização fica registrada no histórico do card com o nome do administrador.')),
+    [{ texto: 'Autorizar', classe: 'primario', acao: async () => {
+      try { resolve(await fn({ senha_admin: campo.value })); return true; }
+      catch (e) { if (e.status === 423 || e.status === 429) { msg.textContent = e.message; campo.select(); return false; } reject(e); return true; }
+    } }]);
+    setTimeout(() => campo.focus(), 50);
+  });
+}
+
+// Descartar pede o motivo, para a decisão não cair no esquecimento
+function pedirJustificativa(c) {
+  return new Promise((resolve) => {
+    const campo = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'Ex.: exige atestado de capacidade técnica que a empresa não tem' });
+    const msg = h('p', { class: 'pequeno texto-alerta' });
+    modal('Por que descartar?', h('div', {},
+      h('p', { class: 'suave pequeno' }, c.objeto?.slice(0, 140) || ''), campo, msg,
+      h('p', { class: 'pequeno suave' }, 'O motivo aparece no card e avisa quem tentar subir esta licitação de novo.')),
+    [{ texto: 'Descartar', classe: 'perigo', acao: () => {
+      if (campo.value.trim().length < 10) { msg.textContent = 'Escreva o motivo (pelo menos 10 letras).'; return false; }
+      resolve(campo.value.trim()); return true;
+    } }]);
+    setTimeout(() => campo.focus(), 50);
+    // Fechar sem descartar: resolve null (o botão Fechar do modal só remove a janela)
+    const obs = new MutationObserver(() => { if (!document.body.contains(campo)) { obs.disconnect(); resolve(null); } });
+    obs.observe(document.body, { childList: true });
+  });
+}
+
+/** Sobe a licitação para o Kanban; se ela já estiver na esteira (inclusive descartada), avisa em vez de duplicar. */
+export async function enviarAoKanban(l, est, aoMudar) {
+  const emFoco = empresaEmFoco(est);
+  try {
+    const r = await api('/kanban', { metodo: 'POST', corpo: { licitacao_id: l.id } });
+    if (!r.existente) { toast(emFoco ? `Enviada ao Kanban de ${nomeEmpresa(emFoco)}.` : 'Enviada ao Kanban.'); aoMudar?.(); return; }
+    if (r.fase === 'descartada') {
+      modal('Esta licitação já foi descartada', h('div', {},
+        h('p', {}, 'Ela já consta na esteira de ', h('strong', {}, 'Descartados'), emFoco ? ` de ${nomeEmpresa(emFoco)}` : '', r.descartado_em ? ` desde ${data(r.descartado_em, false)}` : '', '.'),
+        r.motivo ? h('div', { class: 'aviso amarelo' }, h('strong', {}, 'Motivo: '), r.motivo) : null,
+        h('p', { class: 'pequeno suave' }, 'Para retomar, abra o Kanban e mova o card de volta para a etapa desejada.')),
+      [{ texto: 'Ver no Kanban', classe: 'primario', acao: () => { location.hash = '#/kanban'; } }]);
+    } else toast(`Já está no Kanban, na etapa "${r.etapa}".`, 5000);
+  } catch (e) { toast(e.message); }
+}
 
 // Ao mover o card para uma etapa de execução, pede os dados dessa etapa (só os que ainda estão vazios).
 // Valores sugeridos vêm do próprio card (ex.: valor da nota = valor do empenho) e só gravam se o usuário salvar.
@@ -602,12 +650,19 @@ export async function kanban(alvo, _r, est) {
   const k = await api('/kanban');
   const recarregar = () => { rolagemKanban = document.querySelector('.kanban')?.scrollLeft || 0; kanban(alvo, _r, est); };
   const mover = async (cardId, etapaId) => {
+    const c = k.cards.find((x) => String(x.id) === String(cardId)); const et = k.etapas.find((e) => String(e.id) === String(etapaId));
+    if (!c || !et || c.etapa_id === et.id) return;
     try {
-      await api(`/kanban/${cardId}`, { metodo: 'PATCH', corpo: { etapa_id: Number(etapaId) } });
-      const c = k.cards.find((x) => String(x.id) === String(cardId)); const et = k.etapas.find((e) => String(e.id) === String(etapaId));
+      const corpo = { etapa_id: Number(etapaId) };
+      const atual = k.etapas.find((e) => e.id === c.etapa_id);
+      if (et.fase === 'descartada' && atual?.fase !== 'descartada') {
+        corpo.justificativa = await pedirJustificativa(c);
+        if (!corpo.justificativa) { recarregar(); return; } // desistiu: o card volta para onde estava
+      }
+      await comSenhaAdmin((extra) => api(`/kanban/${cardId}`, { metodo: 'PATCH', corpo: { ...corpo, ...extra } }));
       recarregar();
-      if (c && et) pedirDadosDaEtapa(c, et.fase, recarregar);
-    } catch (e) { toast(e.message); }
+      pedirDadosDaEtapa(c, et.fase, recarregar);
+    } catch (e) { toast(e.message, 5000); recarregar(); }
   };
   // Clique em "🏢 Sem empresa" (ou no nome da empresa) para vincular a oportunidade a uma empresa cadastrada
   const vincularEmpresa = (c) => {
@@ -642,14 +697,16 @@ export async function kanban(alvo, _r, est) {
     podeEditar(est) ? [
       { texto: 'Salvar', classe: 'primario', acao: async () => {
         try {
-          await api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { responsavel_id: resp.value ? Number(resp.value) : null, prazo_interno: prazo.value || null, ...execucao.ler() } });
+          const corpo = { responsavel_id: resp.value ? Number(resp.value) : null, prazo_interno: prazo.value || null, ...execucao.ler() };
+          await comSenhaAdmin((extra) => api(`/kanban/${c.id}`, { metodo: 'PATCH', corpo: { ...corpo, ...extra } }));
           if (txt.value.trim()) await api(`/kanban/${c.id}/comentarios`, { metodo: 'POST', corpo: { texto: txt.value.trim() } });
           recarregar();
         } catch (e) { toast(e.message); return false; }
       } },
       ...(est.usuario.papel !== 'analista' ? [{ texto: 'Remover do Kanban', classe: 'perigo', acao: async () => {
         if (!confirmar('Remover esta oportunidade do Kanban?')) return false;
-        await api(`/kanban/${c.id}`, { metodo: 'DELETE' }); recarregar();
+        try { await comSenhaAdmin((extra) => api(`/kanban/${c.id}`, { metodo: 'DELETE', corpo: extra })); recarregar(); }
+        catch (e) { toast(e.message, 5000); return false; }
       } }] : []),
     ] : []);
   };
@@ -664,6 +721,8 @@ export async function kanban(alvo, _r, est) {
           h('div', { class: 'linha', style: { marginTop: '6px' } }, etiquetaStatus(c.status_calculado, est.meta),
             c.data_encerramento_proposta ? h('span', { class: 'suave' }, `até ${data(c.data_encerramento_proposta)}`) : null),
           c.responsavel_nome ? h('div', { class: 'suave' }, `👤 ${c.responsavel_nome}`) : null,
+          c.descarte_motivo ? h('div', { class: 'motivo-descarte', title: 'Motivo do descarte' }, `✖ ${c.descarte_motivo}`) : null,
+          ['faturada', 'recebida'].includes(k.etapas.find((e) => e.id === c.etapa_id)?.fase) ? h('div', { class: 'suave pequeno', title: 'Alterar, voltar de etapa ou excluir pede a senha de um administrador' }, '🔒 protegido') : null,
           valorDoCard(c) ? h('div', { class: 'valor-card', title: `Valor ${valorDoCard(c)[1]} informado no card` }, `💰 ${moeda(valorDoCard(c)[0])}`, h('span', { class: 'suave' }, ` · ${valorDoCard(c)[1]}`)) : null,
           !clienteSelecionado() && est.clientes?.length ? (podeEditar(est)
             ? h('button', { type: 'button', class: 'etiqueta empresa clicavel' + (c.cliente_nome ? '' : ' sem'), style: { marginTop: '6px' }, title: c.cliente_nome ? 'Trocar a empresa vinculada' : 'Clique para vincular uma empresa',
@@ -763,7 +822,7 @@ export async function calendario(alvo, rota, est) {
         h('td', { style: { whiteSpace: 'nowrap' } }, e.dia_inteiro ? data(e.quando, false) : data(e.quando)),
         h('td', {}, h('span', { class: `etiqueta ${TIPO_CAL[e.tipo][1]}` }, TIPO_CAL[e.tipo][0])),
         h('td', {}, h('a', { href: linkCal(e) }, e.tipo === 'vencimento' ? `${e.titulo} · ${e.objeto}` : e.objeto || '—'), h('div', { class: 'suave pequeno' }, [e.orgao_nome, [e.municipio, e.uf].filter(Boolean).join('/'), e.etapa && `Kanban: ${e.etapa}`].filter(Boolean).join(' · '))))))))
-        : vazio('Nenhum prazo nos próximos 30 dias. Favorite licitações (☆) ou coloque-as no Kanban para vê-las aqui.')));
+        : vazio('Nenhum prazo nos próximos 30 dias. Suba licitações para o Kanban para vê-las aqui.')));
 }
 
 // ============================ NOTIFICAÇÕES E PESQUISAS ============================

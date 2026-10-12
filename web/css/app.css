@@ -153,6 +153,7 @@ dl.detalhes dd { margin: 0; word-break: break-word; }
 .cartao-k.arrastando { opacity: .4; }
 .cartao-k .t { font-weight: 600; margin-bottom: 6px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .cartao-k select { margin-top: 6px; font-size: .8rem; padding: 4px; }
+.cartao-k .motivo-descarte { margin-top: 6px; padding: 4px 6px; border-radius: 6px; background: #fdf1e7; color: #8a4b12; font-size: .78rem; }
 
 /* Jornal */
 .evento { display: grid; grid-template-columns: 110px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--borda); }
@@ -547,3 +548,13 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .etiqueta.participacao-gratuito { background: #e3f4ea; color: #157347; }
 .etiqueta.participacao-pago { background: #fff1d6; color: #8a5300; }
 .etiqueta.participacao-nao_verificado { background: #eef0f3; color: var(--texto-suave); }
+/* Dashboard › Empresas: período e etapas */
+.pe-periodo { display: grid; gap: 6px; margin-top: 12px; }
+.pe-periodo select[hidden], .pe-periodo input[hidden] { display: none; }
+.pe-kpis { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.pe-kpi .rotulo .etapa { font-weight: 400; color: var(--texto-suave, #5b6472); }
+.pe-etapas { margin-top: 14px; }
+.pe-periodo .linha { flex-wrap: wrap; align-items: center; }
+.pe-periodo select, .pe-periodo input[type=date] { width: auto; min-width: 120px; }
+.pe-etapas .pe-barra { grid-template-columns: 230px minmax(0, 1fr) 82px 26px; }
+@media (max-width: 600px) { .pe-etapas .pe-barra { grid-template-columns: 120px minmax(0, 1fr) 70px 18px; } }
