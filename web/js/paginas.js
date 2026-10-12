@@ -910,7 +910,7 @@ export async function configuracoes(alvo, _r, est) {
   const destino = h('input', { type: 'email', value: pref.email_alertas, placeholder: pref.email_login });
   const ativo = h('input', { type: 'checkbox', checked: pref.alertas_email });
   blocos.push(h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Alertas por e-mail'),
-    pref.email ? null : h('div', { class: 'aviso amarelo' }, 'O envio de e-mail ainda não está ativado no servidor (variável SMTP_URL). Os alertas continuam aparecendo no sistema.'),
+    pref.email ? null : h('div', { class: 'aviso amarelo' }, 'O envio de e-mail ainda não está ativado no servidor (variável BREVO_API_KEY ou SMTP_URL). Os alertas continuam aparecendo no sistema.'),
     h('label', { class: 'linha' }, ativo, 'Receber resumo dos alertas por e-mail'),
     h('div', { class: 'campo', style: { marginTop: '10px' } }, h('label', {}, 'Enviar alertas para (vazio = e-mail de login)'), destino),
     h('div', { class: 'linha' },

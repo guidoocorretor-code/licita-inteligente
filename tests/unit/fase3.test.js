@@ -132,7 +132,7 @@ test('e-mail: resumo por usuário, respeita preferência e destino de alertas, m
 
 test('e-mail: sem SMTP_URL nada é enviado; texto escapa HTML e limita a 30 itens', async () => {
   const { db } = preparar();
-  assert.deepEqual(await enviarAlertasPendentes(db), { enviados: 0, motivo: 'SMTP_URL não configurado' });
+  assert.deepEqual(await enviarAlertasPendentes(db), { enviados: 0, motivo: 'E-mail não configurado' });
   const ns = Array.from({ length: 35 }, (_, i) => ({ titulo: `<b>Alerta ${i}</b>`, mensagem: 'x', licitacao_id: i }));
   const m = montarEmail({ nome: 'Ana' }, ns);
   assert.match(m.assunto, /35 novos alertas/);
@@ -165,4 +165,23 @@ test('alertas só da empresa que acompanha: saiu do Kanban, trocou de empresa ou
   db.prepare('UPDATE oportunidades SET etapa_id=? WHERE id=?').run(desc, op1);
   assert.equal(avaliarAlertasAcompanhadas(db, '2026-10-11T16:00:00'), 0);
   assert.equal(listarNotificacoes(db, u1, cliB).length, 0);
+});
+
+test('e-mail: Brevo envia pela API HTTPS com anexo em base64 e não vaza a chave', async () => {
+  const { transporteBrevo } = await import('../../server/services/email.js');
+  const chamadas = [];
+  const okFetch = async (url, op) => { chamadas.push({ url, op }); return { ok: true, status: 201, json: async () => ({ messageId: 'x' }) }; };
+  const t = transporteBrevo('xkeysib-segredo', { fetchImpl: okFetch });
+  await t.sendMail({ from: { name: 'Assessoria', address: 'guido@teste.com' }, to: 'cliente@teste.com', replyTo: 'resp@teste.com',
+    subject: 'Jornal', html: '<p>oi</p>', text: 'oi', attachments: [{ filename: 'j.pdf', content: Buffer.from('%PDF') }] });
+  const c = JSON.parse(chamadas[0].op.body);
+  assert.equal(chamadas[0].url, 'https://api.brevo.com/v3/smtp/email');
+  assert.equal(chamadas[0].op.headers['api-key'], 'xkeysib-segredo');
+  assert.deepEqual(c.sender, { email: 'guido@teste.com', name: 'Assessoria' });
+  assert.deepEqual(c.to, [{ email: 'cliente@teste.com' }]);
+  assert.deepEqual(c.replyTo, { email: 'resp@teste.com' });
+  assert.deepEqual(c.attachment, [{ name: 'j.pdf', content: Buffer.from('%PDF').toString('base64') }]);
+  const falha = transporteBrevo('xkeysib-segredo', { fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ message: 'Key not found' }) }) });
+  await assert.rejects(falha.sendMail({ from: 'Nome <a@b.com>', to: 'c@d.com', subject: 's', text: 't' }), /HTTP 401.*Key not found/);
+  await assert.rejects(t.sendMail({ to: 'c@d.com', subject: 's' }), /EMAIL_REMETENTE/);
 });

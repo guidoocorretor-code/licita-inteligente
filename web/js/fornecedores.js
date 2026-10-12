@@ -707,7 +707,7 @@ export async function cotacao(alvo, rota, est) {
     const email = prompt('Enviar o comprovante (PDF) para qual e-mail?', r.email || '');
     if (email == null) return;
     try { const x = await api(`/kanban/${id}/recebimentos/${r.id}/reenviar`, { metodo: 'POST', corpo: { email } });
-      toast(x.status === 'enviado' ? 'Comprovante enviado.' : x.status === 'sem_smtp' ? 'E-mail do sistema não configurado (SMTP_URL).' : `Não enviado: ${x.erro || x.status}`, 6000); recarregar(); }
+      toast(x.status === 'enviado' ? 'Comprovante enviado.' : x.status === 'sem_smtp' ? 'E-mail do sistema não configurado (BREVO_API_KEY).' : `Não enviado: ${x.erro || x.status}`, 6000); recarregar(); }
     catch (e) { toast(e.message, 5000); }
   };
   const blocoRecebimentos = !d.recebimentos?.length ? null : h('div', { class: 'cartao', style: { marginTop: '14px' } },

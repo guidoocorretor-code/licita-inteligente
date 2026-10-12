@@ -63,8 +63,9 @@ export const conectorComprasLegado = {
 
 // ---------- Pesquisa de preços (Fase 4) ----------
 // Módulo 03: materiais por PDM ou código CATMAT (tipo + codigo); serviços por código CATSER (codigoItemCatalogo).
-// Verificado em 10/10/2026: tamanhoPagina vai de 10 a 500; os resultados vêm dos mais antigos para os mais novos,
-// por isso a consulta sempre usa um período (dataCompraInicio/dataCompraFim).
+// Verificado em 10/10/2026: tamanhoPagina vai de 10 a 500. Verificado em 12/10/2026: a ORDEM dos resultados não é
+// garantida (a consulta do Brasil inteiro vem das mais novas para as mais antigas; outras, ao contrário). Por isso
+// nunca se usa "só algumas páginas" como amostra: o período é baixado inteiro e, se for grande, dividido em partes.
 export function urlPrecos({ tipo, codigo, uf, desde, ate, pagina = 1, tamanhoPagina = 500 }) {
   const comum = { pagina, tamanhoPagina, estado: uf, dataCompraInicio: desde, dataCompraFim: ate };
   if (tipo === 'servico') return `${BASE_COMPRAS}/modulo-pesquisa-preco/3_consultarServico?${qs({ ...comum, codigoItemCatalogo: codigo })}`;
@@ -72,31 +73,48 @@ export function urlPrecos({ tipo, codigo, uf, desde, ate, pagina = 1, tamanhoPag
   return `${BASE_COMPRAS}/modulo-pesquisa-preco/1_consultarMaterial?${qs({ tipo: t, codigo, ...comum })}`;
 }
 
+const diaIso = (d) => d.toISOString().slice(0, 10);
+const somarDias = (dia, n) => diaIso(new Date(Date.parse(`${dia}T00:00:00Z`) + n * 86400000));
+
 /**
- * Baixa os preços mais recentes. A fonte devolve do mais antigo para o mais novo; quando há mais páginas do que
- * o limite, busca as ÚLTIMAS páginas (compras mais novas) e descarta as antigas. Páginas em paralelo (3 por vez).
+ * Baixa TODOS os preços do período. Quando o período tem mais páginas do que `maxPaginas`, divide o período ao
+ * meio (repetidamente) e baixa cada parte inteira, até o limite total de `maxTotalPaginas`. Só fica "truncado"
+ * quando uma parte de 1 dia ainda passa do limite ou quando o limite total acaba (nesse caso o total da fonte
+ * continua certo em `totalRegistros`). Páginas em paralelo (`concorrencia` por vez).
  */
-export async function baixarPrecos(params, { maxPaginas = 6, concorrencia = 3, fetchImpl } = {}) {
-  const pag = async (pagina) => {
-    const { vazio, dados } = await getJson(urlPrecos({ ...params, pagina }), { fetchImpl });
+export async function baixarPrecos(params, { maxPaginas = 10, maxTotalPaginas = 60, concorrencia = 4, fetchImpl } = {}) {
+  const pag = async (p, pagina) => {
+    const { vazio, dados } = await getJson(urlPrecos({ ...p, pagina }), { fetchImpl });
     return vazio || !Array.isArray(dados?.resultado) ? { lista: [], dados } : { lista: dados.resultado, dados };
   };
-  const primeira = await pag(1);
-  if (!primeira.lista.length) return { registros: [], totalRegistros: primeira.dados?.totalRegistros ?? 0, truncado: false };
-  const totalPaginas = primeira.dados.totalPaginas || (1 + (primeira.dados.paginasRestantes || 0));
-  const truncado = totalPaginas > maxPaginas;
-  const paginas = truncado
-    ? Array.from({ length: maxPaginas }, (_, k) => totalPaginas - k).reverse()   // as mais novas
-    : Array.from({ length: totalPaginas - 1 }, (_, k) => k + 2);
-  const resultados = new Map();
-  if (!truncado) resultados.set(1, primeira.lista);
-  for (let k = 0; k < paginas.length; k += concorrencia) {
-    const lote = paginas.slice(k, k + concorrencia);
-    const r = await Promise.all(lote.map((p) => pag(p)));
-    lote.forEach((p, j) => resultados.set(p, r[j].lista));
-  }
-  const registros = [...resultados.keys()].sort((a, b) => a - b).flatMap((p) => resultados.get(p));
-  return { registros, totalRegistros: primeira.dados.totalRegistros ?? registros.length, truncado };
+  let usadas = 0; let truncado = false;
+  const parte = async (p) => {
+    const primeira = await pag(p, 1); usadas++;
+    if (!primeira.lista.length) return { registros: [], total: primeira.dados?.totalRegistros ?? 0 };
+    const totalPaginas = primeira.dados.totalPaginas || (1 + (primeira.dados.paginasRestantes || 0));
+    const total = primeira.dados.totalRegistros ?? primeira.lista.length;
+    // Grande demais: divide o período (se ainda dá para dividir)
+    if (totalPaginas > maxPaginas && p.desde && p.ate && p.desde < p.ate) {
+      const dias = Math.round((Date.parse(p.ate) - Date.parse(p.desde)) / 86400000);
+      const meio = somarDias(p.desde, Math.floor(dias / 2));
+      const a = await parte({ ...p, ate: meio });
+      const b = await parte({ ...p, desde: somarDias(meio, 1) });
+      return { registros: [...a.registros, ...b.registros], total };
+    }
+    const quer = Math.min(totalPaginas, maxPaginas, Math.max(1, maxTotalPaginas - usadas + 1));
+    if (quer < totalPaginas) truncado = true;
+    const resto = Array.from({ length: quer - 1 }, (_, k) => k + 2);
+    const listas = [primeira.lista];
+    for (let k = 0; k < resto.length; k += concorrencia) {
+      const lote = resto.slice(k, k + concorrencia);
+      const r = await Promise.all(lote.map((n) => pag(p, n)));
+      usadas += lote.length;
+      listas.push(...r.map((x) => x.lista));
+    }
+    return { registros: listas.flat(), total };
+  };
+  const r = await parte(params);
+  return { registros: r.registros, totalRegistros: r.total, truncado };
 }
 
 /** Só o total de compras registradas no período (1 página pequena), para quando a amostra baixada é parcial. */

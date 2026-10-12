@@ -218,7 +218,7 @@ r.post('/jornal/envios/:id/email', exigirPapel('analista'), async (req, res) => 
   const d = envioDaEmpresa(req, res); if (!d) return;
   const para = String(req.body?.para || d.cliente?.resp_email || d.cliente?.email || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return erro(res, 400, 'Informe o e-mail do representante legal (Cadastro > Empresa ou no campo).');
-  if (!emailConfigurado()) return erro(res, 503, 'E-mail não configurado no servidor (SMTP_URL). Use "Baixar PDF" e envie pelo seu e-mail ou WhatsApp.');
+  if (!emailConfigurado()) return erro(res, 503, 'O e-mail do sistema ainda não foi configurado (BREVO_API_KEY). Use "Baixar PDF" e envie pelo seu e-mail ou WhatsApp.');
   const st = await enviarJornal(db(), d.envio.id, { para, urlBase: urlBaseDe(req) });
   if (st !== 'enviado') return erro(res, 502, `Não foi possível enviar: ${db().prepare('SELECT email_erro FROM jornal_envios WHERE id=?').get(d.envio.id)?.email_erro || st}`);
   res.json({ ok: true, para });

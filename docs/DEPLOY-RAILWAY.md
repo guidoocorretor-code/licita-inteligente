@@ -41,14 +41,25 @@ Serviço → **Settings → Networking → Generate Domain**. O Railway cria um 
 - Aba **Deployments → View logs** no Railway: mostra linhas `[agendador] pncp: ...` a cada sincronização.
 - Atualizações de código entram no ar sozinhas a cada mudança aprovada no GitHub (branch `main`).
 
-## 7. Alertas por e-mail (Fase 3)
-Os alertas aparecem sempre dentro do sistema. Para recebê-los também por e-mail:
-1. Na conta Google que vai enviar (ex.: `guidolicitacoes@gmail.com`), ative a **verificação em duas etapas**.
-2. Crie uma **senha de app** em https://myaccount.google.com/apppasswords (o Google mostra 16 letras; copie sem os espaços).
-   Ajuda oficial: https://support.google.com/accounts/answer/185833
-3. No Railway, em **Variables**, crie:
-   - `SMTP_URL` = `smtps://guidolicitacoes%40gmail.com:SENHA_DE_APP@smtp.gmail.com:465` (o `@` do e-mail vira `%40`)
-   - `APP_URL` = o endereço público do sistema (ex.: `https://licita-inteligente-production.up.railway.app`)
-4. Depois do deploy, em *Configurações → Alertas por e-mail*, informe o e-mail que recebe os alertas e clique em **Enviar e-mail de teste**.
+## 7. E-mail do sistema (alertas, jornal, comprovantes)
+Os alertas aparecem sempre dentro do sistema. O e-mail é usado para alertas, jornal de licitações e comprovante de cotação.
 
-A senha de app fica só nas variáveis do Railway: nunca no código, no log ou na tela. Para revogar, apague-a na conta Google.
+**Importante:** no plano Hobby o Railway bloqueia SMTP de saída ("SMTP is only available on the Pro plan and above", https://docs.railway.com/reference/outbound-networking). Com `SMTP_URL` o envio falha com *Connection timeout*. Use o Brevo, que envia por HTTPS (plano gratuito: até 300 e-mails por dia depois que o Brevo aprova a conta, https://www.brevo.com/pricing/).
+
+### Opção recomendada: Brevo (funciona no Hobby)
+1. Crie a conta em https://www.brevo.com com `guidolicitacoes@gmail.com`.
+2. Em **Senders, Domains & Dedicated IPs → Senders**, adicione o remetente `guidolicitacoes@gmail.com` e confirme pelo código que chega nesse e-mail.
+3. Em **SMTP & API → API Keys**, gere uma chave (começa com `xkeysib-`).
+4. No Railway, em **Variables**, crie:
+   - `BREVO_API_KEY` = a chave do passo 3
+   - `EMAIL_REMETENTE` = `Guido Torres - Assessoria em Licitações <guidolicitacoes@gmail.com>` (o e-mail precisa ser o remetente verificado)
+   - `APP_URL` = o endereço público do sistema (ex.: `https://licita-inteligente-production.up.railway.app`)
+5. Depois do deploy, em *Configurações → Alertas por e-mail*, clique em **Enviar e-mail de teste**. Se cair no spam, marque "não é spam"; para entrega melhor no longo prazo, use um domínio próprio autenticado no Brevo.
+
+Com `BREVO_API_KEY` definida, ela tem prioridade sobre `SMTP_URL`.
+
+### Opção SMTP (Railway Pro ou outro servidor)
+1. Na conta Google que vai enviar, ative a **verificação em duas etapas** e crie uma **senha de app** em https://myaccount.google.com/apppasswords (ajuda: https://support.google.com/accounts/answer/185833).
+2. Crie `SMTP_URL` = `smtps://guidolicitacoes%40gmail.com:SENHA_DE_APP@smtp.gmail.com:465` (o `@` do e-mail vira `%40`) e `APP_URL`.
+
+A chave do Brevo e a senha de app ficam só nas variáveis do Railway: nunca no código, no log ou na tela. Para revogar, apague-a na conta Google.
