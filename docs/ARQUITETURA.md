@@ -119,3 +119,4 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 ## Análise de mercado
 - `connectors/comprasgov.js` `baixarPrecos`: a API devolve da compra mais antiga para a mais nova; com mais páginas que o limite (6×500), baixa as ÚLTIMAS páginas, 3 em paralelo.
 - `services/precos.js`: `SINONIMOS` no `buscarCatalogo` (ex.: A4/sulfite → PDM "papel para impressão formatado"), busca com OU quando o E acha pouco; `panoramaMercado` (marcas normalizadas por `marcaNormal`, fornecedores por mediana, esfera/UF/mês, lista de preços para o simulador).
+- `services/relatorio-mercado.js` (`relatorioMercado`, `paraLead`) + `relatorio-mercado-pdf.js`; rotas `GET /api/precos/relatorio` e `/api/precos/relatorio.pdf?modo=interno|lead`. Consulta 24 meses do estado e do Brasil (cache de 24h); se a amostra é parcial, `contarCompras` traz o total de compras do período. `pdf-simples.js` ganhou `tabela`, `barras` e `secao`. Frontend em `web/js/mercado.js`.

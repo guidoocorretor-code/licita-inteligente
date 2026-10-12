@@ -275,3 +275,34 @@ test('preços: com muitas páginas, baixa as mais novas (a fonte vem da mais ant
   const r2 = await baixarPrecos({ tipo: 'material_pdm', codigo: 1 }, { maxPaginas: 20, fetchImpl });
   assert.equal(r2.registros.length, 10); assert.equal(r2.truncado, false);
 });
+
+test('relatório de mercado: Brasil × estado em 6/12/24 meses, órgãos, modo lead sem concorrentes e PDF', async () => {
+  const { relatorioMercado, paraLead } = await import('../../server/services/relatorio-mercado.js');
+  const { pdfRelatorio } = await import('../../server/services/relatorio-mercado-pdf.js');
+  const db = bancoMemoria();
+  const reg = (data, uf, preco, qtd, esfera, extra = {}) => ({ data_compra: data, uf, preco_unitario: preco, quantidade: qtd, esfera, unidade: 'EMB 500',
+    marca: 'Chamex', fornecedor_ni: '1', fornecedor_nome: 'FORNECEDOR TESTE', orgao_nome: `ORGAO ${uf}`, uasg: `U${uf}`, municipio: 'X', ...extra });
+  const es = [reg('2026-09-01', 'ES', 20, 100, 'F'), reg('2026-03-01', 'ES', 22, 50, 'E'), reg('2025-06-01', 'ES', 21, 10, 'M')];
+  const br = [...es, reg('2026-08-01', 'SP', 19, 1000, 'F', { orgao_nome: 'ORGAO SP' })];
+  const salvar = (chave, regs) => db.prepare("INSERT INTO precos_consultas (chave, registros_json, total_fonte, truncado, consultado_em) VALUES (?,?,?,0,datetime('now'))").run(chave, JSON.stringify(regs), regs.length);
+  salvar('material_pdm:19746:ES:24', es); salvar('material_pdm:19746:BR:24', br);
+  const fetchImpl = fetchFalso(() => { throw new Error('não deveria consultar a fonte'); });
+  const r = await relatorioMercado(db, { tipo: 'material_pdm', codigo: 19746, uf: 'ES', meses: 24, nome: 'PAPEL PARA IMPRESSÃO FORMATADO' },
+    { termo: 'papel a4', fetchImpl, agora: new Date('2026-10-12T12:00:00Z') });
+  assert.equal(r.estado.periodos[6].compras, 1);          // só setembro/2026
+  assert.equal(r.estado.periodos[12].compras, 2);
+  assert.equal(r.estado.periodos[24].compras, 3);
+  assert.equal(r.estado.periodos[24].quantidade, 160);
+  assert.equal(r.brasil.periodos[12].compras, 3);
+  assert.equal(r.brasil.periodos[12].valor, 19000 + 2000 + 1100);
+  assert.deepEqual(r.esferas.map((e) => e.nome).sort(), ['Estadual', 'Federal', 'Municipal']);
+  assert.equal(r.orgaos_top[0].nome, 'ORGAO ES');
+  assert.equal(r.ultimas_compras[0].fornecedor, 'FORNECEDOR TESTE');
+  const lead = paraLead(r);
+  assert.equal(lead.fornecedores.length, 0);
+  assert.ok(lead.ultimas_compras.every((u) => !('fornecedor' in u)));
+  const pdf = pdfRelatorio(lead, { modo: 'lead', para: 'Empresa Teste', preparadoPor: 'Assessoria Teste' });
+  assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
+  assert.ok(!pdf.toString('latin1').includes('FORNECEDOR TESTE'));   // concorrente não vai para o lead
+  assert.ok(pdfRelatorio(r, { modo: 'interno' }).toString('latin1').includes('FORNECEDOR TESTE'));
+});

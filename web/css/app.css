@@ -514,3 +514,14 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .declaracoes .opcao-check { align-items: flex-start; font-size: .86rem; }
 .acoes-proposta { margin: 14px 0; gap: 8px; }
 .texto-sucesso { color: var(--ok); }
+
+/* Análise de mercado · relatório */
+.destaque-relatorio { border-left: 4px solid var(--primaria, #0f3d6e); }
+.flag-relatorio { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--borda, #d6dbe3); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.flag-relatorio:has(input:checked) { border-color: var(--primaria, #0f3d6e); background: var(--fundo-suave, #eef3fa); font-weight: 600; }
+.campo-lead { display: flex; flex-direction: column; gap: 2px; }
+.campo-lead[hidden] { display: none; }
+.tabela-volume tr.inicio-grupo td { border-top: 2px solid var(--borda, #d6dbe3); }
+.etiqueta.esfera-federal { background: #e3edfb; color: #1d4f91; }
+.etiqueta.esfera-estadual { background: #fdeee4; color: #9a4313; }
+.etiqueta.esfera-municipal { background: #e3f4ea; color: #1d7a46; }

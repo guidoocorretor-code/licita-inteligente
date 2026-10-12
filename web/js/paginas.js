@@ -3,6 +3,7 @@ import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
   confirmar, modal, barras, rosca, moedaCurta, naoInformado, render, faixaGoverno } from './ui.js';
 import { painelEmpresas, painelFornecedores, abasDashboard } from './painel.js';
+import { blocoRelatorio } from './mercado.js';
 
 const ehAdmin = (e) => ['admin', 'superadmin'].includes(e.usuario.papel);
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
@@ -1013,7 +1014,7 @@ async function precosAba(alvo, rota, est) {
   const resultado = h('div', {});
   render(alvo, form, resultado);
 
-  if (q.tipo && q.codigo) return mostrarPrecos(resultado, q, ir);
+  if (q.tipo && q.codigo) return mostrarPrecos(resultado, q, ir, est);
   if (!q.q) {
     const st = (await api('/precos/catalogo').catch(() => null))?.status;
     render(resultado, avisoCatalogo(st, est), h('div', { class: 'cartao' }, h('h2', {}, 'Como funciona'),
@@ -1061,7 +1062,7 @@ function avisoCatalogo(st, est) {
   } }, 'Baixar agora') : null);
 }
 
-async function mostrarPrecos(alvo, q, ir) {
+async function mostrarPrecos(alvo, q, ir, est) {
   render(alvo, carregando('Consultando o Compras.gov.br… (a primeira consulta do dia pode levar alguns segundos)'));
   let d;
   try { d = await api(`/precos${qs({ tipo: q.tipo, codigo: q.codigo, uf: q.uf, meses: q.meses, item: q.item, unidade: q.unidade, filtro: q.filtro, atualizar: q.atualizar })}`); }
@@ -1122,6 +1123,7 @@ async function mostrarPrecos(alvo, q, ir) {
       h('div', { class: 'filtros', style: { marginTop: '10px' } }, filtroEspec, filtroItem, filtroUnid),
       q.filtro ? h('div', { class: 'suave pequeno', style: { marginTop: '6px' } }, `Mostrando só as compras cuja descrição tem: "${q.filtro}". `,
         h('a', { href: `#/precos${qs({ ...q, filtro: '' })}` }, 'Limpar filtro')) : null),
+    e.n ? blocoRelatorio(q, est) : null,
     e.n ? h('div', { class: 'grade kpis', style: { marginTop: '14px' } },
       kpi('Preços encontrados', numero(e.n), `Na unidade ${d.unidade}. Preços de unidades diferentes não são comparados.`),
       kpi('Menor preço', preco(e.menor)),
