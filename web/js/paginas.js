@@ -744,7 +744,7 @@ export async function kanban(alvo, _r, est) {
   ativarArrastarQuadro(quadro);
   if (podeEditar(est)) ativarArrastar(quadro, faixa, mover);
   else faixa.addEventListener('click', (e) => { const ch = e.target.closest('[data-etapa]'); if (ch) quadro.querySelector(`.coluna-k[data-etapa="${ch.dataset.etapa}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' }); });
-  render(alvo, cabecalho('Kanban de oportunidades', 'Etapas internas da sua empresa. A situação oficial da licitação aparece na etiqueta e é independente da etapa.'),
+  render(alvo, cabecalho('Meus Negócios', 'Kanban dos negócios, do edital ao dinheiro na conta. A situação oficial da licitação aparece na etiqueta e é independente da etapa.'),
     avisoEmpresa(est, 'Cards'),
     k.cards.length ? null : h('div', { class: 'aviso azul' }, 'Nenhuma oportunidade ainda. Abra uma licitação e clique em "+ Acompanhar no Kanban".'),
     faixa, quadro);
