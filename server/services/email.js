@@ -16,8 +16,9 @@ export const emailConfigurado = () => !!provedorEmail();
 // "Nome <email@x>" ou só o e-mail → { name, address }
 function separarEndereco(v) {
   if (!v) return null;
-  if (typeof v === 'object') return { name: v.name || undefined, address: v.address };
-  const m = String(v).match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (typeof v === 'object') { const a = separarEndereco(v.address) || {}; return { name: v.name || a.name, address: a.address }; }
+  // Aceita "Nome <email>", "Nome <email" (sem o > final) e só o e-mail
+  const m = String(v).match(/^\s*(.*?)\s*<([^<>\s]+@[^<>\s]+)>?\s*$/);
   return m ? { name: m[1].replace(/^"|"$/g, '') || undefined, address: m[2].trim() } : { address: String(v).trim() };
 }
 
