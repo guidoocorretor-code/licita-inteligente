@@ -825,31 +825,100 @@ export async function calendario(alvo, rota, est) {
         : vazio('Nenhum prazo nos próximos 30 dias. Suba licitações para o Kanban para vê-las aqui.')));
 }
 
-// ============================ NOTIFICAÇÕES E PESQUISAS ============================
-export async function notificacoes(alvo, _r, est) {
+// ============================ ALERTAS E PESQUISAS ============================
+// Cada tipo de alerta tem cor, ícone e o que fazer. A ordem é a de prioridade (urgente primeiro).
+export const CATEGORIAS_ALERTA = {
+  prazo_24h: { nome: 'Encerra em menos de 24h', icone: '⏰', cor: 'urgente', dica: 'Última chance: confira proposta e documentos no sistema da disputa.' },
+  certidao_vencida: { nome: 'Certidão vencida ou vence hoje', icone: '⛔', cor: 'urgente', dica: 'Renove já: com certidão vencida a empresa pode ser inabilitada.' },
+  prazo_3d: { nome: 'Encerra em até 3 dias', icone: '⏳', cor: 'atencao', dica: 'Revise proposta, habilitação e dúvidas ao pregoeiro enquanto há tempo.' },
+  prazo_interno: { nome: 'Prazo interno', icone: '📌', cor: 'atencao', dica: 'Prazo que a equipe marcou no card do Kanban.' },
+  interesse: { nome: 'Interesse do cliente', icone: '🙋', cor: 'cliente', dica: 'O cliente marcou no jornal. A licitação já entrou no Kanban, na primeira etapa.' },
+  situacao: { nome: 'Mudança de situação', icone: '🔄', cor: 'situacao', dica: 'A situação oficial mudou (suspensa, adiada, revogada…). Confira no portal.' },
+  edital: { nome: 'Edital alterado ou novo documento', icone: '📝', cor: 'edital', dica: 'Errata, esclarecimento ou anexo novo. Releia antes de enviar a proposta.' },
+  resultado: { nome: 'Resultado publicado', icone: '🏁', cor: 'resultado', dica: 'Saiu o resultado: atualize o card no Kanban (Vencida ou Perdida).' },
+  nota_emitir: { nome: 'Emitir nota fiscal', icone: '🧾', cor: 'nota', dica: 'Produto enviado ou serviço executado: emita a nota e mova o card para "Nota fiscal emitida".' },
+  nota_cobrar: { nome: 'Cobrar pagamento', icone: '💰', cor: 'cobrar', dica: 'Nota emitida e pagamento não registrado. Cobre o órgão; ao receber, mova o card para "Recebido".' },
+  certidao: { nome: 'Certidão vencendo', icone: '📄', cor: 'certidao', dica: 'Renove antes do vencimento para não perder licitações.' },
+  oportunidade: { nome: 'Nova oportunidade', icone: '🔎', cor: 'neutro', dica: 'Licitação nova que bate com uma pesquisa salva.' },
+  outro: { nome: 'Outros avisos', icone: '🔔', cor: 'neutro', dica: '' },
+};
+
+function cartaoAlerta(n, aoLer) {
+  const c = CATEGORIAS_ALERTA[n.categoria] || CATEGORIAS_ALERTA.outro;
+  const local = [n.lic_municipio, n.lic_uf].filter(Boolean).join('/');
+  const ehLic = !!n.licitacao_id;
+  const link = ehLic ? `#/licitacao/${n.licitacao_id}` : n.cliente_id ? `#/empresas/${n.cliente_id}` : null;
+  // Prazo e lembretes repetem o objeto na mensagem; mudanças e interesse trazem um detalhe próprio
+  const detalhe = ['situacao', 'edital', 'resultado', 'interesse', 'outro'].includes(n.categoria) || !ehLic ? n.mensagem
+    : ['nota_emitir', 'nota_cobrar'].includes(n.categoria) ? (n.mensagem || '').split('. ')[0] : null;
+  return h('article', { class: `alerta a-${c.cor}${n.lida ? '' : ' nao-lida'}` },
+    h('div', { class: 'alerta-icone', 'aria-hidden': 'true' }, c.icone),
+    h('div', { class: 'alerta-corpo' },
+      h('div', { class: 'alerta-topo' },
+        h('span', { class: 'alerta-tipo' }, c.nome),
+        n.lida ? null : h('span', { class: 'alerta-nova' }, 'nova'),
+        h('span', { class: 'alerta-quando' }, dataUtc(n.criado_em))),
+      // O selo já diz o tipo; o título só aparece quando acrescenta algo (data do prazo, dias, nome da certidão)
+      ['situacao', 'edital', 'resultado', 'interesse'].includes(n.categoria) || n.titulo === c.nome ? null : h('div', { class: 'alerta-titulo' }, n.titulo),
+      ehLic ? h('a', { class: 'alerta-objeto', href: link }, n.lic_objeto || n.mensagem || 'Abrir licitação') : null,
+      detalhe ? h('div', { class: 'alerta-detalhe' }, detalhe) : null,
+      h('div', { class: 'alerta-meta' }, [
+        n.cliente_nome ? `🏢 ${n.cliente_nome}` : null,
+        n.lic_orgao, local || null,
+        n.kanban_etapa ? `Kanban: ${n.kanban_etapa}` : null,
+      ].filter(Boolean).join(' · ')),
+      h('div', { class: 'alerta-acoes' },
+        link ? h('a', { class: 'btn pequeno', href: link }, ehLic ? 'Abrir licitação' : 'Abrir empresa') : null,
+        n.kanban_etapa ? h('a', { class: 'btn pequeno', href: '#/kanban' }, 'Ver no Kanban') : null,
+        n.lida ? null : h('button', { class: 'btn pequeno', onclick: () => aoLer(n) }, 'Marcar como lida'))));
+}
+
+export async function notificacoes(alvo, r, est) {
   render(alvo, carregando());
   const [ns, ps] = await Promise.all([api('/notificacoes'), api('/pesquisas')]);
-  render(alvo, avisoEmpresa(est, 'Alertas e pesquisas salvas'), cabecalho('Alertas', 'Prazos, vencimento de certidões, mudanças nos editais acompanhados e novas licitações das pesquisas salvas.',
-    h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); window.dispatchEvent(new Event('atualizar-sino')); notificacoes(alvo, _r, est); } }, 'Marcar todas como lidas')),
-  h('div', { class: 'aviso azul' }, 'Você recebe alertas automáticos das licitações favoritas e das que estão no Kanban da empresa (a etiqueta mostra de onde vem cada um; ao tirar do Kanban, dos Favoritos ou descartar, o alerta some): 3 dias e 1 dia antes do fim das propostas, prazo interno no dia anterior e quando o edital muda (alteração, documento, situação ou resultado). Envio por e-mail em ',
-    h('a', { href: '#/configuracoes' }, 'Configurações'), '. WhatsApp: depende de provedor oficial autorizado (pendente).'),
-  h('div', { class: 'grade duas' },
-    h('div', { class: 'cartao' }, h('h2', {}, 'Notificações'),
-      ns.length ? ns.map((n) => h('div', { class: 'evento' }, h('div', { class: 'quando' }, dataUtc(n.criado_em), n.lida ? '' : h('div', { class: 'etiqueta azul' }, 'nova')),
-        h('div', {}, h('strong', {}, n.titulo),
-          n.cliente_id && !clienteSelecionado() ? h('span', { class: 'etiqueta empresa', style: { marginLeft: '6px' } }, `🏢 ${n.cliente_nome || ''}`) : null,
-          // De onde vem o alerta: card do Kanban (com a etapa) e/ou favorito
-          n.kanban_etapa ? h('a', { class: 'etiqueta', href: '#/kanban', style: { marginLeft: '6px' }, title: 'Alerta porque a licitação está no Kanban desta empresa' }, `Kanban: ${n.kanban_etapa}`) : null,
-          n.favorito ? h('a', { class: 'etiqueta', href: '#/favoritos', style: { marginLeft: '6px' }, title: 'Alerta porque a licitação está nos Favoritos desta empresa' }, '☆ Favorito') : null,
-          h('div', { class: 'pequeno' }, n.licitacao_id ? h('a', { href: `#/licitacao/${n.licitacao_id}` }, n.mensagem)
-            : n.tipo === 'vencimento' && n.cliente_id ? h('a', { href: `#/empresas/${n.cliente_id}` }, n.mensagem) : n.mensagem))))
-        : vazio('Sem notificações.')),
-    h('div', { class: 'cartao' }, h('h2', {}, 'Pesquisas salvas'),
+  const cat = r?.query?.get('cat') || '';
+  const soNovas = r?.query?.get('novas') === '1';
+  const ir = (q) => { location.hash = `#/notificacoes${qs(q)}`; };
+  const recarregar = () => { window.dispatchEvent(new Event('atualizar-sino')); notificacoes(alvo, r, est); };
+  const aoLer = async (n) => { await api(`/notificacoes/${n.id}/lida`, { metodo: 'POST', corpo: {} }); recarregar(); };
+  const contagem = {};
+  for (const n of ns) if (!soNovas || !n.lida) contagem[n.categoria] = (contagem[n.categoria] || 0) + 1;
+  const visiveis = ns.filter((n) => (!soNovas || !n.lida) && (!cat || n.categoria === cat));
+  const naoLidas = ns.filter((n) => !n.lida).length;
+  const chip = (chave, rotulo, qtd, cor, icone) => h('button', {
+    class: `chip-alerta a-${cor}${(cat || '') === chave ? ' ativo' : ''}`, 'aria-pressed': String((cat || '') === chave),
+    onclick: () => ir({ cat: chave || undefined, novas: soNovas ? 1 : undefined }) }, icone ? `${icone} ` : '', rotulo, h('strong', {}, String(qtd)));
+  const grupos = Object.keys(CATEGORIAS_ALERTA).map((k) => [k, visiveis.filter((n) => n.categoria === k)]).filter(([, l]) => l.length);
+  render(alvo, avisoEmpresa(est, 'Alertas e pesquisas salvas'),
+    cabecalho('Alertas', 'O que pede ação nas licitações do Kanban, nas certidões das empresas e nas notas fiscais.',
+      naoLidas ? h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); recarregar(); } }, `Marcar todas como lidas (${naoLidas})`) : null),
+    h('div', { class: 'filtro-alertas' },
+      h('div', { class: 'chips-alerta' },
+        chip('', 'Todos', Object.values(contagem).reduce((a, b) => a + b, 0), 'neutro'),
+        Object.entries(CATEGORIAS_ALERTA).filter(([k]) => contagem[k]).map(([k, c]) => chip(k, c.nome, contagem[k], c.cor, c.icone))),
+      h('label', { class: 'linha pequeno' }, h('input', { type: 'checkbox', checked: soNovas, onchange: (e) => ir({ cat: cat || undefined, novas: e.target.checked ? 1 : undefined }) }), 'Só as não lidas')),
+    grupos.length ? grupos.map(([k, lista]) => {
+      const c = CATEGORIAS_ALERTA[k];
+      return h('section', { class: `grupo-alerta a-${c.cor}` },
+        h('header', {}, h('h2', {}, `${c.icone} ${c.nome}`, h('span', { class: 'qtd' }, String(lista.length))), c.dica ? h('p', {}, c.dica) : null),
+        lista.map((n) => cartaoAlerta(n, aoLer)));
+    }) : h('div', { class: 'cartao' }, vazio(soNovas || cat ? 'Nenhum alerta com esse filtro.' : 'Sem alertas no momento.')),
+    h('details', { class: 'cartao como-alertas' }, h('summary', {}, 'Quando cada alerta aparece'),
+      h('ul', {},
+        h('li', {}, 'Prazos: 3 dias e 24 horas antes do fim das propostas, e o prazo interno do card no dia anterior e no próprio dia.'),
+        h('li', {}, 'Mudanças no edital: situação, alteração, documento novo ou resultado, detectados na sincronização com o portal oficial.'),
+        h('li', {}, 'Valem só para licitações no Kanban da empresa. Ao descartar, perder ou tirar do Kanban, o alerta some.'),
+        h('li', {}, 'Interesse do cliente: quando ele marca licitações no jornal enviado por e-mail.'),
+        h('li', {}, 'Certidões: 30, 15 e 7 dias antes do vencimento, no dia e no dia seguinte (cadastro de cada empresa).'),
+        h('li', {}, 'Nota fiscal: ao chegar em "Produto enviado / serviço executado" e de novo 5 dias após a entrega; depois de emitida, cobrança com 30 e 60 dias sem recebimento.'),
+        h('li', {}, 'E-mail: um resumo a cada 10 minutos, se ativado em ', h('a', { href: '#/configuracoes' }, 'Configurações'), '.'))),
+    h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Pesquisas salvas'),
+      h('p', { class: 'suave pequeno' }, 'Com "Alertar" ligado, cada licitação nova que bate com a pesquisa aparece aqui como "Nova oportunidade".'),
       ps.length ? h('table', {}, h('tbody', {}, ps.map((p) => h('tr', {},
         h('td', {}, h('a', { href: `#/buscar${qs(JSON.parse(p.filtros_json))}` }, p.nome)),
         h('td', {}, h('label', { class: 'linha' }, h('input', { type: 'checkbox', checked: !!p.alertar, onchange: async (e) => { await api(`/pesquisas/${p.id}`, { metodo: 'PATCH', corpo: { alertar: e.target.checked } }); toast('Alerta atualizado.'); } }), 'Alertar')),
-        h('td', {}, h('button', { class: 'btn pequeno perigo', onclick: async () => { if (confirmar('Excluir pesquisa?')) { await api(`/pesquisas/${p.id}`, { metodo: 'DELETE' }); notificacoes(alvo, _r, est); } } }, 'Excluir'))))))
-        : vazio('Nenhuma pesquisa salva. Salve uma pesquisa na tela de busca.'))));
+        h('td', {}, h('button', { class: 'btn pequeno perigo', onclick: async () => { if (confirmar('Excluir pesquisa?')) { await api(`/pesquisas/${p.id}`, { metodo: 'DELETE' }); notificacoes(alvo, r, est); } } }, 'Excluir'))))))
+        : vazio('Nenhuma pesquisa salva. Salve uma pesquisa na tela de busca.')));
 }
 
 // ============================ FONTES DE DADOS ============================

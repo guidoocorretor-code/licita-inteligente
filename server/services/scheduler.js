@@ -5,7 +5,7 @@ import { sincronizarFonte, completarItensAbertas } from './sync.js';
 import { atualizarCapag, precisaAtualizarCapag } from './capag.js';
 import { recalcularStatusTemporais } from './repositorio.js';
 import { CONECTORES } from '../connectors/registro.js';
-import { avaliarAlertasAcompanhadas } from './alertas.js';
+import { avaliarAlertasAcompanhadas, avaliarAlertasNotaFiscal } from './alertas.js';
 import { enviarAlertasPendentes } from './email.js';
 import { agoraBrasilia } from './status.js';
 import { precisaAtualizarCatalogo, sincronizarCatalogo } from './precos.js';
@@ -21,6 +21,7 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
     // Alertas de prazo/mudança e e-mail rodam antes das sincronizações, que podem demorar
     try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
     try { avaliarAlertasVencimentos(db, agoraBrasilia().slice(0, 10)); } catch (e) { console.error('[vencimentos]', e.message); }
+    try { avaliarAlertasNotaFiscal(db, agoraBrasilia().slice(0, 10)); } catch (e) { console.error('[nota fiscal]', e.message); }
     if (Date.now() - ultimoEmail >= 10 * 60_000) {
       ultimoEmail = Date.now();
       enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));
