@@ -184,4 +184,8 @@ test('e-mail: Brevo envia pela API HTTPS com anexo em base64 e não vaza a chave
   const falha = transporteBrevo('xkeysib-segredo', { fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ message: 'Key not found' }) }) });
   await assert.rejects(falha.sendMail({ from: 'Nome <a@b.com>', to: 'c@d.com', subject: 's', text: 't' }), /HTTP 401.*Key not found/);
   await assert.rejects(t.sendMail({ to: 'c@d.com', subject: 's' }), /EMAIL_REMETENTE/);
+  await t.sendMail({ from: 'Guido - Assessoria <guido@teste.com', to: 'c@d.com', subject: 's', text: 't' });   // sem o ">" final
+  assert.deepEqual(JSON.parse(chamadas.at(-1).op.body).sender, { email: 'guido@teste.com', name: 'Guido - Assessoria' });
+  await t.sendMail({ from: { name: 'Assessoria X', address: 'Guido <guido@teste.com>' }, to: 'c@d.com', subject: 's', text: 't' }); // jornal: nome da assessoria + EMAIL_REMETENTE completo
+  assert.deepEqual(JSON.parse(chamadas.at(-1).op.body).sender, { email: 'guido@teste.com', name: 'Assessoria X' });
 });
