@@ -10,6 +10,12 @@ import { buscar } from './busca.js';
 export const PERIODOS = [6, 12, 24];
 const ESF = { F: 'Federal', E: 'Estadual', M: 'Municipal', D: 'Distrital' };
 const r2 = (v) => Math.round(v * 100) / 100;
+const REGIAO = Object.fromEntries([['Norte', 'AC AM AP PA RO RR TO'], ['Nordeste', 'AL BA CE MA PB PE PI RN SE'], ['Centro-Oeste', 'DF GO MS MT'],
+  ['Sudeste', 'ES MG RJ SP'], ['Sul', 'PR RS SC']].flatMap(([r, ufs]) => ufs.split(' ').map((u) => [u, r])));
+const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : null);
+const fmtPct = (v) => `${String(v).replace('.', ',')}%`;
+/** Compras de um período: o total oficial quando a amostra é parcial. */
+const comprasOficiais = (p) => (p.parcial && p.total_fonte != null ? p.total_fonte : p.compras);
 const iso = (d) => d.toISOString().slice(0, 10);
 
 function resumoPeriodo(lista, desde) {
@@ -63,6 +69,11 @@ export async function relatorioMercado(db, c, { filtro, item, unidade, termo, fe
     }
   }
   const foco = local || brasil;
+  // Regiões do Brasil (24 meses), pela UF do órgão comprador
+  const regioes = {};
+  for (const r of brasil.lista) { const k = REGIAO[r.uf] || 'Não informada'; regioes[k] = (regioes[k] || 0) + 1; }
+  // Peso do estado no Brasil (24 meses), em número de compras oficiais
+  const participacao = local ? { uf: local.uf, estado: comprasOficiais(local.periodos[24]), brasil: comprasOficiais(brasil.periodos[24]) } : null;
   const pan = panoramaMercado(foco.lista);
   const estFoco = estatisticas(foco.lista.map((r) => r.preco_unitario));
   const recentes = [...foco.lista].sort((a, b) => String(b.data_compra).localeCompare(String(a.data_compra)));
@@ -91,7 +102,7 @@ export async function relatorioMercado(db, c, { filtro, item, unidade, termo, fe
       abertas = { total: b.total, dados: b.dados.map((l) => ({ id: l.id, objeto: l.objeto, orgao: l.orgao_nome, local: [l.municipio, l.uf].filter(Boolean).join('/'), encerramento: l.data_encerramento_proposta, valor: l.valor_estimado })) };
     } catch { /* busca indisponível não derruba o relatório */ }
   }
-  return {
+  const rel = {
     consulta: c, termo: termo || null, gerado_em: agora.toISOString(), unidade: foco.unidade,
     brasil: { periodos: brasil.periodos, truncado: brasil.truncado },
     estado: local ? { uf: local.uf, periodos: local.periodos, truncado: local.truncado } : null,
@@ -105,10 +116,36 @@ export async function relatorioMercado(db, c, { filtro, item, unidade, termo, fe
     marcas_top: pan.marcas_top, marcas_total: pan.marcas_total,
     fornecedores: pan.fornecedores, fornecedores_total: pan.fornecedores_total,
     abertas,
+    regioes: Object.entries(regioes).map(([nome, compras]) => ({ nome, compras })).sort((a, b) => b.compras - a.compras),
+    participacao: participacao && participacao.brasil >= participacao.estado ? participacao : null,
   };
+  rel.leitura = leituraMercado(rel);
+  return rel;
+}
+
+/** Leitura em frases curtas (mesma para tela, impressão e PDF). Só afirma o que os números mostram. */
+export function leituraMercado(r) {
+  const out = [];
+  const foco = (r.estado || r.brasil).periodos; const onde = r.estado ? `no ${r.estado.uf}` : 'no Brasil';
+  const t = r.tendencia;
+  if (t.variacao_pct != null) {
+    const sentido = t.variacao_pct >= 10 ? 'em alta' : t.variacao_pct <= -10 ? 'em queda' : 'estável';
+    out.push(`Demanda ${sentido} ${onde}: ${t.ultimos6} compra(s) nos últimos 6 meses contra ${t.anteriores6} nos 6 anteriores (${t.variacao_pct >= 0 ? '+' : ''}${t.variacao_pct}%).`);
+  } else if (foco[6].compras) out.push(`${foco[6].compras} compra(s) ${onde} nos últimos 6 meses.`);
+  const totEsf = r.esferas.reduce((a, e) => a + e.compras, 0);
+  if (r.esferas[0] && totEsf) out.push(`A esfera ${r.esferas[0].nome.toLowerCase()} responde por ${fmtPct(pct(r.esferas[0].compras, totEsf))} das compras ${onde} em 24 meses.`);
+  if (r.participacao) out.push(`O ${r.participacao.uf} fez ${fmtPct(pct(r.participacao.estado, r.participacao.brasil))} das compras do Brasil em 24 meses (${r.participacao.estado} de ${r.participacao.brasil}).`);
+  else if (r.regioes[0]) { const tot = r.regioes.reduce((a, x) => a + x.compras, 0); out.push(`A região ${r.regioes[0].nome} concentra ${fmtPct(pct(r.regioes[0].compras, tot))} das compras do Brasil em 24 meses.`); }
+  if (foco[12].orgaos > 1) out.push(`${foco[12].orgaos} órgãos diferentes compraram ${onde} nos últimos 12 meses: a demanda não depende de um só comprador.`);
+  if (r.abertas.total) out.push(`Há ${r.abertas.total} licitação(ões) aberta(s) agora ${onde} com esse produto.`);
+  return out;
 }
 
 /** Remove o que não vai para a empresa prospectada (nomes de concorrentes). */
+// Fica de fora o "ouro": quem compra (nomes dos órgãos), preços praticados, marcas, fornecedores e quais
+// licitações estão abertas. Vai só o tamanho do mercado, a tendência e as proporções.
 export function paraLead(r) {
-  return { ...r, fornecedores: [], ultimas_compras: r.ultimas_compras.map(({ fornecedor, ...x }) => x) };
+  const semPreco = (e) => e && { ...e, periodos: Object.fromEntries(Object.entries(e.periodos).map(([m, p]) => [m, { ...p, mediana: null }])) };
+  return { ...r, brasil: semPreco(r.brasil), estado: semPreco(r.estado), precos: { n: r.precos?.n || 0 },
+    orgaos_top: [], ultimas_compras: [], marcas_top: [], fornecedores: [], abertas: { total: r.abertas.total, dados: [] }, lead: true };
 }

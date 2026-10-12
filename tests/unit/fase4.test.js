@@ -282,7 +282,7 @@ test('preços: período grande é dividido e baixado inteiro (a ordem da fonte n
 });
 
 test('relatório de mercado: Brasil × estado em 6/12/24 meses, órgãos, modo lead sem concorrentes e PDF', async () => {
-  const { relatorioMercado, paraLead } = await import('../../server/services/relatorio-mercado.js');
+  const { relatorioMercado, paraLead, leituraMercado } = await import('../../server/services/relatorio-mercado.js');
   const { pdfRelatorio } = await import('../../server/services/relatorio-mercado-pdf.js');
   const db = bancoMemoria();
   const reg = (data, uf, preco, qtd, esfera, extra = {}) => ({ data_compra: data, uf, preco_unitario: preco, quantidade: qtd, esfera, unidade: 'EMB 500',
@@ -309,6 +309,12 @@ test('relatório de mercado: Brasil × estado em 6/12/24 meses, órgãos, modo l
   const pdf = pdfRelatorio(lead, { modo: 'lead', para: 'Empresa Teste', preparadoPor: 'Assessoria Teste' });
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
   assert.ok(!pdf.toString('latin1').includes('FORNECEDOR TESTE'));   // concorrente não vai para o lead
+  // Lead não entrega o "ouro": nomes de órgãos, preços, marcas e quais licitações estão abertas
+  assert.equal(lead.orgaos_top.length, 0); assert.equal(lead.ultimas_compras.length, 0); assert.equal(lead.marcas_top.length, 0);
+  assert.equal(lead.brasil.periodos[12].mediana, null); assert.equal(lead.precos.mediana, undefined);
+  const textoLead = pdf.toString('latin1');
+  assert.ok(!textoLead.includes('ORGAO ES') && !/R\$ 20,00/.test(textoLead));
+  assert.ok(leituraMercado(r).length >= 2);
   assert.ok(pdfRelatorio(r, { modo: 'interno' }).toString('latin1').includes('FORNECEDOR TESTE'));
 });
 
