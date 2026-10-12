@@ -361,6 +361,13 @@ function formPerfil(est, ops, p) {
   const encData = h('input', { type: 'date', value: enc.data || '' });
   const encHora = h('input', { type: 'time', value: enc.hora || '' });
   const previa = h('div', { class: 'aviso azul pequeno' }, 'Clique em "Ver quantas batem" para conferir antes de salvar.');
+  // Obra (e serviço especial de engenharia) não pode ir a pregão (Lei 14.133, art. 29, parágrafo único): sai quase toda em concorrência
+  const dicaObras = h('div', { class: 'texto-alerta pequeno', hidden: true },
+    'Obras saem quase sempre em Concorrência (a Lei 14.133, art. 29, não permite pregão para obras). Marque Concorrência para não perder a maior parte delas.');
+  const avisoObras = () => {
+    const segs = marcados(form, 'seg'); const mods = marcados(form, 'mod');
+    dicaObras.hidden = !(segs.some((x) => /obra|engenharia/i.test(x)) && mods.length && !mods.includes('concorrencia'));
+  };
   const carregarCidades = async (ufs) => {
     try { const r = await api(`/jornal/municipios${qs({ uf: ufs.length === 1 ? ufs[0] : '' })}`); render(listaCid, ...r.municipios.slice(0, 1500).map((m) => h('option', { value: m }))); } catch { /* opcional */ }
   };
@@ -368,11 +375,12 @@ function formPerfil(est, ops, p) {
     h('div', { class: 'grade duas' }, campo('Nome do jornal', nome), campo('Para qual empresa', cliente, 'Opcional. Sai com o cabeçalho dela ao enviar.')),
     campo('Estado(s)', h('div', { class: 'grade-ufs', onchange: () => carregarCidades(marcados(form, 'uf')) }, UFS_BR.map((u) => caixa('uf', u, u, fx.ufs.includes(u))))),
     campo('Cidade(s)', h('div', {}, cidades, listaCid), 'Separe por ponto e vírgula. Vazio = todas as cidades dos estados marcados.'),
-    campo('Nicho', h('div', { class: 'grade-checks' }, est.meta.segmentos.map((sg) => caixa('seg', sg, sg, fx.segmentos.includes(sg)))), 'Segmento estimado pelo objeto. Marque nenhum para não filtrar.'),
+    h('div', { class: 'aviso pequeno' }, h('b', {}, 'O que procurar: '), 'nicho, produtos e itens se somam. Basta a licitação bater com UM deles para entrar no jornal.'),
+    campo('Nicho', h('div', { class: 'grade-checks', onchange: () => avisoObras() }, est.meta.segmentos.map((sg) => caixa('seg', sg, sg, fx.segmentos.includes(sg)))), 'Segmento estimado pelo objeto. Marque nenhum para não filtrar.'),
     h('div', { class: 'grade duas' },
       campo('Produto(s) / palavras do objeto', produtos, 'Qualquer um da lista (separe por ;). Busca no objeto e no início da descrição dos itens.'),
       campo('Itens', itens, 'Busca só na descrição dos itens do edital: todas as palavras de um termo no mesmo item (separe termos por ;).')),
-    campo('Modalidade', h('div', { class: 'linha' }, Object.entries(ops.modalidades).map(([k, v]) => caixa('mod', k, v, fx.modalidades.includes(k)))), 'Nenhuma marcada = todas.'),
+    campo('Modalidade', h('div', {}, h('div', { class: 'linha', onchange: () => avisoObras() }, Object.entries(ops.modalidades).map(([k, v]) => caixa('mod', k, v, fx.modalidades.includes(k)))), dicaObras), 'Nenhuma marcada = todas.'),
     campo('Valor do edital', h('div', { class: 'linha' }, vmin, vmax), 'Licitação sem valor informado ou sigilosa fica de fora quando há limite de valor.'),
     campo('Portais (sistema da disputa)', h('div', { class: 'grade-checks' }, Object.entries(est.meta.sistemas || {}).map(([k, v]) => caixa('sis', k, v.nome, fx.sistemas.includes(k)))), 'Nenhum marcado = todos.'),
     campo('Fase', h('div', { class: 'linha' }, Object.entries(ops.fases).map(([k, v]) => caixa('fase', k, v, fx.fases.includes(k))))),
@@ -391,9 +399,17 @@ function formPerfil(est, ops, p) {
     },
   });
   carregarCidades(fx.ufs);
+  avisoObras();
   modal(p ? `Editar jornal · ${p.nome}` : 'Criar jornal', form, [
     { texto: 'Ver quantas batem', acao: async () => {
-      try { const x = await api('/jornal/perfis/previa', { metodo: 'POST', corpo: corpo() }); render(previa, `${x.total} licitação(ões) aberta(s) batem com este perfil agora.`); }
+      try {
+        const x = await api('/jornal/perfis/previa', { metodo: 'POST', corpo: corpo() });
+        const zerou = (x.funil || []).find((e) => e.total === 0);
+        render(previa,
+          h('div', {}, h('b', {}, `${x.total} licitação(ões) aberta(s) batem com este perfil agora.`)),
+          x.funil?.length ? h('div', { class: 'funil-perfil' }, 'Filtro a filtro: ', x.funil.map((e, i) => h('span', { class: e.total === 0 ? 'texto-alerta' : '' }, `${i ? ' → ' : ''}${e.etapa}: ${e.total}`))) : null,
+          zerou ? h('div', { class: 'texto-alerta' }, `O filtro "${zerou.etapa}" zerou o resultado. Revise esse campo.`) : null);
+      }
       catch (e) { render(previa, h('span', { class: 'texto-alerta' }, e.message)); }
       return false;
     } },

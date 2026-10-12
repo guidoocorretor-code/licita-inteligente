@@ -26,7 +26,7 @@ import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, filtroDoPerfil, normalizarFiltros,
-  resumoFiltros, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
+  resumoFiltros, funilDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
@@ -253,8 +253,9 @@ r.get('/jornal/perfis/:id', (req, res) => {
 // Quantas abertas batem agora com o filtro do formulário (antes de salvar)
 r.post('/jornal/perfis/previa', exigirPapel('analista'), (req, res) => {
   try {
-    const { where, params } = filtroDoPerfil(normalizarFiltros(req.body?.filtros || {}), { agora: agoraBrasilia() });
-    res.json({ total: db().prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n });
+    const f = normalizarFiltros(req.body?.filtros || {}); const agora = agoraBrasilia();
+    const { where, params } = filtroDoPerfil(f, { agora });
+    res.json({ total: db().prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n, funil: funilDoPerfil(db(), f, agora) });
   } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
 });
 const salvarEGerar = (req, id) => {

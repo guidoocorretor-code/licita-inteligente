@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria } from '../helpers.js';
-import { normalizarFiltros, filtroDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros } from '../../server/services/jornal-perfis.js';
+import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros } from '../../server/services/jornal-perfis.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 
 const AGORA = '2026-10-12T08:00:00';
@@ -72,4 +72,29 @@ test('edição diária: a primeira traz as abertas; as seguintes só as novas; a
   gerarEdicoesDoDia(db, '2026-10-14T07:00:00');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM notificacoes WHERE tipo='jornal_diario'").get().n, 2);
   assert.equal(gerarEdicao(db, p, '2026-10-14T09:00:00').total, 0);
+});
+
+test('jornal de obras (caso real do Guido): cidade sem acento, "o que" soma, funil mostra o filtro que zera', () => {
+  const { db, emp, uid, lic } = cenario();
+  const seg = db.prepare('UPDATE licitacoes SET segmento=? WHERE id=?');
+  const a = lic('a', { objeto: 'Reforma da escola municipal', mun: 'Vitória', mod: 4 }); seg.run('Obras e engenharia', a);
+  const b = lic('b', { objeto: 'Contratação de empresa de engenharia', mun: 'Vila Velha', mod: 6 }); seg.run('Obras e engenharia', b);
+  const c = lic('c', { objeto: 'Aquisição de tintas', mun: 'Cariacica', mod: 8 });
+  db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)').run(c, 1, 'Tinta para pintura acrílica 18L');
+  lic('d', { objeto: 'Reforma de praça', mun: 'Linhares', mod: 4 });
+  const filtros = { ufs: ['ES'], cidades: ['Vila velha', 'vitoria', 'serra', 'cariacica'], segmentos: ['Obras e engenharia'],
+    produtos: 'obra civil; construção; reforma; pintura', itens: 'obra civil; construção; reforma; pintura', modalidades: ['dispensa', 'pregao'] };
+  const ids = (b0) => { const { where, params } = filtroDoPerfil(normalizarFiltros(b0), { agora: AGORA }); return db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.id`).all(...params).map((x) => x.id); };
+  // "vitoria" acha "Vitória"; nicho OU produtos OU itens (a de tintas entra pelo item)
+  assert.deepEqual(ids({ ...filtros, modalidades: [] }), [a, b, c]);
+  // Sem Concorrência a reforma da escola sai
+  assert.deepEqual(ids(filtros), [b, c]);
+  const funil = funilDoPerfil(db, normalizarFiltros(filtros), AGORA);
+  assert.deepEqual(funil.map((e) => e.etapa), ['Estado(s)', 'Cidade(s)', 'Nicho, produtos ou itens', 'Modalidade', 'Fase']);
+  assert.deepEqual(funil.map((e) => e.total), [4, 3, 3, 2, 2]);
+  // Primeira edição vazia é refeita quando passa a haver resultado no mesmo dia
+  const id = salvarPerfil(db, emp, uid, { nome: 'Obras', filtros: { ufs: ['ES'], cidades: ['Serra'] } });
+  assert.equal(gerarEdicao(db, perfilDaEmpresa(db, emp, id), AGORA).total, 0);
+  lic('e', { objeto: 'Pavimentação', mun: 'Serra' });
+  assert.equal(gerarEdicao(db, perfilDaEmpresa(db, emp, id), AGORA).total, 1);
 });
