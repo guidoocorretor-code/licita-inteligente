@@ -106,3 +106,11 @@ Na cotação da oportunidade, clique em **📝 Montar proposta** (ou menu Gestã
 - Cobertura: compras registradas no Compras.gov.br (federais e entes que usam o sistema). Quando há mais de 3.000 preços no período, vêm os mais recentes.
 - **Quanto foi comprado**: compras, quantidade, valor movimentado, preço mediano e nº de órgãos no estado escolhido e no Brasil, em 6, 12 e 24 meses, com a tendência (últimos 6 meses × 6 anteriores). Também: órgãos que mais compram (com a esfera), últimas compras e licitações abertas agora com as palavras pesquisadas.
 - **Relatório**: marque "Para uso interno" (tudo, inclusive concorrentes) ou "Para captação de lead" (para apresentar a uma empresa; sem nomes de concorrentes, com "Preparado para" e assinatura). Botões **Imprimir** e **Baixar PDF**.
+
+## Gestão de lances: área de teste do robô
+Menu Gestão > **Gestão de lances** (fica antes de Propostas, porque a proposta final vai ao órgão depois dos lances).
+- É uma **simulação**: os concorrentes são fictícios e nenhum lance vai ao portal.
+- Informe a sua proposta inicial, o seu **piso** (preço mínimo de venda; o robô nunca dá lance abaixo dele) e quanto diminuir a cada lance. Escolha o modo da disputa (aberto, em que lance nos últimos 2 min devolve o relógio a 2 min, ou fim fixo), o tempo e a velocidade.
+- Regras do robô: só dá lance **nos últimos 40 s**; espera **20 s** entre os seus lances e **3 s** depois do melhor lance (regras do Compras.gov.br); para quando o melhor lance chega no seu piso. No modo aberto, isso significa que o robô só entra depois de 80 s sem lances; cada lance dele devolve o relógio a 2 min.
+- **Desligar robô** deixa você assumir; **Parar tudo** encerra a simulação.
+- O modo real (extensão no seu Chrome, com você logado no portal; o sistema não guarda senha e não passa por captcha) depende de uma página salva da tela de disputa do Compras.gov.br para ser construído.

@@ -525,3 +525,12 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .etiqueta.esfera-federal { background: #e3edfb; color: #1d4f91; }
 .etiqueta.esfera-estadual { background: #fdeee4; color: #9a4313; }
 .etiqueta.esfera-municipal { background: #e3f4ea; color: #1d7a46; }
+
+/* Gestão de lances · área de teste */
+.placar-lances { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.relogio-lances { font: 700 2rem/1 ui-monospace, monospace; padding: 6px 12px; border-radius: 8px; background: var(--fundo-suave, #eef3fa); }
+.relogio-lances.final { background: #fde8e8; color: var(--perigo); }
+.ranking-lances tr.eu td { font-weight: 700; background: #eef6ff; }
+.log-lances { max-height: 320px; overflow: auto; font-size: .85rem; padding-left: 0; list-style: none; }
+.log-lances li { padding: 2px 0; border-bottom: 1px solid var(--borda, #eef0f3); }
+.log-lances li.meu { color: var(--ok); } .log-lances li.alerta { color: var(--perigo); } .log-lances li.info, .log-lances li.fim { font-weight: 600; }

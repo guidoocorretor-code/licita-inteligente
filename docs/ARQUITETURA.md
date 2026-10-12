@@ -120,3 +120,7 @@ Ver `server/services/status.js` (testado em `tests/unit/status.test.js`):
 - `connectors/comprasgov.js` `baixarPrecos`: a API devolve da compra mais antiga para a mais nova; com mais páginas que o limite (6×500), baixa as ÚLTIMAS páginas, 3 em paralelo.
 - `services/precos.js`: `SINONIMOS` no `buscarCatalogo` (ex.: A4/sulfite → PDM "papel para impressão formatado"), busca com OU quando o E acha pouco; `panoramaMercado` (marcas normalizadas por `marcaNormal`, fornecedores por mediana, esfera/UF/mês, lista de preços para o simulador).
 - `services/relatorio-mercado.js` (`relatorioMercado`, `paraLead`) + `relatorio-mercado-pdf.js`; rotas `GET /api/precos/relatorio` e `/api/precos/relatorio.pdf?modo=interno|lead`. Consulta 24 meses do estado e do Brasil (cache de 24h); se a amostra é parcial, `contarCompras` traz o total de compras do período. `pdf-simples.js` ganhou `tabela`, `barras` e `secao`. Frontend em `web/js/mercado.js`.
+
+## Gestão de lances (área de teste)
+- `web/js/robo-estrategia.js`: regra pura do robô (`decidir`, `proximoValor`, `PADRAO` = disparo 40 s, 20 s entre lances próprios, 3 s após o melhor lance). É a mesma regra que a extensão do modo real vai importar. Testes em `tests/unit/robo.test.js`.
+- `web/js/lances.js`: simulador no navegador (concorrentes fictícios, modo aberto com prorrogação de 2 min ou fim fixo, velocidade 1/5/10×). Não chama o servidor e não envia lance a nenhum portal.
