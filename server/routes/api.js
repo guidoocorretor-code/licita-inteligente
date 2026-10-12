@@ -25,6 +25,8 @@ import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
+import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, cobrancaDaEmpresa,
+  custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
 import { criarFornecedor, atualizarFornecedor, excluirFornecedor, listarFornecedores, FRETES, FORMAS_PAGAMENTO, PRAZOS_BOLETO, cotacoesDaOportunidade,
@@ -917,6 +919,77 @@ r.get('/auditoria', exigirPapel('admin'), (req, res) => {
 r.use((e, req, res, _next) => {
   console.error('[api]', e);
   res.status(e.status || 500).json({ erro: e.status ? e.message : 'Erro interno. Tente novamente.' });
+});
+
+// ---------------- Financeiro (Fase 5): honorários da assessoria e lucro por contrato ----------------
+const periodoDe = (req) => {
+  const de = dataOk(req.query.de) ? req.query.de : null; const ate = dataOk(req.query.ate) ? req.query.ate : null;
+  if (de && ate && de > ate) throw Object.assign(new Error('Período inválido: a data inicial é depois da final.'), { status: 400 });
+  return { de, ate };
+};
+r.get('/financeiro/honorarios', exigirPapel('gestor'), (req, res) => {
+  try { res.json({ ...resumoHonorarios(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, ...periodoDe(req), hoje: hojeBr() }), formas: FORMAS_RECEBIMENTO, tipos: TIPOS_COBRANCA }); }
+  catch (e) { falha(res, e); }
+});
+r.put('/financeiro/contratos/:clienteId', exigirPapel('gestor'), (req, res) => {
+  try { const c = salvarContrato(db(), req.usuario.empresa_id, inteiro(req.params.clienteId), req.body || {}); auditar(req, 'honorarios_contrato', 'cliente', c.cliente_id); res.json(c); }
+  catch (e) { falha(res, e); }
+});
+r.post('/financeiro/cobrancas', exigirPapel('gestor'), (req, res) => {
+  try { const id = criarCobrancaAvulsa(db(), req.usuario.empresa_id, req.usuario.id, req.body || {}); auditar(req, 'honorarios_cobranca_criar', 'cobranca', id); res.status(201).json({ id }); }
+  catch (e) { falha(res, e); }
+});
+r.patch('/financeiro/cobrancas/:id', exigirPapel('gestor'), (req, res) => {
+  try { const c = atualizarCobranca(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {}); auditar(req, 'honorarios_cobranca_atualizar', 'cobranca', c.id); res.json(c); }
+  catch (e) { falha(res, e); }
+});
+r.post('/financeiro/cobrancas/:id/cancelar', exigirPapel('gestor'), (req, res) => {
+  try { cancelarCobranca(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body?.motivo); auditar(req, 'honorarios_cobranca_cancelar', 'cobranca', inteiro(req.params.id)); res.json({ ok: true }); }
+  catch (e) { falha(res, e); }
+});
+// Desfazer um recebimento mexe no caixa: só com a senha de um administrador (fica na auditoria)
+r.post('/financeiro/cobrancas/:id/desfazer-pagamento', exigirPapel('gestor'), (req, res) => {
+  try {
+    const id = inteiro(req.params.id);
+    cobrancaDaEmpresa(db(), req.usuario.empresa_id, id);
+    const adm = conferirSenhaAdmin(db(), req.usuario.empresa_id, req.usuario.id, req.body?.senha_admin, { aviso: 'Para desfazer um recebimento, um administrador precisa digitar a senha dele.' });
+    desfazerPagamento(db(), req.usuario.empresa_id, id);
+    auditar(req, 'honorarios_desfazer_pagamento', 'cobranca', id, { autorizado_por: adm.id });
+    res.json({ ok: true });
+  } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
+});
+r.get('/financeiro/lucro', exigirPapel('gestor'), (req, res) => {
+  try { res.json(lucroPorContrato(db(), req.usuario.empresa_id, { clienteId: req.clienteId || null, ...periodoDe(req) })); }
+  catch (e) { falha(res, e); }
+});
+r.get('/kanban/:id/custos', exigirPapel('analista'), (req, res) => {
+  const emp = req.usuario.empresa_id; const id = inteiro(req.params.id);
+  const op = db().prepare('SELECT id FROM oportunidades WHERE id=? AND empresa_id=?').get(id, emp);
+  if (!op) return erro(res, 404, 'Card não encontrado.');
+  // Sugestão a partir das cotações e da proposta (o usuário confere antes de lançar)
+  let sugestao = null;
+  try {
+    const p = propostaDaOportunidade(db(), emp, id);
+    const inc = p.itens.filter((i) => i.incluir && i.custo_unitario != null && i.quantidade != null);
+    if (inc.length) {
+      const produto = Math.round(inc.reduce((s, i) => s + i.custo_unitario * i.quantidade, 0) * 100) / 100;
+      const venda = inc.every((i) => i.total != null) ? inc.reduce((s, i) => s + i.total, 0) : null;
+      sugestao = { produto, itens: inc.length, impostos_pct: p.impostos_pct ?? null,
+        impostos: p.impostos_pct != null && venda != null ? Math.round(venda * p.impostos_pct) / 100 : null, venda: venda != null ? Math.round(venda * 100) / 100 : null };
+    }
+  } catch { sugestao = null; }
+  const card = db().prepare(`SELECT o.id, o.licitacao_id, o.cliente_id, l.objeto, l.orgao_nome, ke.nome etapa, ke.fase, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome
+    FROM oportunidades o JOIN kanban_etapas ke ON ke.id=o.etapa_id LEFT JOIN licitacoes l ON l.id=o.licitacao_id LEFT JOIN clientes cl ON cl.id=o.cliente_id WHERE o.id=?`).get(id);
+  const contrato = lucroPorContrato(db(), emp, { clienteId: card.cliente_id || null }).contratos.find((x) => x.oportunidade_id === id) || null;
+  res.json({ card, contrato, custos: custosDaOportunidade(db(), emp, id), categorias: CATEGORIAS_CUSTO, sugestao });
+});
+r.post('/kanban/:id/custos', exigirPapel('analista'), (req, res) => {
+  try { const id = lancarCusto(db(), req.usuario.empresa_id, req.usuario.id, inteiro(req.params.id), req.body || {}); res.status(201).json({ id }); }
+  catch (e) { falha(res, e); }
+});
+r.delete('/kanban/:id/custos/:custo', exigirPapel('analista'), (req, res) => {
+  try { excluirCusto(db(), req.usuario.empresa_id, inteiro(req.params.id), inteiro(req.params.custo)); res.json({ ok: true }); }
+  catch (e) { falha(res, e); }
 });
 
 export default r;

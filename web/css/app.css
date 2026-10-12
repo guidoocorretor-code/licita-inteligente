@@ -599,3 +599,18 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .como-alertas summary { cursor: pointer; font-weight: 600; }
 .como-alertas ul { margin: 10px 0 0; padding-left: 20px; font-size: .88rem; }
 @media (max-width: 700px) { .alerta { grid-template-columns: 1fr; } .alerta-icone { display: none; } .alerta-quando { margin-left: 0; } }
+
+/* Financeiro e Relatórios */
+.kpi.ok .valor { color: var(--ok); }
+.kpi.perigo .valor { color: var(--perigo); }
+.so-imprimir { display: none; }
+@media print {
+  .lateral, .topo, .nao-imprimir, .cabecalho-pagina .linha, .faixa-empresa { display: none !important; }
+  .layout { display: block; }
+  .so-imprimir { display: block; }
+  .conteudo { padding: 0; max-width: none; }
+  .cartao { box-shadow: none; break-inside: avoid; }
+  body { background: #fff; }
+}
+.form-custo { display: grid; grid-template-columns: 200px minmax(0, 1fr) 140px 160px auto; gap: 8px; margin-top: 12px; align-items: center; }
+@media (max-width: 760px) { .form-custo { grid-template-columns: 1fr; } }
