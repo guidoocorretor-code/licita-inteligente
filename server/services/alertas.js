@@ -26,18 +26,6 @@ export function avaliarAlertasPesquisas(db) {
 // da empresa quando não há responsável. Cada aviso é gerado uma única vez (tabela alertas_gerados).
 const TIPOS_EVENTO_ALERTA = { alteracao: 'Edital alterado', situacao: 'Mudança de situação', resultado: 'Resultado publicado', documento: 'Novo documento' };
 
-function acompanhamentos(db) {
-  return db.prepare(`
-    SELECT usuario_id, empresa_id, cliente_id, licitacao_id, MIN(desde) desde, MAX(oportunidade_id) oportunidade_id, MAX(prazo_interno) prazo_interno FROM (
-      SELECT f.usuario_id, u.empresa_id, f.cliente_id, CAST(f.referencia AS INTEGER) licitacao_id, f.criado_em desde, NULL oportunidade_id, NULL prazo_interno
-        FROM favoritos f JOIN usuarios u ON u.id = f.usuario_id AND u.ativo = 1 WHERE f.tipo = 'licitacao'
-      UNION ALL
-      SELECT u.id, o.empresa_id, o.cliente_id, o.licitacao_id, o.criado_em, o.id, o.prazo_interno
-        FROM oportunidades o JOIN usuarios u ON u.empresa_id = o.empresa_id AND u.ativo = 1
-        WHERE o.responsavel_id IS NULL OR o.responsavel_id = u.id
-    ) GROUP BY usuario_id, cliente_id, licitacao_id`).all();
-}
-
 /**
  * Gera notificações de prazo (3 dias e 1 dia antes do fim das propostas, prazo interno no dia anterior)
  * e de mudanças detectadas na sincronização. `agora` em horário de Brasília (AAAA-MM-DDTHH:MM:SS).
@@ -61,7 +49,7 @@ export function avaliarAlertasAcompanhadas(db, agora) {
     notificar.run(a.empresa_id, a.usuario_id, a.cliente_id || 0, tipo, titulo, mensagem, a.licitacao_id);
     geradas++;
   };
-  for (const a of acompanhamentos(db)) {
+  for (const a of acompanhamentosAtivos(db)) {
     const l = lic.get(a.licitacao_id);
     if (!l) continue;
     const resumo = `${(l.objeto || '').slice(0, 160)} — ${l.orgao_nome || ''}${l.uf ? ` (${l.uf})` : ''}`;
@@ -81,4 +69,39 @@ export function avaliarAlertasAcompanhadas(db, agora) {
     }
   }
   return geradas;
+}
+
+// Alertas de prazo e de mudança valem enquanto a licitação continua acompanhada PELA MESMA EMPRESA:
+// card no Kanban dessa empresa (fora de "perdida"/"descartada") ou favorito com essa empresa.
+// Saiu do Kanban, trocou de empresa ou foi descartada → o alerta antigo deixa de aparecer.
+const TIPOS_DE_ACOMPANHAMENTO = new Set(['prazo', 'prazo_interno', 'mudanca']);
+const FASES_ENCERRADAS = new Set(['perdida', 'descartada']);
+
+/** Notificações do usuário (opcionalmente de uma empresa), com a origem: etapa do Kanban ou favorito. */
+export function listarNotificacoes(db, usuarioId, clienteId = null, { limite = 100 } = {}) {
+  const linhas = db.prepare(`SELECT n.*, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome,
+      (SELECT ke.nome FROM oportunidades o JOIN kanban_etapas ke ON ke.id = o.etapa_id
+        WHERE o.empresa_id = n.empresa_id AND o.licitacao_id = n.licitacao_id AND o.cliente_id = n.cliente_id) kanban_etapa,
+      (SELECT ke.fase FROM oportunidades o JOIN kanban_etapas ke ON ke.id = o.etapa_id
+        WHERE o.empresa_id = n.empresa_id AND o.licitacao_id = n.licitacao_id AND o.cliente_id = n.cliente_id) kanban_fase,
+      EXISTS (SELECT 1 FROM favoritos f WHERE f.usuario_id = n.usuario_id AND f.tipo = 'licitacao'
+        AND f.referencia = CAST(n.licitacao_id AS TEXT) AND f.cliente_id = n.cliente_id) favorito
+    FROM notificacoes n LEFT JOIN clientes cl ON cl.id = n.cliente_id
+    WHERE n.usuario_id = ?${clienteId ? ' AND n.cliente_id = ?' : ''} ORDER BY n.id DESC LIMIT ?`).all(usuarioId, ...(clienteId ? [clienteId] : []), limite * 3);
+  return linhas.filter((n) => !TIPOS_DE_ACOMPANHAMENTO.has(n.tipo) || !n.licitacao_id
+    || n.favorito || (n.kanban_etapa != null && !FASES_ENCERRADAS.has(n.kanban_fase))).slice(0, limite)
+    .map((n) => ({ ...n, favorito: !!n.favorito }));
+}
+
+function acompanhamentosAtivos(db) {
+  return db.prepare(`
+    SELECT usuario_id, empresa_id, cliente_id, licitacao_id, MIN(desde) desde, MAX(oportunidade_id) oportunidade_id, MAX(prazo_interno) prazo_interno FROM (
+      SELECT f.usuario_id, u.empresa_id, f.cliente_id, CAST(f.referencia AS INTEGER) licitacao_id, f.criado_em desde, NULL oportunidade_id, NULL prazo_interno
+        FROM favoritos f JOIN usuarios u ON u.id = f.usuario_id AND u.ativo = 1 WHERE f.tipo = 'licitacao'
+      UNION ALL
+      SELECT u.id, o.empresa_id, o.cliente_id, o.licitacao_id, o.criado_em, o.id, o.prazo_interno
+        FROM oportunidades o JOIN usuarios u ON u.empresa_id = o.empresa_id AND u.ativo = 1
+        LEFT JOIN kanban_etapas ke ON ke.id = o.etapa_id
+        WHERE (o.responsavel_id IS NULL OR o.responsavel_id = u.id) AND COALESCE(ke.fase, '') NOT IN ('perdida', 'descartada')
+    ) GROUP BY usuario_id, cliente_id, licitacao_id`).all();
 }

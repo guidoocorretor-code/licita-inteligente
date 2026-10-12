@@ -2,6 +2,7 @@
 // Só funciona com SMTP_URL configurado em variável de ambiente, ex.: smtps://usuario:senha-de-app@smtp.gmail.com:465
 // A URL contém a senha: nunca é registrada em log nem devolvida pela API.
 import nodemailer from 'nodemailer';
+import { listarNotificacoes } from './alertas.js';
 
 let transporte = null;
 const estado = { ultimoEnvio: null, ultimoErro: null, enviados: 0 };
@@ -55,7 +56,12 @@ export async function enviarAlertasPendentes(db, { urlBase = process.env.APP_URL
     WHERE n.enviada_email = 0 AND n.criado_em > datetime('now','-2 days') AND u.ativo = 1 AND COALESCE(p.alertas_email, 1) = 1`).all();
   let enviados = 0;
   for (const u of usuarios) {
-    const ns = db.prepare(`SELECT * FROM notificacoes WHERE usuario_id = ? AND enviada_email = 0 AND criado_em > datetime('now','-2 days') ORDER BY id`).all(u.id);
+    // Só o que ainda vale: alerta de licitação que saiu do Kanban/favoritos da empresa não vai por e-mail
+    const validas = new Set(listarNotificacoes(db, u.id, null, { limite: 500 }).map((n) => n.id));
+    const todas = db.prepare(`SELECT * FROM notificacoes WHERE usuario_id = ? AND enviada_email = 0 AND criado_em > datetime('now','-2 days') ORDER BY id`).all(u.id);
+    const ns = todas.filter((n) => validas.has(n.id));
+    const marcarObsoleta = db.prepare('UPDATE notificacoes SET enviada_email = 1 WHERE id = ?');
+    for (const n of todas) if (!validas.has(n.id)) marcarObsoleta.run(n.id);
     if (!ns.length) continue;
     const m = montarEmail(u, ns, { urlBase, appName });
     try {

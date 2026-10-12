@@ -18,6 +18,7 @@ import { agoraBrasilia } from '../services/status.js';
 import { CONECTORES } from '../connectors/registro.js';
 import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendario } from '../services/calendario.js';
 import { statusEmail, enviarEmailTeste } from '../services/email.js';
+import { listarNotificacoes } from '../services/alertas.js';
 import { consultarCnpj } from '../services/cnpj.js';
 import { lerSicafPdf } from '../services/sicaf.js';
 import { catalogoSistemas } from '../services/sistemas.js';
@@ -233,9 +234,7 @@ r.delete('/pesquisas/:id', (req, res) => {
 
 // ---------------- Notificações ----------------
 r.get('/notificacoes', (req, res) => {
-  const c = doCliente(req, 'n.cliente_id');
-  res.json(db().prepare(`SELECT n.*, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome FROM notificacoes n LEFT JOIN clientes cl ON cl.id = n.cliente_id
-    WHERE n.usuario_id=?${c.sql} ORDER BY n.id DESC LIMIT 100`).all(req.usuario.id, ...c.p));
+  res.json(listarNotificacoes(db(), req.usuario.id, req.clienteId));
 });
 r.post('/notificacoes/lidas', (req, res) => {
   const c = doCliente(req);
