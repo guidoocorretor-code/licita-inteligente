@@ -4,7 +4,7 @@ import { SQL_CAPAG_LIC } from './capag.js';
 import { SISTEMAS } from './sistemas.js';
 
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
-const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
+export const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
 // Busca por prefixo para pegar plural e variações: "serviço" acha "serviços"; termos em -ção/-são
 // e -ções viram o radical ("locação"/"locações" -> "locac*") e acham as duas formas.
 // Plural digitado também acha o singular: "transportes" -> "transporte*", "escolares" -> "escolar*",
@@ -15,7 +15,7 @@ export const radical = (t) => {
   if (r.length >= 5) r = r.replace(/([aeiou])ns$/, '$1m').replace(/([rz])es$/, '$1').replace(/([aeiou])s$/, '$1');
   return r;
 };
-const fts = (t) => `"${radical(t)}"*`;
+export const fts = (t) => `"${radical(t)}"*`;
 // Credenciamento (Lei 14.133, art. 79): modalidade 12 do PNCP ou amparo legal no art. 79 (alguns órgãos
 // publicam como inexigibilidade). Preço fixado pelo órgão, sem disputa, edital aberto por meses.
 export const SQL_CREDENCIAMENTO = `(l.modalidade_id = 12 OR (COALESCE(l.amparo_legal, '') LIKE '%14.133%'

@@ -11,6 +11,7 @@ import { agoraBrasilia } from './status.js';
 import { precisaAtualizarCatalogo, sincronizarCatalogo } from './precos.js';
 import { espacoEmDisco } from '../lib/disco.js';
 import { avaliarAlertasVencimentos } from './clientes.js';
+import { gerarEdicoesDoDia } from './jornal-perfis.js';
 
 export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   let ultimoEmail = 0;
@@ -22,6 +23,7 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
     try { avaliarAlertasAcompanhadas(db, agoraBrasilia()); } catch (e) { console.error('[alertas]', e.message); }
     try { avaliarAlertasVencimentos(db, agoraBrasilia().slice(0, 10)); } catch (e) { console.error('[vencimentos]', e.message); }
     try { avaliarAlertasNotaFiscal(db, agoraBrasilia().slice(0, 10)); } catch (e) { console.error('[nota fiscal]', e.message); }
+    try { gerarEdicoesDoDia(db, agoraBrasilia()); } catch (e) { console.error('[jornal diário]', e.message); }
     if (Date.now() - ultimoEmail >= 10 * 60_000) {
       ultimoEmail = Date.now();
       enviarAlertasPendentes(db).catch((e) => console.error('[email]', e.message));

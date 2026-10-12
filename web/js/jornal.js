@@ -4,7 +4,7 @@
 import { api, qs, clienteSelecionado } from './api.js';
 import { h, render, toast, carregando, vazio, dataUtc, modal, paginacao } from './ui.js';
 
-const TIPOS_EVENTO = { publicacao: 'Nova publicação', alteracao: 'Alteração/retificação', situacao: 'Mudança de situação', documento: 'Novo documento', resultado: 'Resultado/homologação', item: 'Item' };
+const TIPOS_EVENTO = { nova: 'Nova no jornal', aberta: 'Aberta', publicacao: 'Nova publicação', alteracao: 'Alteração/retificação', situacao: 'Mudança de situação', documento: 'Novo documento', resultado: 'Resultado/homologação', item: 'Item' };
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dataBr = (iso) => { if (!iso) return null; const [d, t] = String(iso).replace(' ', 'T').split('T'); const [a, m, dia] = d.split('-'); return `${dia}/${m}/${a}${t && t.slice(0, 5) !== '00:00' ? ` ${t.slice(0, 5)}` : ''}`; };
@@ -32,7 +32,8 @@ export async function jornal(alvo, rota, est) {
   uf.addEventListener('change', () => { municipio.value = ''; carregarMunicipios(); });
   carregarMunicipios();
   const abertas = h('input', { type: 'checkbox', checked: f.abertas === '1' });
-  const filtros = () => ({ q: q.value, tipo: tipo.value, uf: uf.value, segmento: seg.value, orgao: orgao.value, municipio: municipio.value.trim(), abertas: abertas.checked ? '1' : '' });
+  const filtros = () => (f.perfil ? { perfil: f.perfil, edicao: f.edicao }
+    : { q: q.value, tipo: tipo.value, uf: uf.value, segmento: seg.value, orgao: orgao.value, municipio: municipio.value.trim(), abertas: abertas.checked ? '1' : '' });
   const ir = (pagina = 1) => { location.hash = `#/jornal${qs({ ...filtros(), pagina })}`; };
   const sel = lerSelecao();
   const contador = h('strong', {});
@@ -120,11 +121,15 @@ export async function jornal(alvo, rota, est) {
       h('button', { class: 'btn', type: 'button', onclick: baixar }, '⬇ Baixar PDF'),
       h('button', { class: 'btn primario', type: 'button', onclick: enviarEmail }, '✉ Enviar por e-mail')));
 
-  render(alvo, h('div', { class: 'cabecalho-pagina' }, h('div', {}, h('h1', {}, 'Jornal de licitações'),
-      h('div', { class: 'suave' }, 'O que foi publicado ou mudou nas sincronizações. Marque os cards para imprimir, baixar em PDF ou enviar ao cliente.'))),
+  const topo = f.perfil ? await cabecalhoPerfil(f, est) : [
+    h('div', { class: 'cabecalho-pagina' }, h('div', {}, h('h1', {}, 'Jornal de licitações'),
+      h('div', { class: 'suave' }, 'Seus jornais salvos trazem as oportunidades novas todo dia. Abaixo, tudo o que foi publicado ou mudou nas sincronizações.'))),
+    await meusJornais(est),
+    h('h2', { style: { margin: '18px 0 8px' } }, 'Tudo o que mudou nas sincronizações'),
     h('form', { class: 'cartao filtros', onsubmit: (e) => { e.preventDefault(); ir(); } }, q, tipo, uf, municipio, listaMun, seg, orgao,
       h('label', { class: 'pequeno', style: { display: 'flex', gap: '6px', alignItems: 'center' } }, abertas, 'Só com propostas abertas'),
-      h('button', { class: 'btn primario' }, 'Filtrar')),
+      h('button', { class: 'btn primario' }, 'Filtrar'))];
+  render(alvo, topo,
     barra,
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, lista),
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Jornais enviados e respostas'), enviados));
@@ -173,13 +178,13 @@ export async function jornal(alvo, rota, est) {
   }
 
   const r = await api(`/jornal${qs(f)}`);
-  if (!r.total) return render(lista, vazio('Nenhum evento registrado com esses filtros.'));
+  if (!r.total) return render(lista, vazio(f.perfil ? (r.edicao === 'todas' ? 'Nenhuma licitação aberta bate com este jornal agora. Tente ampliar o perfil (mais cidades, outro valor, mais palavras).' : 'Nenhuma oportunidade nova nesta edição.') : 'Nenhum evento registrado com esses filtros.'));
   render(lista, ...r.dados.map((e) => {
     const cx = h('input', { type: 'checkbox', class: 'marca-jornal', 'aria-label': 'Incluir no jornal', onchange: () => { if (cx.checked) sel.add(e.licitacao_id); else sel.delete(e.licitacao_id); atualizar(); } });
     cx.dataset.id = e.licitacao_id; caixas.push(cx);
     const s = e.sistema;
     return h('div', { class: 'evento evento-jornal' },
-      h('div', { class: 'quando' }, cx, h('div', {}, dataUtc(e.detectado_em))),
+      h('div', { class: 'quando' }, cx, h('div', {}, f.perfil ? h('span', { title: 'Quando entrou no sistema' }, dataUtc(e.detectado_em)) : dataUtc(e.detectado_em))),
       h('div', {}, h('span', { class: 'etiqueta azul' }, TIPOS_EVENTO[e.tipo] || e.tipo), ' ',
         h('a', { href: `#/licitacao/${e.licitacao_id}` }, (e.objeto || '').slice(0, 180)),
         h('div', { class: 'suave pequeno' }, `${e.descricao} · ${e.orgao_nome || ''} · ${[e.municipio, e.uf].filter(Boolean).join('/')}`),
@@ -292,4 +297,113 @@ ${cards}
   janela.document.open(); janela.document.write(html); janela.document.close();
   // A política de segurança do site bloqueia script dentro da página impressa: o botão é ligado daqui
   janela.document.getElementById('btn-imprimir').addEventListener('click', () => { janela.focus(); janela.print(); });
+}
+
+// ============================ JORNAIS SALVOS (perfis com edição diária) ============================
+const dataCurta = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+
+async function meusJornais(est) {
+  let r;
+  try { r = await api('/jornal/perfis'); } catch (e) { return h('div', { class: 'aviso vermelho' }, e.message); }
+  const hoje = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+  return h('div', { class: 'cartao' },
+    h('div', { class: 'linha', style: { justifyContent: 'space-between' } }, h('h2', { style: { margin: 0 } }, '📰 Meus jornais'),
+      h('button', { class: 'btn primario', onclick: () => formPerfil(est, r, null) }, '+ Criar jornal')),
+    r.perfis.length ? h('div', { class: 'perfis-jornal' }, r.perfis.map((p) => h('div', { class: `perfil-jornal${p.ativo ? '' : ' inativo'}` },
+      h('div', { class: 'linha', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
+        h('div', {}, h('strong', {}, p.nome), p.cliente_nome ? h('span', { class: 'etiqueta empresa', style: { marginLeft: '6px' } }, `🏢 ${p.cliente_nome}`) : null,
+          p.ativo ? null : h('span', { class: 'etiqueta', style: { marginLeft: '6px' } }, 'pausado')),
+        h('span', { class: `etiqueta ${p.hoje_total ? 'verde' : ''}` }, p.ultima_edicao === hoje ? `${p.hoje_total ?? 0} hoje` : p.ultima_edicao ? `última: ${dataCurta(p.ultima_edicao)}` : 'sem edição')),
+      h('div', { class: 'suave pequeno', style: { margin: '4px 0 8px' } }, p.resumo),
+      h('div', { class: 'linha' },
+        h('a', { class: 'btn pequeno primario', href: `#/jornal?perfil=${p.id}` }, 'Abrir'),
+        h('button', { class: 'btn pequeno', onclick: () => formPerfil(est, r, p) }, 'Editar'),
+        h('button', { class: 'btn pequeno perigo', onclick: () => modal('Excluir jornal', h('p', {}, `Excluir o jornal "${p.nome}" e as edições dele? Os jornais já enviados aos clientes continuam valendo.`),
+          [{ texto: 'Excluir', classe: 'perigo', acao: async () => { try { await api(`/jornal/perfis/${p.id}`, { metodo: 'DELETE' }); toast('Jornal excluído.'); window.dispatchEvent(new HashChangeEvent('hashchange')); return true; } catch (e) { toast(e.message, 6000); return false; } } }]) }, 'Excluir')))))
+      : vazio('Nenhum jornal salvo. Crie um com o perfil do cliente (estado, cidades, nicho, produtos…) e ele traz as oportunidades novas todo dia às 7h.'),
+    h('p', { class: 'suave pequeno', style: { marginBottom: 0 } }, 'Todo dia a partir das 7h cada jornal ganha a edição com as licitações que entraram no sistema e batem com o perfil. O aviso chega no sino (🔔) e no e-mail de alertas.'));
+}
+
+async function cabecalhoPerfil(f, est) {
+  let p; let ops;
+  try { [p, ops] = await Promise.all([api(`/jornal/perfis/${f.perfil}`), api('/jornal/perfis')]); }
+  catch (e) { return [h('div', { class: 'aviso vermelho' }, e.message), h('a', { href: '#/jornal' }, '← Voltar aos jornais')]; }
+  const atual = f.edicao || p.edicoes[0]?.data || 'todas';
+  const edicao = h('select', { 'aria-label': 'Edição', style: { width: 'auto' }, onchange: (e) => { location.hash = `#/jornal${qs({ perfil: p.id, edicao: e.target.value })}`; } },
+    p.edicoes.map((e) => h('option', { value: e.data, selected: atual === e.data }, `Edição de ${dataCurta(e.data)} · ${e.total} oportunidade(s)`)),
+    h('option', { value: 'todas', selected: atual === 'todas' }, 'Todas as abertas agora'));
+  return [
+    h('div', { class: 'cabecalho-pagina' },
+      h('div', {}, h('a', { href: '#/jornal', class: 'pequeno' }, '← Jornal de licitações'), h('h1', {}, `📰 ${p.nome}`), h('div', { class: 'suave' }, p.resumo)),
+      h('div', { class: 'linha' }, h('button', { class: 'btn', onclick: () => formPerfil(est, ops, p) }, 'Editar jornal'))),
+    h('div', { class: 'cartao linha', style: { flexWrap: 'wrap' } }, h('strong', {}, 'Mostrar:'), edicao,
+      h('span', { class: 'suave pequeno' }, atual === 'todas' ? 'Todas as licitações abertas que batem com o jornal, ordenadas pelo encerramento.' : 'Edição do dia: só as que entraram no sistema desde a edição anterior (a primeira traz todas as abertas).')),
+  ];
+}
+
+const UFS_BR = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
+
+function formPerfil(est, ops, p) {
+  const fx = p?.filtros || { ufs: [], cidades: [], segmentos: [], produtos: '', itens: '', modalidades: [], sistemas: [], fases: Object.keys(ops.fases), encerramento: { modo: 'qualquer' } };
+  const caixa = (nome, valor, rotulo, marcado) => h('label', { class: 'opcao-check' }, h('input', { type: 'checkbox', name: nome, value: valor, checked: !!marcado }), rotulo);
+  const marcados = (form, nome) => [...form.querySelectorAll(`input[name="${nome}"]:checked`)].map((x) => x.value);
+  const campo = (rot, el, ajuda) => h('div', { class: 'campo' }, h('label', {}, rot), el, ajuda ? h('div', { class: 'suave pequeno' }, ajuda) : null);
+  const nome = h('input', { value: p?.nome || '', placeholder: 'Ex.: INFOPEL · papelaria e informática ES' });
+  const cliente = h('select', {}, h('option', { value: '' }, 'Nenhuma (jornal geral)'), est.clientes.map((c) => h('option', { value: c.id, selected: p?.cliente_id === c.id }, c.nome_fantasia || c.razao_social)));
+  const listaCid = h('datalist', { id: 'perfil-cidades' });
+  const cidades = h('input', { value: fx.cidades.join('; '), list: 'perfil-cidades', placeholder: 'Ex.: Vila Velha; Serra; Cariacica' });
+  const produtos = h('textarea', { rows: 2, placeholder: 'Ex.: papel A4; toner; material de escritório' }, fx.produtos || '');
+  const itens = h('textarea', { rows: 2, placeholder: 'Ex.: notebook; cartucho hp 664' }, fx.itens || '');
+  const vmin = h('input', { type: 'number', min: 0, step: '0.01', value: fx.valor_min ?? '', placeholder: 'Mínimo (R$)' });
+  const vmax = h('input', { type: 'number', min: 0, step: '0.01', value: fx.valor_max ?? '', placeholder: 'Máximo (R$)' });
+  const enc = fx.encerramento || { modo: 'qualquer' };
+  const radio = (v, rot) => h('label', { class: 'opcao-check' }, h('input', { type: 'radio', name: 'enc', value: v, checked: (enc.modo || 'qualquer') === v }), rot);
+  const encData = h('input', { type: 'date', value: enc.data || '' });
+  const encHora = h('input', { type: 'time', value: enc.hora || '' });
+  const previa = h('div', { class: 'aviso azul pequeno' }, 'Clique em "Ver quantas batem" para conferir antes de salvar.');
+  const carregarCidades = async (ufs) => {
+    try { const r = await api(`/jornal/municipios${qs({ uf: ufs.length === 1 ? ufs[0] : '' })}`); render(listaCid, ...r.municipios.slice(0, 1500).map((m) => h('option', { value: m }))); } catch { /* opcional */ }
+  };
+  const form = h('form', { class: 'form-perfil', onsubmit: (e) => e.preventDefault() },
+    h('div', { class: 'grade duas' }, campo('Nome do jornal', nome), campo('Para qual empresa', cliente, 'Opcional. Sai com o cabeçalho dela ao enviar.')),
+    campo('Estado(s)', h('div', { class: 'grade-ufs', onchange: () => carregarCidades(marcados(form, 'uf')) }, UFS_BR.map((u) => caixa('uf', u, u, fx.ufs.includes(u))))),
+    campo('Cidade(s)', h('div', {}, cidades, listaCid), 'Separe por ponto e vírgula. Vazio = todas as cidades dos estados marcados.'),
+    campo('Nicho', h('div', { class: 'grade-checks' }, est.meta.segmentos.map((sg) => caixa('seg', sg, sg, fx.segmentos.includes(sg)))), 'Segmento estimado pelo objeto. Marque nenhum para não filtrar.'),
+    h('div', { class: 'grade duas' },
+      campo('Produto(s) / palavras do objeto', produtos, 'Qualquer um da lista (separe por ;). Busca no objeto e no início da descrição dos itens.'),
+      campo('Itens', itens, 'Busca só na descrição dos itens do edital: todas as palavras de um termo no mesmo item (separe termos por ;).')),
+    campo('Modalidade', h('div', { class: 'linha' }, Object.entries(ops.modalidades).map(([k, v]) => caixa('mod', k, v, fx.modalidades.includes(k)))), 'Nenhuma marcada = todas.'),
+    campo('Valor do edital', h('div', { class: 'linha' }, vmin, vmax), 'Licitação sem valor informado ou sigilosa fica de fora quando há limite de valor.'),
+    campo('Portais (sistema da disputa)', h('div', { class: 'grade-checks' }, Object.entries(est.meta.sistemas || {}).map(([k, v]) => caixa('sis', k, v.nome, fx.sistemas.includes(k)))), 'Nenhum marcado = todos.'),
+    campo('Fase', h('div', { class: 'linha' }, Object.entries(ops.fases).map(([k, v]) => caixa('fase', k, v, fx.fases.includes(k))))),
+    campo('Encerramento das propostas', h('div', {},
+      h('div', { class: 'linha' }, radio('qualquer', 'Qualquer data'), radio('ate', 'Até a data'), radio('dia', 'Só no dia')),
+      h('div', { class: 'linha' }, encData, h('span', { class: 'suave pequeno' }, 'até às'), encHora)),
+    'Ex.: "Só no dia" 20/10 até 10:00 traz as que encerram em 20/10 até as 10h. Hora vazia = o dia inteiro.'),
+    previa, listaCid);
+  const corpo = () => ({
+    nome: nome.value, cliente_id: cliente.value || null,
+    filtros: {
+      ufs: marcados(form, 'uf'), cidades: cidades.value.split(';').map((x) => x.trim()).filter(Boolean), segmentos: marcados(form, 'seg'),
+      produtos: produtos.value, itens: itens.value, modalidades: marcados(form, 'mod'), valor_min: vmin.value, valor_max: vmax.value,
+      sistemas: marcados(form, 'sis'), fases: marcados(form, 'fase'),
+      encerramento: { modo: form.querySelector('input[name="enc"]:checked')?.value || 'qualquer', data: encData.value, hora: encHora.value },
+    },
+  });
+  carregarCidades(fx.ufs);
+  modal(p ? `Editar jornal · ${p.nome}` : 'Criar jornal', form, [
+    { texto: 'Ver quantas batem', acao: async () => {
+      try { const x = await api('/jornal/perfis/previa', { metodo: 'POST', corpo: corpo() }); render(previa, `${x.total} licitação(ões) aberta(s) batem com este perfil agora.`); }
+      catch (e) { render(previa, h('span', { class: 'texto-alerta' }, e.message)); }
+      return false;
+    } },
+    { texto: p ? 'Salvar' : 'Criar jornal', classe: 'primario', acao: async () => {
+      try {
+        const x = await api(p ? `/jornal/perfis/${p.id}` : '/jornal/perfis', { metodo: p ? 'PUT' : 'POST', corpo: corpo() });
+        toast(x.edicao ? `Jornal salvo. Edição de hoje: ${x.edicao.total} oportunidade(s).` : 'Jornal salvo.', 6000);
+        const alvoHash = `#/jornal?perfil=${x.id}`;
+        if (location.hash === alvoHash) window.dispatchEvent(new HashChangeEvent('hashchange')); else location.hash = alvoHash;
+        return true;
+      } catch (e) { render(previa, h('span', { class: 'texto-alerta' }, e.message)); toast(e.message, 6000); return false; }
+    } }]);
 }

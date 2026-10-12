@@ -9,6 +9,7 @@ import { migrarPropostas } from '../services/propostas.js';
 import { migrarCotacaoLinks } from '../services/cotacao-link.js';
 import { migrarJornalEnvios } from '../services/jornal-cliente.js';
 import { migrarFinanceiro } from '../services/financeiro.js';
+import { migrarJornalPerfis } from '../services/jornal-perfis.js';
 
 let db;
 
@@ -26,6 +27,7 @@ export function abrirBanco(caminho = config.dbPath) {
   migrarPropostas(conn);
   migrarJornalEnvios(conn);
   migrarFinanceiro(conn);
+  migrarJornalPerfis(conn);
   semearFontes(conn);
   return conn;
 }
