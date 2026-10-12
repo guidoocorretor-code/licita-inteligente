@@ -651,3 +651,6 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .barra-disco > div { height: 100%; background: var(--primaria, #1e4f9c); }
 .barra-disco > div.cheia { background: #c0392b; }
 .grupo-corpo .alerta-tipo { display: none; } /* o tipo já está no título do grupo */
+.servicos-cat { margin-top: 14px; border-top: 1px solid var(--borda); padding-top: 10px; }
+.servicos-cat > summary { cursor: pointer; font-weight: 600; color: var(--texto-suave); }
+.servicos-cat[open] > summary { margin-bottom: 6px; }

@@ -57,6 +57,8 @@ const SINONIMOS = [
   { quando: /\bdesktop\b|computador de mesa/, buscar: 'microcomputador', motivo: 'Nome oficial de computador no catálogo' },
   { quando: /\bnobreak\b|no-break/, buscar: 'no break', motivo: 'Nome oficial no catálogo' },
 ];
+// Busca que já fala em serviço: aí serviço e material ficam na ordem de relevância
+const pedeServico = (t) => /\b(servico|manutencao|locacao|aluguel|outsourcing|instalacao|limpeza|vigilancia|consultoria|assessoria|transporte|reforma|conserto|reparo)/.test(t);
 const semAcento = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 function ftsCatalogo(db, texto, { limite, ou = false }) {
@@ -79,7 +81,10 @@ export function buscarCatalogo(db, q, { limite = 30 } = {}) {
   juntar(ftsCatalogo(db, t, { limite }));
   // Nenhum PDM com TODAS as palavras: tenta com qualquer uma (ex.: "caneta esferográfica azul")
   if (saida.length < 3) juntar(ftsCatalogo(db, t, { limite, ou: true }));
-  return saida.slice(0, limite);
+  // Quem procura um produto quer o material: serviços que só citam as palavras (ex.: "páginas impressas A4 com
+  // papel" na busca "papel a4") vêm depois. A tela mostra os serviços num bloco à parte.
+  const peso = (r) => (r.sugerido ? 0 : r.tipo === 'servico' ? (pedeServico(base) ? 1 : 2) : 1);
+  return saida.map((r, i) => [r, i]).sort((a, b) => peso(a[0]) - peso(b[0]) || a[1] - b[1]).map(([r]) => r).slice(0, limite);
 }
 
 // ---------- Estatística ----------
