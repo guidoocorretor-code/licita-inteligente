@@ -147,6 +147,78 @@ export function criarPdf() {
       y -= tam * 1.8 + 6;
       return api;
     },
+    /**
+     * Bloco desenhado livremente com altura fixa (não quebra entre páginas). `desenhar` recebe a área
+     * { x, topo, largura } e as ferramentas ret, txt, linhasDe e pizza, com coordenadas a partir do topo do bloco.
+     */
+    bloco(alt, desenhar, { depois = 6 } = {}) {
+      garantir(alt);
+      const topo = y; const X = M; const L = W - 2 * M;
+      const yAbs = (dy) => topo - dy;
+      const ferramentas = {
+        x: X, largura: L,
+        /** Retângulo (dy = distância do topo do bloco até o topo do retângulo). Cantos arredondados com `raio`. */
+        ret(x, dy, w, h, { cor = null, borda = null, raio = 0, espessura = 0.8 } = {}) {
+          const y0 = yAbs(dy) - h; const r = Math.min(raio, w / 2, h / 2); const k = 0.5523 * r;
+          const f = (n) => n.toFixed(2);
+          const caminho = r > 0
+            ? `${f(x + r)} ${f(y0)} m ${f(x + w - r)} ${f(y0)} l ${f(x + w - r + k)} ${f(y0)} ${f(x + w)} ${f(y0 + r - k)} ${f(x + w)} ${f(y0 + r)} c `
+              + `${f(x + w)} ${f(y0 + h - r)} l ${f(x + w)} ${f(y0 + h - r + k)} ${f(x + w - r + k)} ${f(y0 + h)} ${f(x + w - r)} ${f(y0 + h)} c `
+              + `${f(x + r)} ${f(y0 + h)} l ${f(x + r - k)} ${f(y0 + h)} ${f(x)} ${f(y0 + h - r + k)} ${f(x)} ${f(y0 + h - r)} c `
+              + `${f(x)} ${f(y0 + r)} l ${f(x)} ${f(y0 + r - k)} ${f(x + r - k)} ${f(y0)} ${f(x + r)} ${f(y0)} c h`
+            : `${f(x)} ${f(y0)} ${f(w)} ${f(h)} re`;
+          const pintar = cor && borda ? 'B' : cor ? 'f' : 'S';
+          ops.push(`${cor ? `${cor.join(' ')} rg ` : ''}${borda ? `${borda.join(' ')} RG ${espessura} w ` : ''}${caminho} ${pintar}`);
+        },
+        /** Texto com quebra em `maxW`; dy = topo da primeira linha. Devolve a altura usada. `alinhar`: 'r' ou 'c'. */
+        txt(t, x, dy, { tam = 10, negrito = false, cor = [0, 0, 0], maxW = L, max = 99, espaco = 1.3, url = null, alinhar = '' } = {}) {
+          let ls = quebrar(t, tam, negrito, maxW);
+          if (ls.length > max) { ls = ls.slice(0, max); let u = ls[max - 1]; while (u && largura(`${u}...`, tam, negrito) > maxW) u = u.slice(0, -1); ls[max - 1] = `${u.trimEnd()}...`; }
+          ls.forEach((l, i) => {
+            const w = largura(l, tam, negrito);
+            const lx = alinhar === 'r' ? x + maxW - w : alinhar === 'c' ? x + (maxW - w) / 2 : x;
+            const ly = yAbs(dy) - tam * 0.95 - i * tam * espaco;
+            ops.push(`BT /${negrito ? 'F2' : 'F1'} ${tam} Tf ${cor.join(' ')} rg ${lx.toFixed(2)} ${ly.toFixed(2)} Td (${codificar(l)}) Tj ET`);
+            if (url) links.push({ r: [lx, ly - 3, lx + w, ly + tam], url });
+          });
+          return ls.length * tam * espaco;
+        },
+        /** Quantas linhas o texto ocupa (para calcular a altura do bloco antes de desenhar). */
+        linhasDe: (t, tam, negrito, maxW, max = 99) => Math.min(max, quebrar(t, tam, negrito, maxW).length),
+        larguraDe: (t, tam, negrito = false) => largura(limpar(t), tam, negrito),
+        /** Área clicável sem texto (ex.: botão desenhado com ret). */
+        link(x, dy, w, h, url) { links.push({ r: [x, yAbs(dy) - h, x + w, yAbs(dy)], url }); },
+        /** Gráfico de pizza: fatias [{ valor, cor }], começando às 12h no sentido horário, com 1,5 pt de separação branca. */
+        pizza(cx, dyCentro, raio, fatias) {
+          const cy = yAbs(dyCentro); const total = fatias.reduce((s, f) => s + Math.max(0, f.valor), 0);
+          if (!total) { ops.push(`0.9 0.91 0.93 rg ${cx - raio} ${cy - raio} ${2 * raio} ${2 * raio} re f`); return; }
+          let ang = Math.PI / 2; const f = (n) => n.toFixed(2); const pt = (a) => [cx + raio * Math.cos(a), cy + raio * Math.sin(a)];
+          const contornos = [];
+          for (const fa of fatias) {
+            const v = Math.max(0, fa.valor); if (!v) continue;
+            const varre = (v / total) * 2 * Math.PI; const fim = ang - varre;
+            let cam = `${f(cx)} ${f(cy)} m ${pt(ang).map(f).join(' ')} l `;
+            const passos = Math.ceil(varre / (Math.PI / 2)); const d = varre / passos;
+            for (let i = 0; i < passos; i++) {
+              const a0 = ang - i * d; const a1 = a0 - d; const k = (4 / 3) * Math.tan(d / 4) * raio;
+              const [x0, y0] = pt(a0); const [x3, y3] = pt(a1);
+              cam += `${f(x0 + k * Math.sin(a0))} ${f(y0 - k * Math.cos(a0))} ${f(x3 - k * Math.sin(a1))} ${f(y3 + k * Math.cos(a1))} ${f(x3)} ${f(y3)} c `;
+            }
+            ops.push(`${fa.cor.join(' ')} rg ${cam}h f`);
+            if (v < total) contornos.push(ang);
+            ang = fim;
+          }
+          for (const a of contornos) ops.push(`1 1 1 RG 1.5 w ${f(cx)} ${f(cy)} m ${pt(a).map(f).join(' ')} l S`);
+        },
+      };
+      desenhar(ferramentas);
+      y = topo - alt - depois;
+      return api;
+    },
+    linhasDe: (t, tam, negrito, maxW, max = 99) => Math.min(max, quebrar(t, tam, negrito, maxW).length),
+    /** Espaço que ainda cabe na página atual. */
+    restante: () => y - (M + 20),
+    novaPagina() { novaPagina(); return api; },
     /** Monta o arquivo e devolve um Buffer. */
     gerar({ titulo = 'Documento', rodape = '' } = {}) {
       novaPagina();

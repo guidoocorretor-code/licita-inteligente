@@ -68,6 +68,25 @@ export const numeroCompra = (l) => (!l.numero_compra ? null : /\/\d{4}$/.test(l.
 const valorTexto = (l) => (l.valor_estimado_situacao === 'sigiloso' ? 'Sigiloso'
   : l.valor_estimado != null && l.valor_estimado_situacao !== 'nao_informado' ? BRL.format(l.valor_estimado) : 'Não informado');
 
+/** Quanto falta para o fim das propostas (data do PNCP em horário de Brasília). null = data não informada. */
+export function faltam(iso, agora = new Date()) {
+  if (!iso) return null;
+  const s = String(iso).replace(' ', 'T');
+  const fim = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s.length <= 10 ? `${s}T23:59:59` : s}-03:00`);
+  if (Number.isNaN(fim.getTime())) return null;
+  const ms = fim - agora;
+  if (ms <= 0) return { dias: 0, horas: 0, texto: 'Prazo encerrado', urgencia: 'encerrada' };
+  const dias = Math.floor(ms / 86400000); const horas = Math.floor(ms / 3600000);
+  const texto = dias >= 2 ? `Faltam ${dias} dias` : dias === 1 ? 'Falta 1 dia' : horas >= 1 ? `Faltam ${horas} h` : 'Encerra em menos de 1 h';
+  return { dias, horas, texto, urgencia: dias < 3 ? 'alta' : dias < 7 ? 'media' : 'baixa' };
+}
+
+/** Prazo mais curto primeiro; sem data e já encerradas no fim. */
+export const ordenarPorPrazo = (itens) => [...itens].sort((a, b) => {
+  const peso = (l) => (!l.faltam ? 2 : l.faltam.urgencia === 'encerrada' ? 3 : 1);
+  return peso(a) - peso(b) || String(a.data_encerramento_proposta || '').localeCompare(String(b.data_encerramento_proposta || ''));
+});
+
 /** Dados de cada licitação para o card do jornal, na ordem dos ids. */
 export function cartoes(db, ids) {
   if (!ids.length) return [];
@@ -78,6 +97,7 @@ export function cartoes(db, ids) {
   const porId = new Map(linhas.map((l) => [l.id, l]));
   return ids.map((id) => porId.get(id)).filter(Boolean).map((l) => ({
     ...l, numero_texto: numeroCompra(l), valor_texto: valorTexto(l), prazo_texto: dataBr(l.data_encerramento_proposta) || 'Não informado', sistema: sistemaDaLicitacao(l),
+    faltam: faltam(l.data_encerramento_proposta),
   }));
 }
 
@@ -116,7 +136,7 @@ export function dadosEnvio(db, envioId) {
   return {
     envio: e, token: tokenDe(e.nonce),
     assessoria: { nome: emp?.nome || null, cnpj: emp?.cnpj || null, responsavel: u?.nome || null, email: u?.email || null },
-    cliente: cli, itens: cartoes(db, JSON.parse(e.licitacoes)),
+    cliente: cli, itens: ordenarPorPrazo(cartoes(db, JSON.parse(e.licitacoes))),
   };
 }
 
@@ -147,7 +167,7 @@ export function jornalPublico(db, token) {
     licitacoes: d.itens.map((l) => ({
       id: l.id, objeto: l.objeto, orgao: l.orgao_nome, unidade: l.unidade_nome, local: [l.municipio, l.uf].filter(Boolean).join('/'),
       modalidade: l.modalidade_nome, numero: numeroCompra(l),
-      valor: l.valor_texto, abertura: dataBr(l.data_abertura_proposta), prazo: l.prazo_texto, sistema: l.sistema,
+      valor: l.valor_texto, abertura: dataBr(l.data_abertura_proposta), prazo: l.prazo_texto, faltam: l.faltam, sistema: l.sistema,
       me_epp: l.me_epp_exclusivo == null ? null : !!l.me_epp_exclusivo, srp: l.srp == null ? null : !!l.srp,
       criterio: l.criterio_julgamento, modo: l.modo_disputa_nome, link_pncp: l.link_pncp,
       itens: itensDe.all(l.id), total_itens: totalItens.get(l.id).n,
@@ -198,34 +218,105 @@ const AZUL = [0.06, 0.24, 0.43]; const CINZA = [0.38, 0.4, 0.44];
 export function pdfJornal(d, { urlBase = '' } = {}) {
   const pdf = criarPdf();
   const pagina = urlBase ? `${urlBase.replace(/\/$/, '')}/j/${d.token}` : null;
-  const c = d.cliente;
-  pdf.texto('Jornal de licitações', { tam: 18, negrito: true, cor: AZUL, depois: 2 });
-  if (c) {
-    pdf.texto(`${c.razao_social}${c.nome_fantasia && c.nome_fantasia !== c.razao_social ? ` (${c.nome_fantasia})` : ''}`, { tam: 11.5, negrito: true, depois: 0 })
-      .texto([c.cnpj ? `CNPJ ${cnpjFmt(c.cnpj)}` : null, c.endereco, [c.municipio, c.uf].filter(Boolean).join('/') || null, c.cep ? `CEP ${c.cep}` : null].filter(Boolean).join(' · '), { tam: 9, cor: CINZA, depois: 0 })
-      .texto([c.resp_nome ? `Representante legal: ${c.resp_nome}${c.resp_cargo ? ` (${c.resp_cargo})` : ''}` : null, c.resp_email || c.email, c.telefone].filter(Boolean).join(' · '), { tam: 9, cor: CINZA, depois: 0 });
-  }
-  const a = d.assessoria;
-  pdf.texto(`Preparado por ${[a.nome, a.responsavel].filter(Boolean).join(' · ')}${a.email ? ` · ${a.email}` : ''} em ${dataBr(d.envio.criado_em.slice(0, 10))}`, { tam: 9, cor: CINZA, depois: 2 });
-  pdf.linha();
-  if (pagina) {
-    pdf.texto(`${d.itens.length} licitação(ões) selecionada(s). Clique no título para ver o resumo e marcar as que têm interesse:`, { tam: 9.5, depois: 0 })
-      .texto(pagina, { tam: 9.5, cor: AZUL, url: pagina, depois: 6 });
-  }
-  d.itens.forEach((l, k) => {
-    pdf.secao(`${k + 1}. ${l.modalidade_nome || 'Licitação'}${l.numero_texto ? ` nº ${l.numero_texto}` : ''} · ${[l.municipio, l.uf].filter(Boolean).join('/')}`, { tam: 10, minimo: 120 });
-    pdf.texto(l.objeto || '(objeto não informado)', { tam: 10, negrito: true, cor: pagina ? AZUL : [0, 0, 0], url: pagina ? `${pagina}#lic-${l.id}` : null, depois: 3 })
-      .campo('Órgão:', l.orgao_nome || 'Não informado')
-      .campo('Valor do edital:', l.valor_texto)
-      .campo('Propostas até:', l.prazo_texto)
-      .campo('Sistema da disputa:', l.sistema.nome)
-      .campo('Participação:', l.sistema.participacao);
-    if (pagina) pdf.texto('Ver resumo e marcar interesse', { tam: 9, cor: AZUL, url: `${pagina}#lic-${l.id}`, depois: 0 });
-    if (l.link_pncp) pdf.texto('Baixar o edital no PNCP', { tam: 9, cor: AZUL, url: l.link_pncp, depois: 4 });
-    else pdf.espaco(4);
-  });
-  pdf.linha().texto('Dados públicos do PNCP. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação" se refere à taxa cobrada do fornecedor pelo sistema eletrônico.', { tam: 8, cor: CINZA });
+  const c = d.cliente; const a = d.assessoria;
   const nomeCli = c ? (c.nome_fantasia || c.razao_social) : null;
+  const BRANCO = [1, 1, 1]; const AZUL2 = [0.12, 0.37, 0.64]; const CLARO = [0.93, 0.96, 0.98]; const LINHA = [0.84, 0.88, 0.92];
+  const COR_URG = { alta: [0.71, 0.14, 0.09], media: [0.6, 0.36, 0], baixa: [0.07, 0.47, 0.36], encerrada: [0.6, 0.64, 0.7], sem: [0.6, 0.64, 0.7] };
+  const ROT_URG = { alta: 'Urgente', media: 'Esta semana', baixa: 'No prazo', encerrada: 'Encerrada' };
+  const abertas = d.itens.filter((l) => !l.faltam || l.faltam.urgencia !== 'encerrada');
+  const comValor = abertas.filter((l) => l.valor_estimado != null && !['sigiloso', 'nao_informado'].includes(l.valor_estimado_situacao));
+  const soma = comValor.reduce((s, l) => s + Number(l.valor_estimado), 0);
+  const proxima = d.itens.find((l) => l.faltam && l.faltam.urgencia !== 'encerrada');
+  const gratuitas = d.itens.filter((l) => l.sistema?.custo === 'gratuito').length;
+
+  // Capa
+  pdf.bloco(78, (t) => {
+    t.ret(0 + t.x, 0, t.largura, 78, { cor: AZUL, raio: 8 });
+    t.txt('JORNAL DE LICITAÇÕES', t.x + 16, 12, { tam: 8, negrito: true, cor: [0.75, 0.84, 0.95] });
+    t.txt('Oportunidades para vender ao governo', t.x + 16, 25, { tam: 17, negrito: true, cor: BRANCO, maxW: t.largura - 150 });
+    if (nomeCli) t.txt(`Selecionadas para ${nomeCli}`, t.x + 16, 52, { tam: 10.5, cor: BRANCO, maxW: t.largura - 150, max: 1 });
+    t.txt(`Edição de ${dataBr(d.envio.criado_em.slice(0, 10))}`, t.x + t.largura - 146, 52, { tam: 8.5, cor: [0.85, 0.9, 0.97], maxW: 130, alinhar: 'r' });
+    if (a.nome) t.txt(a.nome, t.x + t.largura - 146, 63, { tam: 8.5, cor: [0.85, 0.9, 0.97], maxW: 130, alinhar: 'r', max: 1 });
+  }, { depois: 4 });
+  if (c) {
+    pdf.texto([c.razao_social, c.cnpj ? `CNPJ ${cnpjFmt(c.cnpj)}` : null, [c.municipio, c.uf].filter(Boolean).join('/') || null,
+      c.resp_nome ? `A/C ${c.resp_nome}${c.resp_cargo ? ` (${c.resp_cargo})` : ''}` : null].filter(Boolean).join(' · '), { tam: 8.5, cor: CINZA, depois: 6 });
+  }
+  // Números do jornal
+  const kpis = [
+    [String(d.itens.length), d.itens.length === 1 ? 'oportunidade selecionada' : 'oportunidades selecionadas'],
+    [comValor.length ? BRL.format(soma) : '-', `em valor estimado${abertas.length < d.itens.length ? ' das abertas' : ''}${comValor.length < abertas.length ? ` (${comValor.length} de ${abertas.length} informam)` : ''}`],
+    [proxima ? proxima.faltam.texto.replace(/^Faltam? /, '') : '-', proxima ? `para a próxima encerrar (${proxima.prazo_texto})` : 'nenhuma com prazo em aberto'],
+    [String(gratuitas), 'com participação gratuita'],
+  ];
+  pdf.bloco(46, (t) => {
+    const g = 6; const w = (t.largura - 3 * g) / 4;
+    kpis.forEach(([n, r], i) => {
+      const x = t.x + i * (w + g);
+      t.ret(x, 0, w, 46, { cor: CLARO, borda: LINHA, raio: 6 });
+      t.txt(n, x + 8, 7, { tam: 13, negrito: true, cor: AZUL, maxW: w - 14, max: 1 });
+      t.txt(r, x + 8, 25, { tam: 7.2, cor: CINZA, maxW: w - 14, max: 2, espaco: 1.2 });
+    });
+  }, { depois: 8 });
+  // Como responder
+  if (pagina) {
+    pdf.bloco(40, (t) => {
+      t.ret(t.x, 0, t.largura, 40, { borda: AZUL2, raio: 6, espessura: 0.8 });
+      t.txt('1. Leia os cards: valor, prazo e se a participação é gratuita.', t.x + 10, 6, { tam: 8.5, maxW: t.largura - 140 });
+      t.txt('2. Clique em "Tenho interesse" nas que combinam com a sua empresa.', t.x + 10, 17, { tam: 8.5, maxW: t.largura - 140 });
+      t.txt('3. A assessoria cuida do resto: documentos, proposta e disputa.', t.x + 10, 28, { tam: 8.5, maxW: t.largura - 140 });
+      const bw = 112; const bx = t.x + t.largura - bw - 10;
+      t.ret(bx, 9, bw, 22, { cor: AZUL, raio: 5 });
+      t.txt('Responder agora >', bx, 15, { tam: 9.5, negrito: true, cor: BRANCO, maxW: bw, alinhar: 'c' });
+      t.link(bx, 9, bw, 22, pagina);
+    }, { depois: 10 });
+  }
+  // Cards (do prazo mais curto para o mais longo)
+  for (const l of d.itens) {
+    const f = l.faltam; const urg = f?.urgencia || 'sem'; const cor = COR_URG[urg];
+    const link = pagina ? `${pagina}#lic-${l.id}` : null;
+    const wDir = 140; const wEsq = 495 - wDir - 30;
+    const tags = [l.sistema.custo === 'gratuito' ? ['Participação gratuita', [0.07, 0.47, 0.36], [0.93, 0.97, 0.95]]
+      : l.sistema.custo === 'pago' ? ['Sistema cobra taxa', [0.6, 0.36, 0], [0.99, 0.96, 0.92]] : ['Taxa do sistema: verificar', CINZA, [0.96, 0.97, 0.98]],
+    l.me_epp_exclusivo ? ['Exclusiva ME/EPP', [0.36, 0.24, 0.66], [0.96, 0.94, 0.99]] : null, [l.sistema.nome, CINZA, BRANCO]].filter(Boolean);
+    const altObj = pdf.linhasDe(l.objeto || '(objeto não informado)', 10, true, wEsq, 3) * 13;
+    const alt = Math.max(18 + 7 + altObj + 13 + 17 + 26, 18 + 70 + 26);
+    pdf.bloco(alt, (t) => {
+      const x = t.x;
+      t.ret(x, 0, t.largura, alt, { cor: BRANCO, borda: LINHA, raio: 6 });
+      t.ret(x, 0, t.largura, 18, { cor: [0.965, 0.973, 0.984], raio: 0 });
+      t.ret(x, 0, 4, alt, { cor });
+      t.txt(`${l.modalidade_nome || 'Licitação'}${l.numero_texto ? ` nº ${l.numero_texto}` : ''}   ${[l.municipio, l.uf].filter(Boolean).join('/')}`, x + 12, 4.5, { tam: 8, negrito: true, cor: AZUL, maxW: 300, max: 1 });
+      t.txt(!f ? 'Prazo não informado' : urg === 'encerrada' ? 'Prazo encerrado' : `${f.texto} · ${ROT_URG[urg]}`, x + 300, 4.5, { tam: 8, negrito: true, cor, maxW: t.largura - 312, alinhar: 'r', max: 1 });
+      let dy = 25;
+      t.txt(l.objeto || '(objeto não informado)', x + 12, dy, { tam: 10, negrito: true, maxW: wEsq, max: 3, url: link }); dy += altObj;
+      t.txt(l.orgao_nome || 'Órgão não informado', x + 12, dy + 1, { tam: 8.5, cor: CINZA, maxW: wEsq, max: 1 }); dy += 14;
+      let tx = x + 12;
+      for (const [rot, ct, fundo] of tags) {
+        const w = t.larguraDe(rot, 7.5, true) + 12;
+        if (tx + w > x + 12 + wEsq) break;
+        t.ret(tx, dy, w, 13, { cor: fundo, borda: ct, raio: 6.5, espessura: 0.5 });
+        t.txt(rot, tx, dy + 3, { tam: 7.5, negrito: true, cor: ct, maxW: w, alinhar: 'c', max: 1 });
+        tx += w + 5;
+      }
+      const xd = x + t.largura - wDir - 10;
+      t.txt('VALOR ESTIMADO', xd, 26, { tam: 7, cor: CINZA, maxW: wDir, alinhar: 'r' });
+      t.txt(l.valor_texto, xd, 36, { tam: 13, negrito: true, cor: AZUL, maxW: wDir, alinhar: 'r', max: 1 });
+      t.txt('PROPOSTAS ATÉ', xd, 58, { tam: 7, cor: CINZA, maxW: wDir, alinhar: 'r' });
+      t.txt(l.prazo_texto, xd, 68, { tam: 9.5, negrito: true, maxW: wDir, alinhar: 'r', max: 1 });
+      const ya = alt - 24;
+      if (link) {
+        t.ret(x + 12, ya, 104, 17, { cor: AZUL, raio: 8.5 });
+        t.txt('Tenho interesse', x + 12, ya + 4.2, { tam: 8.5, negrito: true, cor: BRANCO, maxW: 104, alinhar: 'c' });
+        t.link(x + 12, ya, 104, 17, link);
+        t.txt('Ver resumo do edital', x + 128, ya + 4.2, { tam: 8.5, cor: AZUL2, url: link, maxW: 120 });
+      }
+      if (l.link_pncp) t.txt('Edital completo no PNCP', x + (link ? 238 : 12), ya + 4.2, { tam: 8.5, cor: AZUL2, url: l.link_pncp, maxW: 150 });
+    }, { depois: 8 });
+  }
+  pdf.linha({ cor: AZUL, antes: 2, depois: 6 });
+  pdf.texto([a.responsavel, a.nome].filter(Boolean).join(' · ') + (a.email ? ` · ${a.email}` : ''), { tam: 9, negrito: true, depois: 2 });
+  pdf.texto('Dados públicos do PNCP, organizados do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.', { tam: 7.5, cor: CINZA });
   return pdf.gerar({ titulo: `Jornal de licitações${nomeCli ? ` - ${nomeCli}` : ''}`, rodape: `Jornal de licitações${nomeCli ? ` · ${nomeCli}` : ''}${a.nome ? ` · ${a.nome}` : ''}` });
 }
 
@@ -245,11 +336,18 @@ export function montarEmailJornal(d, { urlBase }) {
     'O jornal em PDF segue em anexo.', '', `${[a.responsavel, a.nome].filter(Boolean).join(' · ')}`].join('\n');
   const html = `<p>${esc(saud)}</p><p>Separamos <strong>${d.itens.length} licitação(ões)</strong> com o perfil da sua empresa. <strong>Tem interesse em participar de alguma dispensa ou pregão?</strong></p>`
     + `<p><a href="${esc(pagina)}" style="display:inline-block;background:#0f3d6e;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Ver o jornal e marcar meu interesse</a></p>`
-    + d.itens.map((l, k) => `<div style="border:1px solid #d5dbe1;border-radius:8px;padding:10px 12px;margin:10px 0">`
-      + `<div style="font-weight:bold"><a href="${esc(`${pagina}#lic-${l.id}`)}" style="color:#0f3d6e">${k + 1}. ${esc(l.objeto || '')}</a></div>`
-      + `<div style="color:#5b6876;font-size:13px">${esc(l.orgao_nome || '')} · ${esc([l.municipio, l.uf].filter(Boolean).join('/'))}</div>`
-      + `<div style="font-size:14px;margin-top:4px">Valor do edital: <strong>${esc(l.valor_texto)}</strong> · Propostas até: <strong>${esc(l.prazo_texto)}</strong></div>`
-      + `<div style="font-size:14px">Sistema: ${esc(l.sistema.nome)} · Participação: ${esc(l.sistema.participacao)}</div></div>`).join('')
+    + d.itens.map((l) => {
+      const f = l.faltam; const corPrazo = !f ? '#5b6876' : { alta: '#b42318', media: '#9a5b00', baixa: '#13795b' }[f.urgencia] || '#5b6876';
+      const prazo = !f ? 'Prazo não informado' : f.urgencia === 'encerrada' ? 'Prazo encerrado' : f.texto;
+      const part = l.sistema.custo === 'gratuito' ? '<span style="color:#13795b;font-weight:bold">✓ Participação gratuita</span>' : l.sistema.custo === 'pago' ? 'Sistema cobra taxa' : 'Taxa do sistema: verificar';
+      return `<div style="border:1px solid #d7e0ea;border-left:5px solid ${corPrazo};border-radius:8px;padding:10px 12px;margin:10px 0">`
+        + `<div style="font-size:12px;color:#5b6876">${esc(l.modalidade_nome || 'Licitação')} · ${esc([l.municipio, l.uf].filter(Boolean).join('/'))} · <strong style="color:${corPrazo}">${esc(prazo)}</strong></div>`
+        + `<div style="font-weight:bold;margin:4px 0"><a href="${esc(`${pagina}#lic-${l.id}`)}" style="color:#14212e;text-decoration:none">${esc(l.objeto || '')}</a></div>`
+        + `<div style="color:#5b6876;font-size:13px">${esc(l.orgao_nome || '')}</div>`
+        + `<div style="font-size:14px;margin-top:6px">Valor do edital: <strong style="color:#0f3d6e">${esc(l.valor_texto)}</strong> · Propostas até: <strong>${esc(l.prazo_texto)}</strong></div>`
+        + `<div style="font-size:13px;margin-top:2px">${part} · ${esc(l.sistema.nome)}${l.me_epp_exclusivo ? ' · <strong style="color:#5b3ea8">Exclusiva ME/EPP</strong>' : ''}</div>`
+        + `<div style="margin-top:8px"><a href="${esc(`${pagina}#lic-${l.id}`)}" style="display:inline-block;background:#0f3d6e;color:#fff;padding:6px 14px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:13px">Tenho interesse</a></div></div>`;
+    }).join('')
     + `<p>O jornal em PDF segue em anexo.</p><p>${esc([a.responsavel, a.nome].filter(Boolean).join(' · '))}</p>`
     + '<p style="color:#777;font-size:12px">Dados públicos do PNCP. Confira sempre o edital: datas e valores podem mudar por retificação.</p>';
   return { assunto, texto, html };

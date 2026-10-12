@@ -140,45 +140,100 @@ export async function jornal(alvo, rota, est) {
   atualizar();
 }
 
-/** Página A4 para imprimir ou salvar em PDF pelo navegador: cabeçalho da empresa e cards com links. */
+/** Soma só os valores informados (sigiloso e não informado ficam de fora e são contados à parte). */
+export function resumoJornal(itens) {
+  const abertas = itens.filter((l) => !l.faltam || l.faltam.urgencia !== 'encerrada');
+  const comValor = abertas.filter((l) => l.valor_estimado != null && !['sigiloso', 'nao_informado'].includes(l.valor_estimado_situacao));
+  return {
+    total: itens.length, abertas: abertas.length, soma: comValor.reduce((s, l) => s + Number(l.valor_estimado), 0), comValor: comValor.length,
+    gratuitas: itens.filter((l) => l.sistema?.custo === 'gratuito').length,
+    meEpp: itens.filter((l) => l.me_epp_exclusivo).length,
+    proxima: abertas.find((l) => l.faltam) || null, // itens já vêm do prazo mais curto para o mais longo
+  };
+}
+
+const ROT_URGENCIA = { alta: 'Urgente', media: 'Esta semana', baixa: 'No prazo', encerrada: 'Encerrada' };
+
+/** Página A4 para imprimir ou salvar em PDF pelo navegador: capa com a empresa, resumo e cards com "Tenho interesse". */
 export function imprimirJornal(janela, d) {
-  const c = d.cliente; const a = d.assessoria;
-  const cab = c ? `<div class="empresa"><div class="rs">${esc(c.razao_social)}${c.nome_fantasia && c.nome_fantasia !== c.razao_social ? ` <small>(${esc(c.nome_fantasia)})</small>` : ''}</div>
-<div>${[c.cnpj ? `CNPJ ${cnpjFmt(c.cnpj)}` : null, c.endereco, [c.municipio, c.uf].filter(Boolean).join('/') || null, c.cep ? `CEP ${c.cep}` : null].filter(Boolean).map(esc).join(' · ')}</div>
-<div>${[c.resp_nome ? `Representante legal: ${c.resp_nome}${c.resp_cargo ? ` (${c.resp_cargo})` : ''}` : null, c.resp_email || c.email, c.telefone].filter(Boolean).map(esc).join(' · ')}</div></div>` : '';
-  const cards = d.itens.map((l, k) => `<div class="card">
-<div class="tit"><a href="${esc(`${d.url}#lic-${l.id}`)}">${k + 1}. ${esc(l.objeto || '(objeto não informado)')}</a></div>
-<div class="org">${esc([l.modalidade_nome, l.numero_texto ? `nº ${l.numero_texto}` : null].filter(Boolean).join(' '))} · ${esc(l.orgao_nome || '')} · ${esc([l.municipio, l.uf].filter(Boolean).join('/'))}</div>
-<div class="grade"><div><span>Valor do edital</span><b>${esc(l.valor_texto)}</b></div><div><span>Propostas até</span><b>${esc(l.prazo_texto)}</b></div>
-<div><span>Sistema</span><b>${esc(l.sistema.nome)}</b></div><div><span>Participação</span><b class="p-${l.sistema.custo}">${esc(l.sistema.participacao)}</b></div></div>
-<div class="links"><a href="${esc(`${d.url}#lic-${l.id}`)}">Ver resumo e marcar interesse</a>${l.link_pncp ? ` · <a href="${esc(l.link_pncp)}">Baixar o edital no PNCP</a>` : ''}</div></div>`).join('');
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jornal de licitações${c ? ` · ${esc(c.nome_fantasia || c.razao_social)}` : ''}</title>
+  const c = d.cliente; const a = d.assessoria; const r = resumoJornal(d.itens);
+  const nomeCli = c ? (c.nome_fantasia || c.razao_social) : null;
+  const linkLic = (l) => `${d.url}#lic-${l.id}`;
+  const cab = c ? `<div class="empresa"><b>${esc(c.razao_social)}</b>${[c.cnpj ? `CNPJ ${cnpjFmt(c.cnpj)}` : null, [c.municipio, c.uf].filter(Boolean).join('/') || null,
+    c.resp_nome ? `A/C ${c.resp_nome}${c.resp_cargo ? ` (${c.resp_cargo})` : ''}` : null].filter(Boolean).map((x) => ` · ${esc(x)}`).join('')}</div>` : '';
+  const cards = d.itens.map((l) => {
+    const f = l.faltam; const urg = f?.urgencia || 'sem';
+    const tags = [
+      `<span class="tag p-${esc(l.sistema.custo)}">${l.sistema.custo === 'gratuito' ? '✓ Participação gratuita' : l.sistema.custo === 'pago' ? 'Sistema cobra taxa' : 'Taxa do sistema: verificar'}</span>`,
+      l.me_epp_exclusivo ? '<span class="tag me">★ Exclusiva ME/EPP</span>' : '',
+      `<span class="tag">${esc(l.sistema.nome)}</span>`,
+    ].join('');
+    return `<article class="card u-${urg}">
+<div class="faixa"><span class="mod">${esc(l.modalidade_nome || 'Licitação')}${l.numero_texto ? ` nº ${esc(l.numero_texto)}` : ''}</span><span class="loc">${esc([l.municipio, l.uf].filter(Boolean).join('/'))}</span>
+<span class="prazo">${!f ? 'Prazo não informado' : urg === 'encerrada' ? 'Prazo encerrado' : `⏰ ${esc(f.texto)} · ${esc(ROT_URGENCIA[urg])}`}</span></div>
+<div class="corpo"><div class="esq"><h3><a href="${esc(linkLic(l))}">${esc(l.objeto || '(objeto não informado)')}</a></h3>
+<div class="org">${esc(l.orgao_nome || 'Órgão não informado')}</div><div class="tags">${tags}</div></div>
+<div class="dir"><span class="rot">Valor estimado</span><span class="valor">${esc(l.valor_texto)}</span><span class="rot">Propostas até</span><span class="data">${esc(l.prazo_texto)}</span></div></div>
+<div class="acoes"><a class="cta" href="${esc(linkLic(l))}">✋ Tenho interesse</a><a href="${esc(linkLic(l))}">Ver resumo do edital</a>${l.link_pncp ? `<a href="${esc(l.link_pncp)}">Edital completo no PNCP</a>` : ''}</div></article>`;
+  }).join('');
+  const kpis = [
+    [String(r.total), r.total === 1 ? 'oportunidade selecionada' : 'oportunidades selecionadas'],
+    [r.comValor ? BRL.format(r.soma) : '—', `em valor estimado${r.abertas < r.total ? ' das que seguem abertas' : ''}${r.comValor < r.abertas ? ` (${r.comValor} de ${r.abertas} informam valor)` : ''}`],
+    [r.proxima ? r.proxima.faltam.texto.replace(/^Faltam? /, '') : '—', r.proxima ? `para a próxima encerrar (${esc(r.proxima.prazo_texto)})` : 'nenhuma com prazo em aberto'],
+    [String(r.gratuitas), r.gratuitas === 1 ? 'com participação gratuita' : 'com participação gratuita'],
+  ].map(([n, t]) => `<div class="kpi"><b>${esc(n)}</b><span>${t}</span></div>`).join('');
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jornal de licitações${nomeCli ? ` · ${esc(nomeCli)}` : ''}</title>
 <style>
-@page { size: A4 portrait; margin: 14mm 12mm; }
+@page { size: A4 portrait; margin: 12mm 11mm; }
 * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-body { font: 10pt/1.4 Arial, Helvetica, sans-serif; color: #111; margin: 0; }
-.barra { position: sticky; top: 0; background: #0f3d6e; color: #fff; padding: 8px 14px; display: flex; gap: 12px; align-items: center; }
+:root { --azul: #0f3d6e; --azul2: #1f5fa3; --claro: #eef4fb; --linha: #d7e0ea; --tinta: #14212e; --suave: #5b6876; --verde: #13795b; --ambar: #9a5b00; --vermelho: #b42318; }
+body { font: 10pt/1.45 "Segoe UI", Arial, Helvetica, sans-serif; color: var(--tinta); margin: 0; background: #fff; }
+a { color: var(--azul2); }
+.barra { position: sticky; top: 0; z-index: 2; background: var(--azul); color: #fff; padding: 8px 14px; display: flex; gap: 12px; align-items: center; }
 .barra button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 0; cursor: pointer; }
-.pagina { max-width: 186mm; margin: 0 auto; padding: 10px 0; }
-.topo { border-bottom: 3px solid #0f3d6e; padding-bottom: 8px; margin-bottom: 10px; }
-h1 { font-size: 18pt; margin: 0 0 4px; color: #0f3d6e; } .empresa { font-size: 9pt; color: #333; } .empresa .rs { font-size: 12pt; font-weight: 700; color: #111; }
-.meta { font-size: 8.5pt; color: #666; margin-top: 4px; }
-.chamada { background: #e8f0fb; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 9.5pt; }
-a { color: #0f3d6e; }
-.card { border: 1px solid #c9d3e0; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; page-break-inside: avoid; }
-.tit { font-weight: 700; font-size: 10.5pt; } .tit a { text-decoration: none; } .org { color: #555; font-size: 9pt; margin: 2px 0 6px; }
-.grade { display: grid; grid-template-columns: 1fr 1fr 1.4fr 1.2fr; gap: 6px; } .grade div { background: #f3f5f8; border-radius: 4px; padding: 4px 6px; }
-.grade span { display: block; font-size: 7.5pt; color: #666; text-transform: uppercase; } .grade b { font-size: 9.5pt; }
-.p-gratuito { color: #157347; } .p-pago { color: #8a5300; } .p-nao_verificado { color: #555; }
-.links { margin-top: 6px; font-size: 9pt; } .fonte { font-size: 7.5pt; color: #666; margin-top: 10px; }
+.pagina { max-width: 188mm; margin: 0 auto; padding: 12px 0; }
+.capa { background: linear-gradient(135deg, var(--azul), var(--azul2)); color: #fff; border-radius: 10px; padding: 14px 18px; display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; }
+.capa .sobre { font-size: 8.5pt; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
+.capa h1 { margin: 2px 0 0; font-size: 20pt; line-height: 1.15; } .capa .para { font-size: 11pt; margin-top: 2px; }
+.capa .edicao { text-align: right; font-size: 8.5pt; opacity: .9; white-space: nowrap; }
+.empresa { font-size: 8.5pt; color: var(--suave); margin: 6px 2px 10px; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.kpi { border: 1px solid var(--linha); border-radius: 8px; padding: 8px 10px; background: var(--claro); }
+.kpi b { display: block; font-size: 14pt; color: var(--azul); line-height: 1.2; } .kpi span { font-size: 8pt; color: var(--suave); }
+.como { display: flex; gap: 14px; align-items: center; border: 1px dashed var(--azul2); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 9pt; }
+.como ol { margin: 0; padding-left: 18px; flex: 1; } .como .btn { background: var(--azul); color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+.card { border: 1px solid var(--linha); border-left: 5px solid var(--azul2); border-radius: 8px; margin-bottom: 9px; page-break-inside: avoid; overflow: hidden; }
+.u-alta { border-left-color: var(--vermelho); } .u-media { border-left-color: var(--ambar); } .u-baixa { border-left-color: var(--verde); } .u-encerrada, .u-sem { border-left-color: #98a2b3; }
+.faixa { display: flex; gap: 10px; align-items: center; background: #f6f8fb; padding: 4px 10px; font-size: 8.5pt; color: var(--suave); }
+.faixa .mod { font-weight: 700; color: var(--azul); } .faixa .prazo { margin-left: auto; font-weight: 700; }
+.u-alta .prazo { color: var(--vermelho); } .u-media .prazo { color: var(--ambar); } .u-baixa .prazo { color: var(--verde); }
+.corpo { display: flex; gap: 12px; padding: 7px 10px 4px; }
+.esq { flex: 1; min-width: 0; }
+h3 { margin: 0; font-size: 10.5pt; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+h3 a { color: var(--tinta); text-decoration: none; }
+.org { font-size: 8.5pt; color: var(--suave); margin: 2px 0 5px; }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; } .tag { font-size: 7.8pt; border: 1px solid var(--linha); border-radius: 999px; padding: 1px 8px; color: var(--suave); }
+.tag.p-gratuito { color: var(--verde); border-color: #a6d9c6; background: #ecf8f3; font-weight: 700; } .tag.p-pago { color: var(--ambar); border-color: #f0cf9c; background: #fdf6ea; }
+.tag.me { color: #5b3ea8; border-color: #cbbcf0; background: #f4f0fd; font-weight: 700; }
+.dir { width: 44mm; flex: none; text-align: right; display: flex; flex-direction: column; }
+.dir .rot { font-size: 7.5pt; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; } .dir .valor { font-size: 13pt; font-weight: 800; color: var(--azul); margin-bottom: 3px; } .dir .data { font-weight: 700; }
+.acoes { display: flex; gap: 14px; align-items: center; padding: 4px 10px 8px; font-size: 8.8pt; }
+.acoes .cta { background: var(--azul); color: #fff; text-decoration: none; padding: 4px 12px; border-radius: 999px; font-weight: 700; }
+.rodape { margin-top: 12px; display: flex; justify-content: space-between; gap: 16px; border-top: 2px solid var(--azul); padding-top: 8px; font-size: 8.5pt; }
+.rodape .aviso { color: var(--suave); font-size: 7.5pt; max-width: 60%; }
 @media print { .barra { display: none; } .pagina { padding: 0; } }
 </style></head><body>
 <div class="barra"><button id="btn-imprimir">🖨 Imprimir / salvar em PDF</button><span>Os links continuam clicáveis no PDF salvo pelo navegador.</span></div>
-<div class="pagina"><div class="topo"><h1>Jornal de licitações</h1>${cab}
-<div class="meta">Preparado por ${esc([a.nome, a.responsavel].filter(Boolean).join(' · '))}${a.email ? ` · ${esc(a.email)}` : ''} em ${new Date().toLocaleDateString('pt-BR')}</div></div>
-<div class="chamada">${d.itens.length} licitação(ões) selecionada(s). Clique no título para ver o resumo e marcar as que têm interesse: <a href="${esc(d.url)}">${esc(d.url)}</a></div>
+<div class="pagina">
+<header class="capa"><div><div class="sobre">Jornal de licitações</div><h1>Oportunidades para vender ao governo</h1>${nomeCli ? `<div class="para">Selecionadas para <b>${esc(nomeCli)}</b></div>` : ''}</div>
+<div class="edicao">Edição de ${new Date().toLocaleDateString('pt-BR')}<br>${esc(a.nome || '')}</div></header>
+${cab}
+<section class="kpis">${kpis}</section>
+<section class="como"><ol><li>Leia os cards: valor, prazo e se a participação é gratuita.</li><li>Clique em <b>Tenho interesse</b> nas que combinam com a sua empresa.</li><li>A assessoria cuida do resto: documentos, proposta e disputa.</li></ol>
+<a class="btn" href="${esc(d.url)}">Responder agora →</a></section>
 ${cards}
-<div class="fonte">Dados públicos do PNCP. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação" é a taxa cobrada do fornecedor pelo sistema eletrônico.</div>
+<footer class="rodape"><div><b>${esc([a.responsavel, a.nome].filter(Boolean).join(' · '))}</b>${a.email ? `<br>${esc(a.email)}` : ''}</div>
+<div class="aviso">Dados públicos do PNCP, organizados do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.</div></footer>
 </div></body></html>`;
   janela.document.open(); janela.document.write(html); janela.document.close();
   // A política de segurança do site bloqueia script dentro da página impressa: o botão é ligado daqui

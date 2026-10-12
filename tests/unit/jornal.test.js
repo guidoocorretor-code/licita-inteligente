@@ -5,7 +5,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
+import { faltam, ordenarPorPrazo, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
 
 // Base de TESTE: uma licitação real do fixture do PNCP e uma empresa assessorada de exemplo
 function preparar() {
@@ -64,13 +64,27 @@ test('PDF do jornal tem cabeçalho da empresa e links clicáveis (resumo e PNCP)
   const pdf = pdfJornal(d, { urlBase: 'https://exemplo.app' }).toString('latin1');
   assert.match(pdf, /EMPRESA EXEMPLO LTDA/);
   assert.match(pdf, /CNPJ 11\.222\.333\/0001-81/);
-  assert.match(pdf, /Representante legal: Jo\xe3o Exemplo/);
+  assert.match(pdf, /A\/C Jo\xe3o Exemplo/);
   assert.ok(pdf.includes(`/URI (https://exemplo.app/j/${e.token}#lic-${lic})`));
   assert.match(pdf, /\/URI \(https:\/\/pncp\.gov\.br\/app\/editais\//);
-  assert.match(pdf, /\(Participa\xe7\xe3o: \) Tj ET\nBT \/F1 10 Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(Gratuita\)/);
+  assert.match(pdf, /\(Participa\xe7\xe3o gratuita\)/);
+  assert.match(pdf, /\(Tenho interesse\)/);
+  assert.match(pdf, /\(R\$\s12\.345,60\)/);
   const m = montarEmailJornal(d, { urlBase: 'https://exemplo.app' });
   assert.match(m.assunto, /tem interesse em participar/);
   assert.ok(m.html.includes(`https://exemplo.app/j/${e.token}`));
   assert.match(m.texto, /Valor do edital: R\$\s12\.345,60/);
   assert.ok(inflateSync); // (PDF sem compressão: o texto acima é lido direto)
+});
+
+test('prazo: conta em horário de Brasília e ordena do mais curto para o mais longo', () => {
+  const agora = new Date('2026-10-12T12:00:00-03:00');
+  assert.deepEqual(faltam('2026-10-20T10:00:00', agora), { dias: 7, horas: 190, texto: 'Faltam 7 dias', urgencia: 'baixa' });
+  assert.equal(faltam('2026-10-13T11:00:00', agora).texto, 'Faltam 23 h');
+  assert.equal(faltam('2026-10-14', agora).urgencia, 'alta');            // só a data: vale até o fim do dia
+  assert.equal(faltam('2026-10-12T11:00:00', agora).texto, 'Prazo encerrado');
+  assert.equal(faltam(null, agora), null);
+  const itens = [{ id: 1, faltam: null }, { id: 2, faltam: { urgencia: 'baixa' }, data_encerramento_proposta: '2026-11-01' },
+    { id: 3, faltam: { urgencia: 'encerrada' }, data_encerramento_proposta: '2026-10-01' }, { id: 4, faltam: { urgencia: 'alta' }, data_encerramento_proposta: '2026-10-13' }];
+  assert.deepEqual(ordenarPorPrazo(itens).map((l) => l.id), [4, 2, 1, 3]);
 });
