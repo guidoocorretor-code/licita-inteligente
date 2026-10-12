@@ -878,6 +878,15 @@ function cartaoAlerta(n, aoLer) {
         n.lida ? null : h('button', { class: 'btn pequeno', onclick: () => aoLer(n) }, 'Marcar como lida'))));
 }
 
+// Prioridade para o resumo (gráfico): cor fixa por grupo, validada para daltonismo (cor nunca sozinha: legenda com nome e número)
+const PRIORIDADES_ALERTA = [
+  { chave: 'hoje', nome: 'Agir hoje', cor: '#b42318', cats: ['prazo_24h', 'certidao_vencida'] },
+  { chave: 'semana', nome: 'Esta semana', cor: '#eda100', cats: ['prazo_3d', 'prazo_interno'] },
+  { chave: 'acompanhar', nome: 'Acompanhar', cor: '#2a78d6', cats: ['interesse', 'situacao', 'edital', 'resultado', 'jornal', 'oportunidade', 'outro'] },
+  { chave: 'financeiro', nome: 'Financeiro (nota e cobrança)', cor: '#1baf7a', cats: ['nota_emitir', 'nota_cobrar'] },
+  { chave: 'documentos', nome: 'Certidões vencendo', cor: '#8e5ac8', cats: ['certidao'] },
+];
+
 export async function notificacoes(alvo, r, est) {
   render(alvo, carregando());
   const [ns, ps] = await Promise.all([api('/notificacoes'), api('/pesquisas')]);
@@ -890,23 +899,59 @@ export async function notificacoes(alvo, r, est) {
   for (const n of ns) if (!soNovas || !n.lida) contagem[n.categoria] = (contagem[n.categoria] || 0) + 1;
   const visiveis = ns.filter((n) => (!soNovas || !n.lida) && (!cat || n.categoria === cat));
   const naoLidas = ns.filter((n) => !n.lida).length;
-  const chip = (chave, rotulo, qtd, cor, icone) => h('button', {
-    class: `chip-alerta a-${cor}${(cat || '') === chave ? ' ativo' : ''}`, 'aria-pressed': String((cat || '') === chave),
-    onclick: () => ir({ cat: chave || undefined, novas: soNovas ? 1 : undefined }) }, icone ? `${icone} ` : '', rotulo, h('strong', {}, String(qtd)));
   const grupos = Object.keys(CATEGORIAS_ALERTA).map((k) => [k, visiveis.filter((n) => n.categoria === k)]).filter(([, l]) => l.length);
+  // Grupo aberto/fechado: lembrado nesta aba do navegador; com ?cat= abre só aquele
+  const CHAVE_ABERTOS = 'alertas-abertos';
+  let abertos = new Set();
+  try { abertos = new Set(JSON.parse(sessionStorage.getItem(CHAVE_ABERTOS) || '[]')); } catch { /* sem armazenamento: tudo fechado */ }
+  if (cat) abertos = new Set([cat]);
+  const guardar = () => { try { sessionStorage.setItem(CHAVE_ABERTOS, JSON.stringify([...abertos])); } catch { /* opcional */ } };
+  const blocos = {};
+  const abrir = (cats) => {
+    let primeiro = null;
+    for (const k of cats) if (blocos[k]) { blocos[k].open = true; primeiro ||= blocos[k]; }
+    primeiro?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const contaPrio = PRIORIDADES_ALERTA.map((p) => ({ ...p, n: p.cats.reduce((t, k) => t + (contagem[k] || 0), 0) }));
+  const total = Object.values(contagem).reduce((a, b) => a + b, 0);
+  const hoje = contaPrio[0].n;
+  const resumo = total ? h('div', { class: 'cartao resumo-alertas' },
+    h('div', { class: 'resumo-alertas-kpis' },
+      h('div', { class: `kpi-alerta${hoje ? ' urgente' : ''}` }, h('strong', {}, String(hoje)), h('span', {}, 'para agir hoje')),
+      h('div', { class: 'kpi-alerta' }, h('strong', {}, String(naoLidas)), h('span', {}, 'não lidos')),
+      h('div', { class: 'kpi-alerta' }, h('strong', {}, String(total)), h('span', {}, soNovas ? 'na lista (só não lidos)' : 'na lista'))),
+    h('div', {}, h('h2', {}, 'Por prioridade'), h('p', { class: 'suave pequeno' }, 'Clique numa fatia ou na legenda para abrir esses alertas.'),
+      rosca(contaPrio, { ordemFixa: true, rotulo: (p) => p.nome, rotuloTotal: 'alertas', aoClicar: (f) => abrir(f.cats) }))) : null;
+  const marcarLidos = async (lista) => {
+    const ids = lista.filter((n) => !n.lida).map((n) => n.id);
+    if (!ids.length) return;
+    await api('/notificacoes/lidas', { metodo: 'POST', corpo: { ids } }); recarregar();
+  };
   render(alvo, avisoEmpresa(est, 'Alertas e pesquisas salvas'),
-    cabecalho('Alertas', 'O que pede ação nas licitações do Kanban, nas certidões das empresas e nas notas fiscais.',
-      naoLidas ? h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); recarregar(); } }, `Marcar todas como lidas (${naoLidas})`) : null),
+    cabecalho('Alertas', 'O que pede ação nas licitações do Kanban, nas certidões das empresas e nas notas fiscais. Clique num tipo para abrir.',
+      naoLidas ? h('button', { class: 'btn', onclick: async () => { await api('/notificacoes/lidas', { metodo: 'POST', corpo: {} }); recarregar(); } }, `Marcar todos como lidos (${naoLidas})`) : null),
+    resumo,
     h('div', { class: 'filtro-alertas' },
-      h('div', { class: 'chips-alerta' },
-        chip('', 'Todos', Object.values(contagem).reduce((a, b) => a + b, 0), 'neutro'),
-        Object.entries(CATEGORIAS_ALERTA).filter(([k]) => contagem[k]).map(([k, c]) => chip(k, c.nome, contagem[k], c.cor, c.icone))),
-      h('label', { class: 'linha pequeno' }, h('input', { type: 'checkbox', checked: soNovas, onchange: (e) => ir({ cat: cat || undefined, novas: e.target.checked ? 1 : undefined }) }), 'Só as não lidas')),
+      h('label', { class: 'linha pequeno' }, h('input', { type: 'checkbox', checked: soNovas, onchange: (e) => ir({ cat: cat || undefined, novas: e.target.checked ? 1 : undefined }) }), 'Mostrar só os não lidos'),
+      grupos.length > 1 ? h('div', { class: 'linha' },
+        h('button', { class: 'btn pequeno', onclick: () => { for (const [k] of grupos) { blocos[k].open = true; } } }, 'Abrir todos'),
+        h('button', { class: 'btn pequeno', onclick: () => { for (const [k] of grupos) { blocos[k].open = false; } } }, 'Fechar todos')) : null),
     grupos.length ? grupos.map(([k, lista]) => {
       const c = CATEGORIAS_ALERTA[k];
-      return h('section', { class: `grupo-alerta a-${c.cor}` },
-        h('header', {}, h('h2', {}, `${c.icone} ${c.nome}`, h('span', { class: 'qtd' }, String(lista.length))), c.dica ? h('p', {}, c.dica) : null),
-        lista.map((n) => cartaoAlerta(n, aoLer)));
+      const novas = lista.filter((n) => !n.lida).length;
+      const el = h('details', { class: `grupo-alerta a-${c.cor}`, open: abertos.has(k),
+        ontoggle: (e) => { if (e.target.open) abertos.add(k); else abertos.delete(k); guardar(); } },
+        h('summary', {},
+          h('span', { class: 'grupo-icone', 'aria-hidden': 'true' }, c.icone),
+          h('span', { class: 'grupo-titulo' }, h('b', {}, c.nome), c.dica ? h('small', {}, c.dica) : null),
+          novas ? h('span', { class: 'grupo-novas' }, `${novas} ${novas === 1 ? 'novo' : 'novos'}`) : null,
+          h('span', { class: 'qtd' }, String(lista.length)),
+          h('span', { class: 'seta', 'aria-hidden': 'true' })),
+        h('div', { class: 'grupo-corpo' },
+          novas ? h('div', { class: 'linha', style: { justifyContent: 'flex-end' } }, h('button', { class: 'btn pequeno', onclick: () => marcarLidos(lista) }, `Marcar estes como lidos (${novas})`)) : null,
+          lista.map((n) => cartaoAlerta(n, aoLer))));
+      blocos[k] = el;
+      return el;
     }) : h('div', { class: 'cartao' }, vazio(soNovas || cat ? 'Nenhum alerta com esse filtro.' : 'Sem alertas no momento.')),
     h('details', { class: 'cartao como-alertas' }, h('summary', {}, 'Quando cada alerta aparece'),
       h('ul', {},
