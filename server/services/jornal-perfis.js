@@ -90,7 +90,10 @@ export function normalizarFiltros(b = {}) {
 // "gêneros alimentícios no objeto", que o objeto não tem: o índice apontava para a linha errada.
 const semAc = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const palavras = (t) => semAc(t).match(/[\p{L}\p{N}]+/gu) || [];
-const bate = (tok, w) => tok.startsWith(radical(w));
+// Raiz sem gênero: "bovinas" acha "bovino", "suína" acha "suíno", "congelado" acha "congelada"
+export const raiz = (w) => { const r = radical(w); return r.length >= 5 ? r.replace(/[ao]$/, '') : r; };
+const ftsJ = (w) => `"${raiz(w)}"*`;
+const bate = (tok, w) => tok.startsWith(raiz(w));
 // Expressão no objeto: uma palavra em qualquer lugar; várias, todas perto umas das outras (como o NEAR(…, 3))
 const noTexto = (toks, ws) => {
   if (ws.length === 1) return toks.some((t) => bate(t, ws[0]));
@@ -103,7 +106,12 @@ const noTexto = (toks, ws) => {
   return false;
 };
 // Expressão no item: a 1ª palavra ABRE a descrição (onde fica o produto) e as outras estão no mesmo item
-const noItem = (toks, ws) => toks.length > 0 && bate(toks[0], ws[0]) && ws.slice(1).every((w) => toks.some((t) => bate(t, w)));
+// Expressão no item: uma palavra só precisa ABRIR a descrição (onde fica o produto: "pintura" não pega "armário com
+// pintura epóxi"); várias palavras valem em qualquer lugar do item, perto umas das outras ("frango congelado" acha
+// "PEITO DE FRANGO CONGELADO", que começa por "peito")
+const noItem = (toks, ws) => (ws.length === 1 ? toks.length > 0 && bate(toks[0], ws[0]) : noTexto(toks, ws));
+const exprObjetoJ = (ws) => (ws.length > 1 ? `NEAR(${ws.map(ftsJ).join(' ')}, 3)` : ftsJ(ws[0]));
+const exprItemJ = (ws) => (ws.length > 1 ? `NEAR(${ws.map(ftsJ).join(' ')}, 3)` : `^${ftsJ(ws[0])}`);
 const temOque = (f) => f.segmentos.length > 0 || !!f.produtos || !!f.itens;
 const listaItens = (v) => String(v || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
 
@@ -192,16 +200,19 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
   // Excluir palavras: aplicado na conferência do texto (conferirLicitacoes), só no objeto.
   const oque = []; const po = [];
   if (f.segmentos.length) { oque.push(`l.segmento IN (${f.segmentos.map(() => '?').join(',')})`); po.push(...f.segmentos); }
-  if (f.produtos) {
-    const r = montarFiltro({ ramo: f.produtos }, agora);
-    if (r.where) { oque.push(r.where.replace(/^WHERE /, '')); po.push(...r.params); }
+  // Produtos: no objeto ou no item (mesma regra da conferência no texto)
+  const produtos = expressoesRamo(f.produtos);
+  if (produtos.length) {
+    oque.push(`(l.id IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)
+      OR l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?)))`);
+    po.push(`objeto : (${produtos.map(exprObjetoJ).join(' OR ')})`, produtos.map((ws) => `(${exprItemJ(ws)})`).join(' OR '));
   }
   // Itens: qualquer uma das expressões (";"), todas as palavras dela no mesmo item, e a 1ª palavra ABRINDO a
   // descrição (onde fica o produto). Sem isso "pintura" trazia "Armário de aço com pintura epóxi".
   const itens = String(f.itens || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
   if (itens.length) {
     oque.push('l.id IN (SELECT licitacao_id FROM licitacao_itens WHERE id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?))');
-    po.push(itens.map((ws) => `(^${ws.map(fts).join(' AND ')})`).join(' OR '));
+    po.push(itens.map((ws) => `(${exprItemJ(ws)})`).join(' OR '));
   }
   if (oque.length) { w.push(`(${oque.join(' OR ')})`); p.push(...po); }
   // Propostas ainda não encerradas, e o encerramento escolhido

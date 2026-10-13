@@ -136,7 +136,7 @@ test('índice de busca apontando para a linha errada não põe licitação no jo
   assert.deepEqual(idsQueBatem(db, f, { agora: AGORA }).ids, [alimento]);
   const m = motivosDoPerfil(db, f, [alimento, bloco]);
   assert.deepEqual(m.get(bloco), []);
-  assert.deepEqual(m.get(alimento), ['produto "gêneros alimentícios" no objeto']);
+  assert.deepEqual(m.get(alimento), ['produto "gêneros alimentícios" no objeto', 'produto "aquisição alimentos" no objeto']);
 });
 
 test('conferência do índice de busca: desalinhado é refeito e volta a achar a linha certa', async () => {
@@ -165,4 +165,20 @@ test('produto só no item: entra na edição seguinte quando os itens chegam, se
   const ed = gerarEdicao(db, p(), '2026-10-12T08:00:00');
   assert.deepEqual(JSON.parse(ed.licitacoes), [merenda]);
   assert.equal(gerarEdicao(db, p(), '2026-10-13T08:00:00').total, 0);
+});
+
+test('carnes: plural e gênero não importam; expressão de várias palavras vale no meio do item', () => {
+  const { db, lic } = cenario();
+  const a = lic('a', { objeto: 'Aquisição de gêneros alimentícios' });
+  const b = lic('b', { objeto: 'Aquisição de gêneros alimentícios para merenda' });
+  const c = lic('c', { objeto: 'Aquisição de material de pintura' });
+  const it = db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)');
+  it.run(a, 1, 'PEITO DE FRANGO CONGELADO, embalagem 1 kg');
+  it.run(b, 1, 'Carne suíno, pernil sem osso');
+  it.run(c, 1, 'Armário de aço com pintura epóxi');
+  const ids = (x) => idsQueBatem(db, normalizarFiltros(x), { agora: AGORA }).ids.sort((p, q) => p - q);
+  assert.deepEqual(ids({ ufs: ['ES'], produtos: 'frango congelado; carne suína' }), [a, b]);
+  assert.deepEqual(ids({ ufs: ['ES'], itens: 'frango congelado' }), [a]);
+  // Palavra única continua tendo de abrir o item
+  assert.deepEqual(ids({ ufs: ['ES'], itens: 'pintura' }), []);
 });
