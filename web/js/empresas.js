@@ -1,6 +1,7 @@
 // Empresas assessoradas: cadastro, responsável legal, certidões em PDF com validade e vencimentos.
 import { api, clienteSelecionado, selecionarCliente } from './api.js';
 import { h, toast, carregando, vazio, confirmar, modal, render, data, dataUtc } from './ui.js';
+import { historicoDaEmpresa } from './captacao.js';
 
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
 const podeExcluir = (e) => ['gestor', 'admin', 'superadmin'].includes(e.usuario.papel);
@@ -13,7 +14,9 @@ const DO_SICAF = ['sicaf', 'federal', 'fgts', 'trabalhista', 'estadual', 'munici
 
 const fmtCpf = (c) => String(c || '').replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
 const ASSINA = { isolada: 'Assina sozinho', conjunta: 'Assina em conjunto' };
-const fmtCnpj = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+// CNPJ (14) ou CPF (11, empresa assessorada pessoa física)
+const fmtCnpj = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5').replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+const rotDoc = (c) => (c.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ');
 const nomeCli = (c) => c.nome_fantasia || c.razao_social;
 const etiquetaSit = (d) => {
   const [rot, cor] = SITUACAO[d.situacao] || [d.situacao, ''];
@@ -38,6 +41,7 @@ function formEmpresa(est, c = {}, aoSalvar) {
   campos.porte = h('select', { id: 'e-porte' }, h('option', { value: '' }, 'Não informado'),
     ['MEI', 'ME', 'EPP', 'Demais'].map((p) => h('option', { value: p, selected: c.porte === p }, p)));
   campos.observacoes = h('textarea', { id: 'e-observacoes', rows: 2 }, c.observacoes || '');
+  campos.obs_comerciais = h('textarea', { id: 'e-obs_comerciais', rows: 2 }, c.obs_comerciais || '');
   // Ramo: CNAEs da Receita (só leitura) e palavras que contam as licitações compatíveis no Dashboard › Empresas
   let cnaes = null;
   try { cnaes = c.cnaes_json ? JSON.parse(c.cnaes_json) : null; } catch { cnaes = null; }
@@ -127,7 +131,7 @@ function formEmpresa(est, c = {}, aoSalvar) {
   const conteudo = h('form', { class: 'form-empresa' },
     h('h3', {}, 'Empresa'),
     h('div', { class: 'filtros' },
-      h('div', { class: 'largo' }, h('label', { for: 'e-cnpj' }, 'CNPJ *'),
+      h('div', { class: 'largo' }, h('label', { for: 'e-cnpj' }, `${rotDoc(c)} *`),
         h('div', { class: 'linha cnpj-linha' },
           campos.cnpj = h('input', { id: 'e-cnpj', required: true, inputmode: 'numeric', placeholder: '00.000.000/0000-00', value: c.cnpj ? fmtCnpj(c.cnpj) : '',
             oninput: (ev) => { if (!c.id && ev.target.value.replace(/\D/g, '').length === 14) consultarReceita(); },
@@ -141,7 +145,8 @@ function formEmpresa(est, c = {}, aoSalvar) {
       inp('email', 'E-mail da empresa', { type: 'email' }),
       inp('telefone', 'Telefone da empresa', { type: 'tel' }),
       inp('endereco', 'Endereço (rua, nº, bairro)', {}, true),
-      inp('cep', 'CEP', { inputmode: 'numeric', placeholder: '29100-000' })),
+      inp('cep', 'CEP', { inputmode: 'numeric', placeholder: '29100-000' }),
+      inp('email_documentos', 'E-mail para documentos', { type: 'email' })),
     statusReceita,
     h('h3', {}, 'Sócios'),
     h('p', { class: 'suave pequeno' }, 'A Receita traz nome e qualificação. CPF e se assina sozinho ou em conjunto estão no contrato social: confira lá.'),
@@ -165,7 +170,8 @@ function formEmpresa(est, c = {}, aoSalvar) {
     listaCnaes,
     h('div', { class: 'campo' }, h('label', { for: 'e-palavras_chave' }, 'Palavras do ramo (separe com ;)'), campos.palavras_chave,
       h('div', { class: 'suave pequeno' }, 'Sugeridas a partir dos CNAEs. Revise: o Dashboard › Empresas conta as licitações abertas que têm alguma destas palavras no objeto ou nos itens.')),
-    h('div', { class: 'campo' }, h('label', { for: 'e-observacoes' }, 'Observações'), campos.observacoes));
+    h('div', { class: 'campo' }, h('label', { for: 'e-observacoes' }, 'Observações'), campos.observacoes),
+    h('div', { class: 'campo' }, h('label', { for: 'e-obs_comerciais' }, 'Observações comerciais (captação)'), campos.obs_comerciais));
   modal(c.id ? `Editar ${nomeCli(c)}` : 'Nova empresa', conteudo, [{ texto: 'Salvar', classe: 'primario', acao: async () => {
     const corpo = Object.fromEntries(Object.entries(campos).map(([k, el]) => [k, el.value.trim()]));
     corpo.cnpj = corpo.cnpj.replace(/\D/g, '');
@@ -187,16 +193,24 @@ export async function empresas(alvo, rota, est) {
   const { clientes } = await api('/clientes');
   const atual = clienteSelecionado();
   const selecionar = (id) => { selecionarCliente(id); avisarAlteracao(); empresas(alvo, rota, est); toast(id ? 'Empresa selecionada: Kanban, favoritos e alertas agora mostram só os dela.' : 'Mostrando todas as empresas.', 4500); };
+  // Busca por razão social, nome fantasia ou CNPJ/CPF (filtra os cartões na hora)
+  const semAc = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const busca = h('input', { type: 'search', class: 'busca-empresas', placeholder: 'Buscar por razão social, nome fantasia ou CNPJ/CPF', 'aria-label': 'Buscar empresa',
+    oninput: () => {
+      const t = semAc(busca.value.trim()); const d = busca.value.replace(/\D/g, '');
+      alvo.querySelectorAll('.grade-empresas > .cartao').forEach((el) => { el.style.display = !t || semAc(el.dataset.busca).includes(t) || (d.length >= 3 && el.dataset.doc.includes(d)) ? '' : 'none'; });
+    } });
   render(alvo,
-    cabecalho('Empresas assessoradas', 'Cadastre as empresas que vocês assessoram, as certidões com validade e o PDF do SICAF.',
-      podeEditar(est) ? h('button', { class: 'btn primario', onclick: () => formEmpresa(est, {}, (id) => { location.hash = `#/empresas/${id}`; }) }, '+ Nova empresa') : null),
+    cabecalho('Empresas Assessoradas', 'Cadastro central das empresas que vocês assessoram, com certidões, SICAF, captações e documentos.',
+      podeEditar(est) ? h('a', { class: 'btn primario', href: '#/captacao/nova', title: 'Empresas novas entram pela Captação, que confere se o CNPJ/CPF já existe' }, '+ Nova captação') : null),
+    busca,
     h('div', { class: 'aviso azul' }, h('strong', {}, 'Como funciona a seleção: '),
       'escolha uma empresa no topo da tela (ou em "Selecionar") e o Kanban, os favoritos, os alertas, o calendário e os vencimentos passam a mostrar só os dela. ',
       'Licitações enviadas ao Kanban ou favoritadas ficam na empresa selecionada no momento.'),
-    clientes.length ? h('div', { class: 'grade-empresas' }, clientes.map((c) => h('div', { class: `cartao empresa ${String(c.id) === atual ? 'selecionada' : ''} ${c.ativo ? '' : 'inativa'}` },
+    clientes.length ? h('div', { class: 'grade-empresas' }, clientes.map((c) => h('div', { class: `cartao empresa ${String(c.id) === atual ? 'selecionada' : ''} ${c.ativo ? '' : 'inativa'}`, 'data-busca': `${c.razao_social} ${c.nome_fantasia || ''}`, 'data-doc': c.cnpj },
       h('div', { class: 'linha', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
         h('div', {}, h('a', { class: 'objeto', href: `#/empresas/${c.id}` }, nomeCli(c)),
-          h('div', { class: 'suave pequeno' }, `CNPJ ${fmtCnpj(c.cnpj)}`, c.porte ? ` · ${c.porte}` : '', c.ativo ? '' : ' · arquivada')),
+          h('div', { class: 'suave pequeno' }, `${rotDoc(c)} ${fmtCnpj(c.cnpj)}`, c.porte ? ` · ${c.porte}` : '', c.ativo ? '' : ' · arquivada')),
         String(c.id) === atual ? h('span', { class: 'etiqueta verde' }, 'Selecionada') : null),
       c.resp_nome ? h('div', { class: 'pequeno', style: { marginTop: '6px' } }, `Responsável: ${c.resp_nome}`, c.resp_telefone ? ` · ${c.resp_telefone}` : '') : null,
       h('div', { class: 'linha', style: { marginTop: '8px' } },
@@ -210,7 +224,7 @@ export async function empresas(alvo, rota, est) {
         String(c.id) === atual ? h('button', { class: 'btn pequeno', onclick: () => selecionar('') }, 'Ver todas')
           : c.ativo ? h('button', { class: 'btn pequeno primario', onclick: () => selecionar(String(c.id)) }, 'Selecionar') : null,
         h('a', { class: 'btn pequeno', href: `#/empresas/${c.id}` }, 'Certidões e dados')))))
-      : vazio('Nenhuma empresa cadastrada ainda. Clique em "+ Nova empresa".'));
+      : vazio('Nenhuma empresa cadastrada ainda. Clique em "+ Nova captação".'));
 }
 
 // ---------- Detalhe: dados, responsável e certidões ----------
@@ -230,16 +244,17 @@ async function empresaDetalhe(alvo, rota, est) {
   };
 
   render(alvo,
-    cabecalho(nomeCli(c), `${c.razao_social} · CNPJ ${fmtCnpj(c.cnpj)}`,
-      h('a', { class: 'btn', href: '#/empresas' }, '← Empresas'),
+    cabecalho(nomeCli(c), `${c.razao_social} · ${rotDoc(c)} ${fmtCnpj(c.cnpj)}`,
+      h('a', { class: 'btn', href: '#/empresas' }, '← Empresas Assessoradas'),
+      podeEditar(est) && c.ativo ? h('a', { class: 'btn', href: '#/captacao' }, 'Captações') : null,
       selecionada ? h('span', { class: 'etiqueta verde' }, 'Selecionada')
         : c.ativo ? h('button', { class: 'btn', onclick: () => { selecionarCliente(String(c.id)); avisarAlteracao(); recarregar(); toast('Empresa selecionada.'); } }, 'Selecionar esta empresa') : null,
       podeEditar(est) ? h('button', { class: 'btn', onclick: () => formEmpresa(est, c, recarregar) }, 'Editar dados') : null),
     h('div', { class: 'grade duas' },
       h('div', { class: 'cartao' }, h('h2', {}, 'Empresa'), h('dl', { class: 'dados' },
-        linha('Razão social', c.razao_social), linha('Nome fantasia', c.nome_fantasia), linha('CNPJ', fmtCnpj(c.cnpj)), linha('Porte', c.porte),
-        linha('Local', [c.municipio, c.uf].filter(Boolean).join(' / ')), linha('E-mail', c.email), linha('Telefone', c.telefone),
-        c.observacoes ? linha('Observações', c.observacoes) : null),
+        linha(c.tipo_pessoa === 'PF' ? 'Nome' : 'Razão social', c.razao_social), linha('Nome fantasia', c.nome_fantasia), linha(rotDoc(c), fmtCnpj(c.cnpj)), linha('Porte', c.porte),
+        linha('Local', [c.municipio, c.uf].filter(Boolean).join(' / ')), linha('E-mail', c.email), linha('E-mail para documentos', c.email_documentos), linha('Telefone', c.telefone),
+        c.observacoes ? linha('Observações', c.observacoes) : null, c.obs_comerciais ? linha('Observações comerciais', c.obs_comerciais) : null),
       h('div', { class: 'linha', style: { marginTop: '8px' } },
         h('a', { class: 'btn pequeno', href: `https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp`, target: '_blank', rel: 'noopener noreferrer', title: 'Cartão CNPJ no site da Receita Federal' }, 'Cartão CNPJ (Receita) ↗'))),
       h('div', { class: 'cartao' }, h('h2', {}, 'Responsável legal'), h('dl', { class: 'dados' },
@@ -260,6 +275,7 @@ async function empresaDetalhe(alvo, rota, est) {
         linha('Nome', c.fin_nome), linha('Cargo', c.fin_cargo),
         linha('E-mail', c.fin_email ? h('a', { href: `mailto:${c.fin_email}` }, c.fin_email) : null),
         linha('Telefone', c.fin_telefone ? h('a', { href: `tel:${c.fin_telefone.replace(/[^\d+]/g, '')}` }, c.fin_telefone) : null)))),
+    historicoDaEmpresa(c.id),
     h('div', { class: 'cartao', style: { marginTop: '14px' } },
       h('div', { class: 'linha', style: { justifyContent: 'space-between' } },
         h('h2', {}, `Certidões e validades (${documentos.length})`),
@@ -379,6 +395,6 @@ export async function vencimentos(alvo, rota, est) {
         h('td', {}, d.validade ? data(d.validade, false) : '—'),
         h('td', {}, etiquetaSit(d)),
         h('td', {}, d.tem_arquivo ? h('a', { href: `/api/clientes/${d.cliente_id}/documentos/${d.id}/arquivo`, target: '_blank', rel: 'noopener' }, '📄 abrir') : '—'))))))
-      : vazio(documentos.length ? 'Nenhuma certidão vencida ou vencendo nos próximos 30 dias. 👍' : 'Nenhuma certidão cadastrada. Vá em Empresa e envie o SICAF.'),
+      : vazio(documentos.length ? 'Nenhuma certidão vencida ou vencendo nos próximos 30 dias. 👍' : 'Nenhuma certidão cadastrada. Vá em Empresas Assessoradas e envie o SICAF.'),
     h('p', { class: 'suave pequeno', style: { marginTop: '10px' } }, `Atualizado em ${dataUtc(new Date().toISOString().slice(0, 19).replace('T', ' '))}.`));
 }

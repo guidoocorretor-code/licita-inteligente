@@ -43,6 +43,7 @@ import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
 import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
 import { dadosBusca, MAX_PDF_BUSCA } from '../services/jornal-cliente.js';
 import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, excluirEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO, dadosAssessoria, salvarDadosAssessoria } from '../services/jornal-cliente.js';
+import rotasCaptacao from './captacao.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -111,6 +112,8 @@ r.use((req, res, next) => {
   }
   next();
 });
+// Captação, Minha Empresa e documentos (proposta, contrato, procuração)
+r.use(rotasCaptacao);
 const doCliente = (req, col = 'cliente_id') => (req.clienteId ? { sql: ` AND ${col} = ?`, p: [req.clienteId] } : { sql: '', p: [] });
 
 // ---------------- Metadados ----------------
@@ -372,7 +375,7 @@ r.get('/jornal/envios/:id.pdf', (req, res) => {
 r.post('/jornal/envios/:id/email', exigirPapel('analista'), async (req, res) => {
   const d = envioDaEmpresa(req, res); if (!d) return;
   const para = String(req.body?.para || d.cliente?.resp_email || d.cliente?.email || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return erro(res, 400, 'Informe o e-mail do representante legal (Cadastro > Empresa ou no campo).');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return erro(res, 400, 'Informe o e-mail do representante legal (Cadastro > Empresas Assessoradas ou no campo).');
   if (!emailConfigurado()) return erro(res, 503, 'O e-mail do sistema ainda não foi configurado (BREVO_API_KEY). Use "Baixar PDF" e envie pelo seu e-mail ou WhatsApp.');
   const st = await enviarJornal(db(), d.envio.id, { para, urlBase: urlBaseDe(req) });
   if (st !== 'enviado') return erro(res, 502, `Não foi possível enviar: ${db().prepare('SELECT email_erro FROM jornal_envios WHERE id=?').get(d.envio.id)?.email_erro || st}`);
@@ -634,7 +637,8 @@ const clienteDaConta = (req) => db().prepare('SELECT * FROM clientes WHERE id=? 
 
 r.get('/clientes', (req, res) => res.json({ clientes: listarClientes(db(), req.usuario.empresa_id, hojeBr()), tipos: TIPOS_DOCUMENTO, portes: PORTES }));
 r.post('/clientes', exigirPapel('analista'), (req, res) => {
-  const id = criarCliente(db(), req.usuario.empresa_id, req.body || {});
+  let id;
+  try { id = criarCliente(db(), req.usuario.empresa_id, req.body || {}); } catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
   auditar(req, 'cliente_criar', 'cliente', id); res.status(201).json({ id });
 });
 r.get('/clientes/:id', (req, res) => {
@@ -643,11 +647,13 @@ r.get('/clientes/:id', (req, res) => {
   res.json({ cliente: c, documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: c.id, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO, portes: PORTES });
 });
 r.patch('/clientes/:id', exigirPapel('analista'), (req, res) => {
-  if (!atualizarCliente(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Empresa não encontrada.');
+  try { if (!atualizarCliente(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Empresa não encontrada.'); }
+  catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
   auditar(req, 'cliente_editar', 'cliente', req.params.id); res.json({ ok: true });
 });
 r.delete('/clientes/:id', exigirPapel('gestor'), (req, res) => {
-  if (!excluirCliente(db(), req.usuario.empresa_id, inteiro(req.params.id))) return erro(res, 404, 'Empresa não encontrada.');
+  try { if (!excluirCliente(db(), req.usuario.empresa_id, inteiro(req.params.id))) return erro(res, 404, 'Empresa não encontrada.'); }
+  catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
   auditar(req, 'cliente_excluir', 'cliente', req.params.id); res.json({ ok: true });
 });
 r.get('/cnpj/validar', (req, res) => res.json({ valido: !!validarCnpj(req.query.cnpj) }));

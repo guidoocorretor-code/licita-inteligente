@@ -1,6 +1,6 @@
 // Cliente da API. Cookies HttpOnly carregam a sessão; o cabeçalho X-Requested-With protege contra CSRF.
 export class ErroApi extends Error {
-  constructor(msg, status) { super(msg); this.status = status; }
+  constructor(msg, status, dados = {}) { super(msg); this.status = status; this.dados = dados; }
 }
 
 // Empresa assessorada selecionada no topo (vazio = todas). Fica só neste navegador.
@@ -27,7 +27,7 @@ export async function api(caminho, { metodo = 'GET', corpo, bruto = false } = {}
   if (bruto) return resp;
   const dados = await resp.json().catch(() => ({}));
   if (resp.status === 404 && cli && /^Empresa selecionada/.test(dados.erro || '')) { selecionarCliente(''); location.reload(); }
-  if (!resp.ok) throw new ErroApi(dados.erro || `Erro ${resp.status}`, resp.status);
+  if (!resp.ok) throw new ErroApi(dados.erro || `Erro ${resp.status}`, resp.status, dados);
   return dados;
 }
 

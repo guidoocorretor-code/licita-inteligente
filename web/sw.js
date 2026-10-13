@@ -1,7 +1,7 @@
 // Service worker: cache da "casca" do app para funcionar como PWA instalável.
 // Dados da API NUNCA são servidos do cache (evita exibir informação desatualizada como atual).
-const CACHE = 'licita-v41';
-const CASCA = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/api.js', '/js/ui.js', '/js/paginas.js', '/js/empresas.js', '/js/painel.js', '/js/fornecedores.js', '/js/tributos.js', '/js/sigilo.js', '/js/propostas.js', '/js/extenso.js', '/js/mercado.js', '/js/lances.js', '/js/robo-estrategia.js', '/js/jornal.js', '/manifest.webmanifest', '/icons/icon.svg'];
+const CACHE = 'licita-v42';
+const CASCA = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/api.js', '/js/ui.js', '/js/paginas.js', '/js/empresas.js', '/js/painel.js', '/js/fornecedores.js', '/js/tributos.js', '/js/sigilo.js', '/js/propostas.js', '/js/extenso.js', '/js/mercado.js', '/js/lances.js', '/js/robo-estrategia.js', '/js/jornal.js', '/js/captacao.js', '/manifest.webmanifest', '/icons/icon.svg'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CASCA))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))));
