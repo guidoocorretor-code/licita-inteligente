@@ -5,7 +5,7 @@ import express from 'express';
 import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
 import { getDb, transacao } from '../db/index.js';
 import { autenticar, definirCookie, limparCookie, exigirLogin, exigirPapel, auditar, criarUsuario, validarSenha, hashSenha, PAPEIS } from '../lib/auth.js';
-import { buscar, buscarTodos } from '../services/busca.js';
+import { buscar, buscarTodos, COLUNAS_LISTA } from '../services/busca.js';
 import { indicadores } from '../services/dashboard.js';
 import { STATUS, VISOES } from '../services/status.js';
 import { ESFERAS, MODALIDADES_PNCP, normalizarPncp, normalizarCompras14133 } from '../services/normalizacao.js';
@@ -29,7 +29,7 @@ import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, idsQueBatem, pendentesDeItens, normalizarFiltros,
-  resumoFiltros, funilDoPerfil, motivosDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
+  resumoFiltros, funilDoPerfil, motivosDoPerfil, itensDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, excluirCobranca, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
@@ -222,10 +222,16 @@ r.get('/jornal', (req, res) => {
       const { perfil, edicao, ids, total } = licitacoesDoPerfil(req);
       const pagina = Math.max(1, inteiro(req.query.pagina) || 1);
       const fatia = ids.slice((pagina - 1) * 30, pagina * 30);
-      const porId = new Map(fatia.length ? db().prepare(`SELECT ${COLS_LIC_JORNAL} FROM licitacoes l WHERE l.id IN (${fatia.map(() => '?').join(',')})`).all(...fatia).map((x) => [x.licitacao_id, x]) : []);
+      // Mesmas colunas do cartão de "Buscar licitações" (o jornal usa o mesmo cartão), mais as do jornal
+      const porId = new Map(fatia.length ? db().prepare(`SELECT ${COLUNAS_LISTA}, ${COLS_LIC_JORNAL} FROM licitacoes l WHERE l.id IN (${fatia.map(() => '?').join(',')})`).all(...fatia).map((x) => [x.licitacao_id, x]) : []);
       const motivos = motivosDoPerfil(db(), perfil.filtros, fatia);
+      const itensBatem = itensDoPerfil(db(), perfil.filtros, fatia);
       const dados = fatia.map((id) => porId.get(id)).filter(Boolean)
-        .map((x) => ({ ...x, motivos: motivos.get(x.licitacao_id) || [], tipo: edicao === 'todas' ? 'aberta' : 'nova', descricao: x.modalidade_nome || 'Modalidade não informada', sistema: sistemaDaLicitacao(x) }));
+        .map((x) => {
+          const it = itensBatem.get(x.licitacao_id);
+          return { ...x, motivos: motivos.get(x.licitacao_id) || [], tipo: edicao === 'todas' ? 'aberta' : 'nova', descricao: x.modalidade_nome || 'Modalidade não informada', sistema: sistemaDaLicitacao(x),
+            ...(it ? { itens_encontrados: it.itens, itens_encontrados_total: it.total } : {}) };
+        });
       return res.json({ total: ids.length, total_bateram: total, pagina, paginas: Math.ceil(ids.length / 30), dados, edicao });
     } catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro ao abrir o jornal.'); }
   }

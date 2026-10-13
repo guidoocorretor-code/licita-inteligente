@@ -3,6 +3,7 @@
 // link em que ele marca as licitações de interesse; a resposta volta como alerta e favorito).
 import { api, qs, clienteSelecionado } from './api.js';
 import { h, render, toast, carregando, vazio, dataUtc, modal, paginacao } from './ui.js';
+import { linhaLicitacao, enviarAoKanban } from './paginas.js';
 
 const TIPOS_EVENTO = { nova: 'Nova no jornal', aberta: 'Aberta', publicacao: 'Nova publicação', alteracao: 'Alteração/retificação', situacao: 'Mudança de situação', documento: 'Novo documento', resultado: 'Resultado/homologação', item: 'Item' };
 // Até 4 casas: o órgão publica valor unitário com 4 casas (ex.: R$ 139,0815) e o lance aceita 0,0001; arredondar a 2 mostra valor errado
@@ -183,6 +184,18 @@ export async function jornal(alvo, rota, est) {
   render(lista, ...r.dados.map((e) => {
     const cx = h('input', { type: 'checkbox', class: 'marca-jornal', 'aria-label': 'Incluir no jornal', onchange: () => { if (cx.checked) sel.add(e.licitacao_id); else sel.delete(e.licitacao_id); atualizar(); } });
     cx.dataset.id = e.licitacao_id; caixas.push(cx);
+    if (f.perfil) {
+      // Mesmo cartão de "Buscar licitações", com a marcação para o jornal em cima e o "Entrou por" antes do rodapé
+      const motivo = h('div', { class: 'motivo-jornal motivo-cartao pequeno' },
+        h('b', {}, 'Entrou por: '), e.motivos?.length ? e.motivos.join(' · ') : 'filtros de local, modalidade e valor',
+        h('span', { class: 'suave' }, ' · Itens e edital: '),
+        e.detalhes_sincronizados_em ? `${e.qtd_itens} item(ns), ${e.qtd_documentos} arquivo(s)` : h('span', { title: 'O sistema baixa do PNCP aos poucos; ao abrir a licitação ele busca na hora' }, 'ainda não baixados do PNCP'));
+      return h('div', { class: 'jornal-cartao' },
+        h('label', { class: 'marca-cartao pequeno' }, cx, ' Incluir no jornal',
+          h('span', { class: 'etiqueta azul' }, TIPOS_EVENTO[e.tipo] || e.tipo),
+          h('span', { class: 'suave', title: 'Quando entrou no sistema' }, `Entrou no sistema em ${dataUtc(e.detectado_em)}`)),
+        linhaLicitacao(e, est, { aoKanban: est.usuario.papel !== 'leitor' ? (x) => enviarAoKanban(x, est) : null, rotuloItens: 'Itens com as palavras do jornal', extra: motivo }));
+    }
     const s = e.sistema;
     return h('div', { class: 'evento evento-jornal' },
       h('div', { class: 'quando' }, cx, h('div', {}, f.perfil ? h('span', { title: 'Quando entrou no sistema' }, dataUtc(e.detectado_em)) : dataUtc(e.detectado_em))),
