@@ -163,6 +163,25 @@ function fraseModalidade(nome = '') {
   return 'Modalidade informada pelo órgão no PNCP.';
 }
 
+// Descritivo abaixo do objeto, só com texto da fonte (nada gerado): os itens que batem com a busca, senão a
+// informação complementar publicada pelo órgão; sem nenhum dos dois, diz que o órgão não publicou.
+function descritivoLic(l, itens) {
+  const total = l.itens_encontrados_total || itens.length;
+  if (itens.length) {
+    return h('div', { class: 'descritivo-lic' },
+      h('span', { class: 'rot-desc' }, `🔎 Itens com as palavras buscadas (${total}${l.num_itens ? ` de ${l.num_itens} no edital` : ''})`),
+      h('ul', {}, itens.map((i) => h('li', { title: i.descricao || '' }, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)'))),
+      total > itens.length ? h('small', { class: 'suave' }, `e mais ${total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null);
+  }
+  const comp = (l.informacao_complementar || '').trim();
+  if (comp) {
+    return h('div', { class: 'descritivo-lic' },
+      h('span', { class: 'rot-desc' }, 'Informação complementar do órgão'),
+      h('p', { class: 'texto-desc', title: comp }, comp));
+  }
+  return h('div', { class: 'descritivo-lic sem-desc' }, h('small', { class: 'suave' }, 'O órgão não publicou descrição complementar. Veja os itens e o edital no detalhe da licitação.'));
+}
+
 // Cartão da licitação na lista de busca, no padrão do modelo do Guido: faixa (modalidade, nº, UASG/órgão, valor),
 // objeto + resumo, cinco blocos coloridos, aviso do sistema e rodapé com etiquetas e botões.
 // Só mostra o que a fonte informou: UASG só no Compras.gov.br; sem nota CAPAG fica "Sem nota".
@@ -171,7 +190,6 @@ function linhaLicitacao(l, est, { aoKanban } = {}) {
   const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
   const urgente = diasRestantes !== null && diasRestantes > 0 && diasRestantes <= 3;
   const itens = l.itens_encontrados || [];
-  const resumoItem = (i) => h('li', {}, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)');
   const id = identificacaoGoverno(l);
   const dest = destinoDisputa(l);
   const cidade = [l.municipio, l.uf].filter(Boolean).join(' / ');
@@ -182,7 +200,6 @@ function linhaLicitacao(l, est, { aoKanban } = {}) {
   const sistema = () => nomeSistema(l, est.meta);
   const capag = l.esfera === 'F' ? 'Federal' : l.capag ? `CAPAG ${l.capag}` : 'Sem nota';
   const fraseCapag = l.esfera === 'F' ? 'Órgão federal: a CAPAG não se aplica.' : l.capag ? `Capacidade de pagamento ${PALAVRA_CAPAG[l.capag[0]].toLowerCase()} (Tesouro Nacional).` : 'Ente sem nota CAPAG publicada.';
-  const mini = (icone, cor, rotulo, valor) => h('div', { class: 'mini-lic' }, iconeLic(icone, cor), h('div', {}, h('span', { class: 'rot-lic' }, rotulo), h('b', {}, valor)));
   const bloco = (icone, cor, rotulo, valor, frase, extra = {}) => h('div', { class: `bloco-lic ${cor}`, title: extra.title || '' },
     iconeLic(icone, cor), h('div', { class: 'bloco-texto' }, h('span', { class: 'rot-lic' }, rotulo), h('b', { class: 'valor-bloco' }, valor), h('small', {}, frase)));
   const s = sistemaInfo(l, est.meta);
@@ -200,19 +217,10 @@ function linhaLicitacao(l, est, { aoKanban } = {}) {
         h('div', {}, h('span', { class: 'rot' }, 'Valor estimado do edital'), h('strong', {}, moeda(l.valor_estimado, l.valor_estimado_situacao))))),
     h('div', { class: 'meio-lic' },
       h('div', { class: 'objeto-box' }, iconeLic('documento', 'azul-escuro'),
-        h('div', {},
+        h('div', { class: 'objeto-conteudo' },
+          h('span', { class: 'rot-lic' }, 'Objeto da contratação'),
           h('a', { class: 'objeto-lic', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
-          itens.length ? h('details', { class: 'itens-achados' },
-            h('summary', {}, h('strong', {}, `🔎 Encontrado em ${l.itens_encontrados_total || itens.length} item(ns)`),
-              h('span', { class: 'previa' }, ` · Item ${itens[0].numero_item}: ${itens[0].descricao || '(sem descrição)'}`)),
-            h('ul', {}, itens.map(resumoItem)),
-            l.itens_encontrados_total > itens.length ? h('div', { class: 'suave pequeno' }, `e mais ${l.itens_encontrados_total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null) : null)),
-      h('div', { class: 'resumo-lic' },
-        mini('martelo', 'azul-escuro', 'Modalidade', modalidade),
-        mini('megafone', 'verde', 'Publicação', publicacao()),
-        mini('calendario', 'vermelho', 'Propostas até', propostas),
-        mini('monitor', 'azul', 'Sistema eletrônico', sistema()),
-        mini('cartao', 'roxo', 'Pagômetro', capag))),
+          descritivoLic(l, itens)))),
     h('div', { class: 'blocos-lic' },
       bloco('martelo', 'azul-escuro', 'Modalidade', modalidade, fraseModalidade(l.modalidade_nome || '')),
       bloco('megafone', 'verde', 'Publicação', publicacao(), 'Edital publicado no PNCP.'),

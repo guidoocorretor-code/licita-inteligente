@@ -155,7 +155,7 @@ export const COLUNAS_LISTA = `l.id, l.numero_controle_pncp, l.numero_compra, l.a
   l.uf, l.municipio, l.modalidade_nome, l.objeto, l.segmento, l.valor_estimado, l.valor_estimado_situacao, l.valor_homologado,
   l.data_publicacao, l.data_abertura_proposta, l.data_encerramento_proposta, l.status_calculado, l.status_motivo,
   l.situacao_oficial_nome, l.plataforma_origem, l.sistema_eletronico, l.link_origem, l.link_pncp, l.ultima_verificacao, l.me_epp_exclusivo,
-  l.num_itens, l.tem_documentos, l.regime_legal, l.criterio_julgamento, l.modo_disputa_nome, l.srp, l.codigo_ibge,
+  l.num_itens, l.tem_documentos, substr(l.informacao_complementar, 1, 600) AS informacao_complementar, l.regime_legal, l.criterio_julgamento, l.modo_disputa_nome, l.srp, l.codigo_ibge,
   ${SQL_CAPAG_LIC} AS capag, CASE WHEN ${SQL_CREDENCIAMENTO} THEN 1 ELSE 0 END AS credenciamento,
   (SELECT group_concat(fonte_codigo) FROM licitacao_fontes lf WHERE lf.licitacao_id = l.id) AS fontes`;
 
