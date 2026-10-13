@@ -397,7 +397,7 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
   const COLS_ITENS = [['Número', 34, ''], ['Descrição', 203, ''], ['Quantidade', 62, 'r'], ['Valor unitário estimado', 76, 'r'], ['Valor total estimado', 84, 'r']];
   const celulas = (i) => [String(i.numero_item ?? ''), i.descricao || '(sem descrição)', i.quantidade != null ? QTD.format(i.quantidade) : 'Não informado',
     i.valor_unitario_estimado != null ? BRL.format(i.valor_unitario_estimado) : 'Não informado', i.valor_total_estimado != null ? BRL.format(i.valor_total_estimado) : 'Não informado'];
-  const MAX_LINHAS_DESC = 4;
+  const MAX_LINHAS_DESC = 2; // enxuto: detalhes no "Ver resumo do edital" ou no PNCP
   const altLinha = (i) => pdf.linhasDe(i.descricao || '(sem descrição)', 7, false, COLS_ITENS[1][1] - 6, MAX_LINHAS_DESC) * 8.6 + 6;
   const tituloItens = (c) => (c.tipo === 'filtro' ? `ITENS COM AS PALAVRAS DO JORNAL (${c.total} de ${c.no_edital} no edital)`
     : c.tipo === 'primeiros' ? `ITENS DO EDITAL (${c.itens.length < c.total ? `primeiros ${c.itens.length} de ${c.total}` : c.total})`
