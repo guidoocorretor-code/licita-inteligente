@@ -672,3 +672,52 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .busca-avancada > summary::-webkit-details-marker { display: none; }
 .busca-avancada > summary::before { content: '▸'; font-size: .9rem; }
 .busca-avancada[open] > summary::before { content: '▾'; }
+/* Cartão da licitação na busca: faixa escura (modalidade, número, órgão, valor) + dados com ícone + ações */
+.cartao-lic { background: var(--superficie); border: 1px solid var(--borda); border-radius: 12px; box-shadow: var(--sombra); overflow: hidden; }
+.topo-lic { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 20px; align-items: center; padding: 12px 16px;
+  background: linear-gradient(100deg, #0b2f57, var(--cor-primaria)); color: #fff; }
+.id-lic { display: flex; flex-direction: column; gap: 2px; padding-right: 20px; border-right: 1px solid rgba(255,255,255,.25); }
+.modalidade-lic { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #b9d2f0; font-weight: 600; }
+.numero-lic { font-size: 1.15rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+.topo-lic .copiar { display: inline-flex; align-items: center; gap: 5px; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); color: #fff;
+  border-radius: 6px; padding: 1px 7px; cursor: pointer; font: inherit; }
+.topo-lic .copiar:hover { background: rgba(255,255,255,.18); }
+.topo-lic .icone-copiar { font-size: .75rem; }
+.orgao-lic { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.uasg-lic { font-size: .8rem; font-weight: 600; color: #b9d2f0; display: inline-flex; align-items: center; gap: 4px; }
+.nome-orgao { font-weight: 600; text-transform: uppercase; font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.local-lic { font-size: .8rem; color: #d6e4f5; }
+.valor-lic { display: flex; flex-direction: column; align-items: flex-end; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 6px 14px; }
+.valor-lic .rotulo { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: #b9d2f0; font-weight: 600; }
+.valor-lic strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.corpo-cartao-lic { padding: 12px 16px; display: grid; gap: 10px; }
+.objeto-lic { color: var(--texto); text-decoration: none; font-weight: 500; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.objeto-lic:hover { color: var(--cor-primaria); text-decoration: underline; }
+.dados-lic { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dado-lic { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--borda); background: var(--fundo); min-width: 0; }
+.icone-dado { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 1rem; }
+.texto-dado { display: flex; flex-direction: column; min-width: 0; }
+.texto-dado .rotulo { font-size: .66rem; text-transform: uppercase; letter-spacing: .05em; color: var(--texto-suave); font-weight: 700; }
+.texto-dado .valor { font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
+.dado-lic.verde .icone-dado { background: var(--ok-fundo); }
+.dado-lic.rosa .icone-dado { background: #fdecef; }
+.dado-lic.vermelho .icone-dado { background: var(--perigo-fundo); }
+.dado-lic.azul .icone-dado { background: var(--info-fundo); }
+.dado-lic.roxo .icone-dado { background: #f1eafd; }
+.dado-lic.urgente { border-color: var(--perigo); background: var(--perigo-fundo); }
+.dado-lic.urgente .valor { color: var(--perigo); }
+.dado-lic.capag-a { border-left: 3px solid var(--ok); }
+.dado-lic.capag-c { border-left: 3px solid var(--alerta); }
+.dado-lic.capag-d { border-left: 3px solid var(--perigo); background: var(--perigo-fundo); }
+.cartao-lic .aviso-sistema { margin: 0; }
+.acoes-lic { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--borda); background: #fafbfc; }
+@media (max-width: 900px) { .dados-lic { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .topo-lic { grid-template-columns: 1fr auto; }
+  .id-lic { border-right: 0; padding-right: 0; }
+  .orgao-lic { grid-column: 1 / -1; order: 3; }
+  .valor-lic strong { font-size: 1.05rem; }
+  .acoes-lic { justify-content: flex-start; }
+}
+.topo-lic .valor-copiar { white-space: nowrap; }
+@media (max-width: 420px) { .dado-lic { padding: 6px 8px; gap: 8px; } .icone-dado { width: 28px; height: 28px; font-size: .85rem; } .numero-lic { font-size: 1rem; } }

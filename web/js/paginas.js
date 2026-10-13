@@ -1,7 +1,7 @@
 import { api, qs, clienteSelecionado } from './api.js';
 import {
   h, moeda, numero, data, dataOuNao, dataUtc, prazoRestante, etiquetaStatus, toast, carregando, erroBox, vazio,
-  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render, faixaGoverno, paginacao } from './ui.js';
+  confirmar, modal, barras, rosca, moedaCurta, naoInformado, render, faixaGoverno, paginacao, identificacaoGoverno, destinoDisputa, botaoCopiar } from './ui.js';
 import { painelEmpresas, painelFornecedores, abasDashboard } from './painel.js';
 import { blocoRelatorio } from './mercado.js';
 
@@ -131,44 +131,60 @@ function seloCredenciamento(l) {
     dias != null && dias > 60 ? 'Credenciamento · prazo longo' : 'Credenciamento');
 }
 
+// Cartão da licitação na lista de busca: faixa escura com modalidade, número e valor; objeto; 4 dados com ícone; ações.
+// Só mostra o que a fonte informou: sem UASG fora do Compras.gov.br, sem textos explicativos repetidos em cada cartão.
 function linhaLicitacao(l, est, { aoKanban } = {}) {
   const prazo = prazoRestante(l.data_encerramento_proposta);
   const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
   const urgente = diasRestantes !== null && diasRestantes > 0 && diasRestantes <= 3;
   const itens = l.itens_encontrados || [];
   const resumoItem = (i) => h('li', {}, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)');
-  return h('div', { class: 'cartao item-lic' },
-    h('div', { class: 'corpo-lic' },
-      h('a', { class: 'objeto', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
-      h('div', { class: 'orgao-local' },
-        h('span', { class: 'orgao' }, '🏛 ', l.orgao_nome || naoInformado()),
-        h('span', { class: 'local' }, '📍 ', [l.municipio, l.uf].filter(Boolean).join(' / ') || naoInformado())),
-      faixaGoverno(l, { compacta: true }),
-      h('div', { class: 'ficha' },
-        campoFicha('Modalidade', l.modalidade_nome || naoInformado()),
-        campoFicha('Publicação', dataOuNao(l.data_publicacao, false)),
-        campoFicha('Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : 'destaque' }),
-        campoFicha('Sistema eletrônico', nomeSistema(l, est.meta), { classe: classeSistema(l, est.meta), title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
-        campoFicha('Pagômetro', l.esfera === 'F' ? h('span', { class: 'suave' }, 'Federal (sem CAPAG)') : l.capag
+  const id = identificacaoGoverno(l);
+  const dest = destinoDisputa(l);
+  const local = [l.municipio, l.uf].filter(Boolean).join(' / ');
+  const dado = (icone, cor, rotulo, valor, extra = {}) => h('div', { class: `dado-lic ${cor}${extra.classe ? ' ' + extra.classe : ''}`, title: extra.title || '' },
+    h('span', { class: 'icone-dado', 'aria-hidden': 'true' }, icone),
+    h('span', { class: 'texto-dado' }, h('span', { class: 'rotulo' }, rotulo), h('span', { class: 'valor' }, valor)));
+  return h('article', { class: 'cartao-lic' },
+    h('header', { class: 'topo-lic' },
+      h('div', { class: 'id-lic' },
+        h('span', { class: 'modalidade-lic' }, l.modalidade_nome || 'Modalidade não informada'),
+        id.numero ? h('span', { class: 'numero-lic' }, 'Nº ', botaoCopiar(id.numero, 'Número')) : null),
+      h('div', { class: 'orgao-lic' },
+        id.uasg ? h('span', { class: 'uasg-lic' }, 'UASG ', botaoCopiar(id.uasg, 'UASG')) : null,
+        h('span', { class: 'nome-orgao', title: l.orgao_nome || '' }, l.orgao_nome || 'Órgão não informado'),
+        local ? h('span', { class: 'local-lic' }, local) : null),
+      h('div', { class: 'valor-lic', title: l.valor_estimado === 0 ? 'A fonte informou valor estimado zero (comum quando o orçamento é sigiloso).' : '' },
+        h('span', { class: 'rotulo' }, 'Valor estimado'),
+        h('strong', {}, moeda(l.valor_estimado, l.valor_estimado_situacao)),
+        l.valor_estimado === 0 ? h('span', { class: 'pequeno' }, '(zero na fonte)') : null)),
+    h('div', { class: 'corpo-cartao-lic' },
+      h('div', { class: 'linha etiquetas-lic' },
+        etiquetaStatus(l.status_calculado, est.meta, l.status_motivo),
+        prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela'), title: 'Tempo restante para envio de propostas' }, `⏱ faltam ${prazo}`) : null,
+        l.credenciamento === 1 ? seloCredenciamento(l) : null,
+        l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
+        l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null),
+      h('a', { class: 'objeto-lic', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
+      h('div', { class: 'dados-lic' },
+        dado('📅', 'verde', 'Publicação', dataOuNao(l.data_publicacao, false)),
+        dado('⏰', urgente ? 'vermelho' : 'rosa', 'Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : '' }),
+        dado('🖥', 'azul', 'Sistema eletrônico', nomeSistema(l, est.meta), { title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
+        dado('🏛', 'roxo', 'Pagômetro', l.esfera === 'F' ? h('span', { class: 'suave' }, 'Federal (sem CAPAG)') : l.capag
           ? h('span', { class: 'capag-curta' }, seloCapag(l.capag), h('span', { class: 'capag-palavra' }, PALAVRA_CAPAG[l.capag[0]])) : seloCapag(null, { longo: true }),
           { classe: l.capag ? `capag-${l.capag[0].toLowerCase()}` : '', title: l.capag ? `Nota CAPAG ${l.capag}: ${textoNotaCapag[l.capag[0]]}. Fonte: Tesouro Nacional.` : 'Sem nota CAPAG' })),
       avisoSistema(l, est.meta),
-      (l.segmento || l.me_epp_exclusivo === 1 || l.credenciamento === 1) ? h('div', { class: 'linha etiquetas-lic' },
-        l.credenciamento === 1 ? seloCredenciamento(l) : null,
-        l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
-        l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null) : null,
       itens.length ? h('details', { class: 'itens-achados' },
         h('summary', {}, h('strong', {}, `🔎 Encontrado em ${l.itens_encontrados_total || itens.length} item(ns)`),
           h('span', { class: 'previa' }, ` · Item ${itens[0].numero_item}: ${itens[0].descricao || '(sem descrição)'}`)),
         h('ul', {}, itens.map(resumoItem)),
         l.itens_encontrados_total > itens.length ? h('div', { class: 'suave pequeno' }, `e mais ${l.itens_encontrados_total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null) : null),
-    h('div', { class: 'lado' },
-      etiquetaStatus(l.status_calculado, est.meta, l.status_motivo),
-      h('span', { class: 'valor-grande', title: l.valor_estimado === 0 ? 'A fonte informou valor estimado zero (comum quando o orçamento é sigiloso).' : '' }, moeda(l.valor_estimado, l.valor_estimado_situacao), l.valor_estimado === 0 ? h('span', { class: 'suave pequeno' }, ' (zero na fonte)') : null),
-      prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela'), title: 'Tempo restante para envio de propostas' }, `⏱ faltam ${prazo}`) : null,
-      h('div', { class: 'linha' },
-        aoKanban ? h('button', { class: 'btn pequeno', title: 'Subir para o Kanban (entra na primeira etapa)', onclick: () => aoKanban(l) }, '+ Kanban') : null,
-        l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null)));
+    h('footer', { class: 'acoes-lic' },
+      h('a', { class: 'btn pequeno', href: `#/licitacao/${l.id}` }, 'Ver detalhes'),
+      dest.url ? h('a', { class: 'btn pequeno', href: dest.url, target: '_blank', rel: 'noopener noreferrer', title: dest.direto ? 'Abre o processo no sistema de origem' : `Abre a página do ${dest.nome}` },
+        dest.direto ? 'Sistema da disputa ↗' : `${dest.nome} ↗`) : null,
+      l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null,
+      aoKanban ? h('button', { class: 'btn pequeno primario', title: 'Subir para o Kanban (entra na primeira etapa)', onclick: () => aoKanban(l) }, '+ Kanban') : null));
 }
 
 // A busca nos itens só alcança licitações cujos itens já foram baixados do PNCP: dizer isso, sem esconder
