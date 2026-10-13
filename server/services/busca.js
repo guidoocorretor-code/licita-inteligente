@@ -219,3 +219,23 @@ export function buscarTodos(db, f = {}, limite = 10000) {
   const ordem = ORDENACOES[f.ordenar] || ORDENACOES.publicacao_desc;
   return db.prepare(`SELECT ${COLUNAS_LISTA} FROM licitacoes l ${where} ORDER BY ${ordem} LIMIT ?`).all(...params, limite);
 }
+
+// Filtros que não restringem o resultado (paginação, ordenação, tamanho da página)
+const NAO_FILTRAM = new Set(['pagina', 'tamanho', 'ordenar', 'formato']);
+
+/**
+ * Para busca com poucos resultados: quantas viriam sem cada filtro em uso.
+ * Mostra ao usuário qual filtro está "segurando" o resultado (ex.: Sistema eletrônico = Compras.gov.br).
+ */
+export function semCadaFiltro(db, f = {}, { agora } = {}) {
+  const out = {};
+  const ativos = Object.keys(f).filter((k) => !NAO_FILTRAM.has(k) && f[k] != null && f[k] !== '' && f[k] !== 'todas');
+  for (const k of ativos.slice(0, 15)) {
+    const g = { ...f }; delete g[k];
+    try {
+      const { where, params } = montarFiltro(g, agora);
+      out[k] = db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n;
+    } catch { /* filtro inválido: não informa */ }
+  }
+  return out;
+}

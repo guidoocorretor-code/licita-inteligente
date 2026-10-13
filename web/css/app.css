@@ -779,3 +779,5 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .multi-lista { position: absolute; z-index: 20; left: 0; right: 0; min-width: 220px; max-height: 280px; overflow: auto; margin-top: 4px; padding: 6px; background: var(--cartao, #fff); border: 1px solid var(--borda); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
 .multi-lista label { display: flex; align-items: center; gap: 6px; padding: 5px 4px; font-weight: normal; cursor: pointer; }
 .multi-lista label:hover { background: var(--fundo, #f4f6f8); }
+.filtros-em-uso .linha { flex-wrap: wrap; gap: 6px; align-items: center; }
+.filtros-em-uso ul { margin: 4px 0 0 18px; padding: 0; }

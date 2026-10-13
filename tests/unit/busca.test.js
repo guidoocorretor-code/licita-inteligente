@@ -144,3 +144,11 @@ test('Grande Vitória, várias modalidades e tipo de disputa', () => {
   assert.equal(buscar(db, { modo_disputa: 'Dispensa Com Disputa' }).total, 1);
   assert.equal(buscar(db, { modo_disputa: 'Qualquer coisa' }).total, 5);    // valor fora da lista é ignorado
 });
+
+test('poucos resultados: quantas viriam sem cada filtro', async () => {
+  const { semCadaFiltro } = await import('../../server/services/busca.js');
+  const db = bancoMemoria(); popular(db);
+  const f = { uf: 'ES', municipio: 'Vila Velha', ordenar: 'valor_desc', pagina: '2' };
+  assert.equal(buscar(db, f).total, 1);
+  assert.deepEqual(semCadaFiltro(db, f), { uf: 1, municipio: 3 });   // paginação e ordenação não contam
+});

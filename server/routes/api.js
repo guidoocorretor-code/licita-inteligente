@@ -5,7 +5,7 @@ import express from 'express';
 import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
 import { getDb, transacao } from '../db/index.js';
 import { autenticar, definirCookie, limparCookie, exigirLogin, exigirPapel, auditar, criarUsuario, validarSenha, hashSenha, PAPEIS } from '../lib/auth.js';
-import { buscar, buscarTodos, COLUNAS_LISTA, marcarItensEncontrados, termos } from '../services/busca.js';
+import { buscar, buscarTodos, COLUNAS_LISTA, semCadaFiltro, marcarItensEncontrados, termos } from '../services/busca.js';
 import { indicadores } from '../services/dashboard.js';
 import { STATUS, VISOES } from '../services/status.js';
 import { ESFERAS, MODALIDADES_PNCP, normalizarPncp, normalizarCompras14133 } from '../services/normalizacao.js';
@@ -126,7 +126,12 @@ r.get('/dashboard', (req, res) => res.json({ ...indicadores(db(), { usuarioId: r
 
 // ---------------- Busca e licitações ----------------
 r.get('/licitacoes', (req, res) => {
-  try { res.json(buscar(db(), req.query)); } catch (e) { erro(res, 400, `Filtro inválido: ${e.message}`); }
+  try {
+    const r = buscar(db(), req.query);
+    // Poucos resultados: diz quantos viriam sem cada filtro, para achar o que está restringindo demais
+    if (r.total <= 5) r.sem_filtro = semCadaFiltro(db(), req.query);
+    res.json(r);
+  } catch (e) { erro(res, 400, `Filtro inválido: ${e.message}`); }
 });
 
 // Confere a busca com o site do PNCP (mesma palavra e UF) e importa o que faltar

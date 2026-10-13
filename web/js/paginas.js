@@ -426,6 +426,31 @@ export async function buscar(alvo, rota, est) {
     finally { btnConferir.disabled = false; }
   }
 
+  // Filtros em uso, à vista de quem lê o resultado (os da Busca avançada ficavam escondidos e seguravam a lista).
+  // Com poucos resultados, o servidor diz quantas viriam sem cada filtro.
+  const NAO_FILTRAM = ['pagina', 'tamanho', 'ordenar', 'formato'];
+  function rotuloFiltro(k) {
+    const el = campos[k];
+    const rot = el?.closest('div')?.querySelector('label')?.textContent || k;
+    let val = filtros[k];
+    if (el?.tagName === 'SELECT') val = el.selectedOptions[0]?.textContent || val;
+    else if (el?.tagName === 'DETAILS') val = el.querySelector('summary')?.textContent || val;
+    return `${rot}: ${String(val).replace(/\s*\(\d[\d.]*\)$/, '')}`;
+  }
+  function filtrosEmUso(semFiltro, total = 0) {
+    const ativos = Object.keys(filtros).filter((k) => !NAO_FILTRAM.includes(k) && filtros[k] !== '' && filtros[k] !== 'todas');
+    if (!ativos.length) return null;
+    const tirar = (k) => { const f = { ...filtros, pagina: 1 }; delete f[k]; if (k === 'visao') f.visao = 'todas'; location.hash = `#/buscar${qs(f)}`; };
+    const dicas = semFiltro ? ativos.filter((k) => semFiltro[k] > total).sort((a, b) => semFiltro[b] - semFiltro[a]) : [];
+    return h('div', { class: 'cartao filtros-em-uso' },
+      h('div', { class: 'linha' }, h('strong', { class: 'pequeno' }, 'Filtros em uso:'),
+        ativos.map((k) => h('button', { class: 'btn pequeno', type: 'button', title: 'Tirar este filtro', onclick: () => tirar(k) }, rotuloFiltro(k), ' ✕'))),
+      dicas.length ? h('div', { class: 'pequeno', style: { marginTop: '8px' } },
+        h('div', {}, 'Poucos resultados. Veja quantas viriam tirando um filtro:'),
+        h('ul', {}, dicas.map((k) => h('li', {}, `Sem "${rotuloFiltro(k)}": ${numero(semFiltro[k])} licitação(ões) `,
+          h('a', { href: '#', onclick: (e) => { e.preventDefault(); tirar(k); } }, 'tirar este filtro'))))) : null);
+  }
+
   const lista = h('div', { class: 'resultado' }, carregando());
   const pesquisas = h('div', { class: 'linha', style: { margin: '10px 0' } });
   render(alvo, cabecalho('Buscar licitações', 'Pesquisa em todas as fontes habilitadas, sem duplicidades.'), form, pesquisas, conferencia, lista);
@@ -445,8 +470,9 @@ export async function buscar(alvo, rota, est) {
   try {
     const res = await api(`/licitacoes${qs({ ...filtros, tamanho: 20 })}`);
     const aviso = avisoCoberturaItens(res.cobertura_itens, filtros);
-    if (!res.total) { render(lista, aviso, vazio(`Nenhuma licitação encontrada com esses filtros (situação: ${situacao}).`)); return; }
-    render(lista, aviso,
+    const emUsoBox = filtrosEmUso(res.sem_filtro, res.total);
+    if (!res.total) { render(lista, emUsoBox, aviso, vazio(`Nenhuma licitação encontrada com esses filtros (situação: ${situacao}).`)); return; }
+    render(lista, emUsoBox, aviso,
       h('div', { class: 'suave pequeno' }, `${numero(res.total)} licitação(ões) encontrada(s) · situação: ${situacao}`),
       ...res.dados.map((l) => linhaLicitacao(l, est, { aoKanban: podeEditar(est) ? (x) => enviarAoKanban(x, est) : null })),
       paginacao(res.pagina, res.paginas, (pagina) => aplicar({ pagina })));
