@@ -174,6 +174,26 @@ export function dadosEnvio(db, envioId) {
 }
 
 const MAX_ITENS_CARD = 5;
+export const MAX_PDF_BUSCA = 200;
+
+/** Dados do PDF do resultado da busca: os mesmos cartões do jornal; itens = os que têm as palavras buscadas. */
+export function dadosBusca(db, lics, { empresaId, usuarioId, itensEncontrados = new Map(), agora = new Date() } = {}) {
+  const emp = empresaId ? db.prepare('SELECT nome, cnpj, email_contato FROM empresas WHERE id=?').get(empresaId) : null;
+  const u = usuarioId ? db.prepare('SELECT nome, email FROM usuarios WHERE id=?').get(usuarioId) : null;
+  const cols = 'numero_item, descricao, quantidade, unidade_medida, valor_unitario_estimado, valor_total_estimado';
+  const escolhidos = db.prepare(`SELECT ${cols} FROM licitacao_itens WHERE licitacao_id=? AND numero_item IN (SELECT value FROM json_each(?)) ORDER BY numero_item`);
+  const total = db.prepare('SELECT COUNT(*) n FROM licitacao_itens WHERE licitacao_id=?');
+  const base = comItens(db, ordenarPorCidade(ordenarPorPrazo(cartoes(db, lics.map((l) => l.id))), []));
+  const itens = base.map((l) => {
+    const e = itensEncontrados.get(l.id);
+    if (!e || !e.itens.length) return l;
+    return { ...l, itens_card: { tipo: 'filtro', itens: escolhidos.all(l.id, JSON.stringify(e.itens.map((i) => i.numero_item))), total: e.total, no_edital: total.get(l.id).n } };
+  });
+  return {
+    envio: { criado_em: agora.toISOString() }, token: null, cliente: null, itens,
+    assessoria: { nome: emp?.nome || null, cnpj: emp?.cnpj || null, responsavel: u?.nome || null, email: emp?.email_contato || u?.email || null },
+  };
+}
 /**
  * Itens de cada licitação para o card: os que batem com os produtos/itens do jornal salvo (quando a seleção veio
  * de um); sem isso, os primeiros do edital. Só texto da fonte; sem itens baixados, diz isso.
@@ -347,10 +367,16 @@ export function excluirEnvios(db, empresaId, ids) {
 const AZUL = [0.06, 0.24, 0.43]; const CINZA = [0.38, 0.4, 0.44];
 
 /** PDF do jornal: cabeçalho com os dados da empresa; cada licitação leva link para o resumo e para o PNCP. */
-export function pdfJornal(d, { urlBase = '' } = {}) {
+// O mesmo PDF serve para o jornal e para o resultado de "Buscar licitações" (opções "busca": textos próprios,
+// sem "Tenho interesse" porque não há página de resposta).
+export function pdfJornal(d, { urlBase = '', busca = null } = {}) {
+  const T = busca ? { selo: 'RESULTADO DA BUSCA', chamada: 'Licitações encontradas', edicao: 'Gerado em', kpi1: ['licitação encontrada', 'licitações encontradas'],
+    itens: 'PALAVRAS BUSCADAS', nome: 'Busca de licitações' }
+    : { selo: 'JORNAL DE LICITAÇÕES', chamada: 'Oportunidades para vender ao governo', edicao: 'Edição de', kpi1: ['oportunidade selecionada', 'oportunidades selecionadas'],
+      itens: 'PALAVRAS DO JORNAL', nome: 'Jornal de licitações' };
   // Margem estreita (24 pt ≈ 8,5 mm): o empresário imprime gastando menos papel
   const pdf = criarPdf({ margem: 24 });
-  const pagina = urlBase ? `${urlBase.replace(/\/$/, '')}/j/${d.token}` : null;
+  const pagina = urlBase && d.token ? `${urlBase.replace(/\/$/, '')}/j/${d.token}` : null;
   const c = d.cliente; const a = d.assessoria;
   const nomeCli = c ? (c.nome_fantasia || c.razao_social) : null;
   const BRANCO = [1, 1, 1]; const AZUL2 = [0.12, 0.37, 0.64]; const CLARO = [0.93, 0.96, 0.98]; const LINHA = [0.84, 0.88, 0.92];
@@ -366,19 +392,20 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
   // Capa
   pdf.bloco(78, (t) => {
     t.ret(0 + t.x, 0, t.largura, 78, { cor: AZUL, raio: 8 });
-    t.txt('JORNAL DE LICITAÇÕES', t.x + 16, 12, { tam: 8, negrito: true, cor: [0.75, 0.84, 0.95] });
-    t.txt('Oportunidades para vender ao governo', t.x + 16, 25, { tam: 17, negrito: true, cor: BRANCO, maxW: t.largura - 150 });
+    t.txt(T.selo, t.x + 16, 12, { tam: 8, negrito: true, cor: [0.75, 0.84, 0.95] });
+    t.txt(T.chamada, t.x + 16, 25, { tam: 17, negrito: true, cor: BRANCO, maxW: t.largura - 150 });
     if (nomeCli) t.txt(`Selecionadas para ${nomeCli}`, t.x + 16, 52, { tam: 10.5, cor: BRANCO, maxW: t.largura - 150, max: 1 });
-    t.txt(`Edição de ${dataBr(d.envio.criado_em.slice(0, 10))}`, t.x + t.largura - 146, 52, { tam: 8.5, cor: [0.85, 0.9, 0.97], maxW: 130, alinhar: 'r' });
+    t.txt(`${T.edicao} ${dataBr(d.envio.criado_em.slice(0, 10))}`, t.x + t.largura - 146, 52, { tam: 8.5, cor: [0.85, 0.9, 0.97], maxW: 130, alinhar: 'r' });
     if (a.nome) t.txt(a.nome, t.x + t.largura - 146, 63, { tam: 8.5, cor: [0.85, 0.9, 0.97], maxW: 130, alinhar: 'r', max: 1 });
   }, { depois: 4 });
+  if (busca?.resumo) pdf.texto(busca.resumo, { tam: 8.5, cor: CINZA, depois: 6 });
   if (c) {
     pdf.texto([c.razao_social, c.cnpj ? `CNPJ ${cnpjFmt(c.cnpj)}` : null, [c.municipio, c.uf].filter(Boolean).join('/') || null,
       c.resp_nome ? `A/C ${c.resp_nome}${c.resp_cargo ? ` (${c.resp_cargo})` : ''}` : null].filter(Boolean).join(' · '), { tam: 8.5, cor: CINZA, depois: 6 });
   }
   // Números do jornal
   const kpis = [
-    [String(d.itens.length), d.itens.length === 1 ? 'oportunidade selecionada' : 'oportunidades selecionadas'],
+    [String(d.itens.length), d.itens.length === 1 ? T.kpi1[0] : T.kpi1[1]],
     [comValor.length ? BRL.format(soma) : '-', `em valor estimado${abertas.length < d.itens.length ? ' das abertas' : ''}${comValor.length < abertas.length ? ` (${comValor.length} de ${abertas.length} informam)` : ''}`],
     [proxima ? proxima.faltam.texto.replace(/^Faltam? /, '') : '-', proxima ? `para a próxima encerrar (${proxima.prazo_texto})` : 'nenhuma com prazo em aberto'],
     [String(gratuitas), 'com participação gratuita'],
@@ -418,7 +445,7 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
     i.valor_unitario_estimado != null ? BRL.format(i.valor_unitario_estimado) : 'Não informado', i.valor_total_estimado != null ? BRL.format(i.valor_total_estimado) : 'Não informado'];
   const MAX_LINHAS_DESC = 2; // enxuto: detalhes no "Ver resumo do edital" ou no PNCP
   const altLinha = (i) => pdf.linhasDe(i.descricao || '(sem descrição)', 7, false, COLS_ITENS[1][1] - 6, MAX_LINHAS_DESC) * 8.6 + 6;
-  const tituloItens = (c) => (c.tipo === 'filtro' ? `ITENS COM AS PALAVRAS DO JORNAL (${c.total} de ${c.no_edital} no edital)`
+  const tituloItens = (c) => (c.tipo === 'filtro' ? `ITENS COM AS ${T.itens} (${c.total} de ${c.no_edital} no edital)`
     : c.tipo === 'primeiros' ? `ITENS DO EDITAL (${c.itens.length < c.total ? `primeiros ${c.itens.length} de ${c.total}` : c.total})`
       : c.tipo === 'sem_itens' ? 'O ÓRGÃO NÃO PUBLICOU ITENS NO PNCP: CONFIRA NO EDITAL' : 'ITENS AINDA NÃO BAIXADOS DO PNCP: CONFIRA NO EDITAL');
   let cidadeAtual = null;
@@ -494,7 +521,7 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
         }
         iy += 3;
       }
-      if (maisItens) t.txt(`e mais ${c.total - c.itens.length} item(ns) com as palavras do jornal: veja no resumo do edital.`, x + 18, iy, { tam: 6.5, cor: CINZA, maxW: t.largura - 36, max: 1 });
+      if (maisItens) t.txt(`e mais ${c.total - c.itens.length} item(ns) com as ${T.itens.toLowerCase()}: veja ${link ? 'no resumo do edital' : 'no edital'}.`, x + 18, iy, { tam: 6.5, cor: CINZA, maxW: t.largura - 36, max: 1 });
       dy += altCaixaItens + 5;
       const ya = dy;
       // Etiquetas (Participação gratuita, ME/EPP) no canto direito, na linha dos botões
@@ -518,7 +545,7 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
   pdf.linha({ cor: AZUL, antes: 2, depois: 6 });
   pdf.texto([a.responsavel, a.nome].filter(Boolean).join(' · ') + (a.email ? ` · ${a.email}` : ''), { tam: 9, negrito: true, depois: 2 });
   pdf.texto('Dados públicos do PNCP, organizados por cidade e, dentro de cada cidade, do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.', { tam: 7.5, cor: CINZA });
-  return pdf.gerar({ titulo: `Jornal de licitações${nomeCli ? ` - ${nomeCli}` : ''}`, rodape: `Jornal de licitações${nomeCli ? ` · ${nomeCli}` : ''}${a.nome ? ` · ${a.nome}` : ''}` });
+  return pdf.gerar({ titulo: `${T.nome}${nomeCli ? ` - ${nomeCli}` : ''}`, rodape: `${T.nome}${nomeCli ? ` · ${nomeCli}` : ''}${a.nome ? ` · ${a.nome}` : ''}` });
 }
 
 // ---------------- E-mail ----------------

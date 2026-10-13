@@ -353,6 +353,7 @@ export async function buscar(alvo, rota, est) {
       h('button', { class: 'btn', type: 'button', onclick: salvarPesquisa }, '💾 Salvar pesquisa'),
       h('button', { class: 'btn', type: 'button', onclick: () => exportar('csv') }, '⬇ CSV'),
       h('button', { class: 'btn', type: 'button', onclick: () => exportar('xlsx') }, '⬇ Excel'),
+      h('button', { class: 'btn', type: 'button', title: 'Baixa o resultado em PDF, no modelo do jornal (por cidade, com os itens)', onclick: () => baixarPdf() }, '⬇ PDF'),
       btnConferir = h('button', { class: 'btn', type: 'button', title: 'Compara com a busca do site do PNCP (mesma palavra e UF) e traz o que faltar', onclick: () => conferirPncp() }, '🔎 Conferir com o PNCP')),
     listaMunicipios);
 
@@ -381,6 +382,19 @@ export async function buscar(alvo, rota, est) {
   }
   function exportar(formato) {
     window.location.href = `/api/licitacoes/exportar${qs({ ...lerFiltros(), formato })}`;
+  }
+  // PDF: os filtros vão por escrito no topo, do jeito que aparecem na tela (ex.: "Segmento (estimado): Alimentação")
+  function baixarPdf() {
+    const f = lerFiltros();
+    const resumo = Object.keys(f).filter((k) => k !== 'ordenar' && f[k] !== '' && f[k] !== 'todas').map((k) => {
+      const el = campos[k];
+      const rot = el?.closest('div')?.querySelector('label')?.textContent || k;
+      let val = f[k];
+      if (el?.tagName === 'SELECT') val = el.selectedOptions[0]?.textContent || val;
+      else if (el?.tagName === 'DETAILS') val = [...el.querySelectorAll('input:checked')].map((c) => c.parentElement.textContent.trim()).join(', ') || val;
+      return `${rot}: ${String(val).replace(/\s*\(\d[\d.]*\)$/, '')}`;
+    }).join(' · ');
+    window.location.href = `/api/licitacoes/pdf${qs({ ...f, resumo })}`;
   }
 
   // Conferência com o site do PNCP: mesma palavra e UF, editais recebendo propostas

@@ -191,7 +191,7 @@ export function buscar(db, f = {}, { agora } = {}) {
 }
 
 /** Para cada licitação da página, os itens cuja descrição tem as palavras buscadas (até 3). */
-export function marcarItensEncontrados(db, f, dados) {
+export function marcarItensEncontrados(db, f, dados, { limite = 3 } = {}) {
   if (!dados.length || f.nos_itens === '0') return;
   const pos = [...termos(f.q), ...termos(f.obrigatorias)].map(fts).join(' AND ');
   const ids = dados.map((d) => d.id);
@@ -202,7 +202,7 @@ export function marcarItensEncontrados(db, f, dados) {
   for (const l of linhas) { const a = por.get(l.licitacao_id) || []; a.push({ numero_item: l.numero_item, descricao: l.descricao }); por.set(l.licitacao_id, a); }
   for (const d of dados) {
     const a = por.get(d.id);
-    if (a) { d.itens_encontrados = a.slice(0, 3); d.itens_encontrados_total = a.length; }
+    if (a) { d.itens_encontrados = a.slice(0, limite); d.itens_encontrados_total = a.length; }
   }
 }
 
