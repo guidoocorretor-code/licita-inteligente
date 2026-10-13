@@ -238,8 +238,8 @@ r.get('/jornal', (req, res) => {
   const { sql, p } = filtroJornal(req);
   const pagina = Math.max(1, inteiro(req.query.pagina) || 1);
   const total = db().prepare(`SELECT COUNT(*) n ${sql}`).get(...p).n;
-  const dados = db().prepare(`SELECT e.*, l.objeto, l.orgao_nome, l.uf, l.municipio, l.modalidade_nome, l.segmento, l.status_calculado,
-      l.valor_estimado, l.valor_estimado_situacao, l.data_encerramento_proposta, l.sistema_eletronico, l.plataforma_origem, l.link_origem, l.link_pncp, l.numero_compra, l.ano ${sql}
+  // Mesmas colunas do cartão de "Buscar licitações" (id = da licitação; o do evento vai em evento_id)
+  const dados = db().prepare(`SELECT ${COLUNAS_LISTA}, e.id evento_id, e.licitacao_id, e.tipo, e.campo, e.valor_anterior, e.valor_novo, e.descricao, e.ocorrido_em, e.detectado_em ${sql}
     ORDER BY e.detectado_em DESC, e.id DESC LIMIT 30 OFFSET ?`).all(...p, (pagina - 1) * 30)
     .map((x) => ({ ...x, sistema: sistemaDaLicitacao(x) }));
   res.json({ total, pagina, paginas: Math.ceil(total / 30), dados });
