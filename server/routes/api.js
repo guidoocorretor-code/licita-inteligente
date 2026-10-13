@@ -28,6 +28,7 @@ import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
+import { conferirComPncp } from '../services/conferir-pncp.js';
 import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, idsQueBatem, pendentesDeItens, normalizarFiltros,
   resumoFiltros, funilDoPerfil, motivosDoPerfil, itensDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, excluirCobranca, cobrancaDaEmpresa,
@@ -125,6 +126,20 @@ r.get('/dashboard', (req, res) => res.json({ ...indicadores(db(), { usuarioId: r
 // ---------------- Busca e licitações ----------------
 r.get('/licitacoes', (req, res) => {
   try { res.json(buscar(db(), req.query)); } catch (e) { erro(res, 400, `Filtro inválido: ${e.message}`); }
+});
+
+// Confere a busca com o site do PNCP (mesma palavra e UF) e importa o que faltar
+let conferindo = false;
+r.post('/licitacoes/conferir-pncp', async (req, res) => {
+  if (conferindo) return erro(res, 409, 'Já existe uma conferência em andamento. Aguarde terminar.');
+  conferindo = true;
+  try {
+    const out = await conferirComPncp(db(), { q: req.body?.q, uf: req.body?.uf });
+    auditar(req, 'conferir_pncp', 'licitacoes', null, { q: req.body?.q, uf: req.body?.uf, pncp: out.pncp, importadas: out.importadas });
+    res.json(out);
+  } catch (e) {
+    erro(res, e.tipo === 'bloqueada_rede' || e.status ? 502 : 400, e.status || e.tipo ? `Não foi possível consultar o PNCP agora (${e.message}). Tente de novo em alguns minutos.` : e.message);
+  } finally { conferindo = false; }
 });
 
 r.get('/licitacoes/exportar', async (req, res) => {

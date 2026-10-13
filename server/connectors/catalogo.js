@@ -2,13 +2,17 @@
 // Fontes sem API pública documentada ficam como "indisponivel" (conector direto),
 // mas as contratações delas sob a Lei 14.133/2021 chegam pelo PNCP, que é obrigatório
 // (art. 54 e art. 174 da Lei 14.133/2021) e identifica o sistema publicador (campo usuarioNome).
+// Todas as modalidades do PNCP (1 a 19), as mais usadas primeiro. Antes só 7 eram baixadas e editais de
+// Leilão, Concurso, Chamada pública e outras ficavam fora do sistema, mas apareciam na busca do site do PNCP.
+export const MODALIDADES_ANTIGAS = [6, 8, 4, 9, 7, 5, 12];
+export const MODALIDADES_TODAS = [6, 8, 4, 9, 7, 5, 12, 15, 3, 2, 10, 11, 14, 1, 13, 16, 17, 18, 19];
 export const FONTES_PADRAO = [
   {
     codigo: 'pncp', nome: 'PNCP — Portal Nacional de Contratações Públicas',
     url: 'https://pncp.gov.br/api/consulta/swagger-ui/index.html', tipo: 'api_rest', status: 'funcional',
     habilitada: true, credenciais: false, frequencia: 60,
     observacoes: 'API pública de consultas v1 (sem autenticação). Endpoints: /v1/contratacoes/publicacao, /v1/contratacoes/proposta, /v1/contratacoes/atualizacao; detalhes em /api/pncp/v1/orgaos/{cnpj}/compras/{ano}/{seq}/itens e /arquivos. tamanhoPagina máx. 50.',
-    config: { ufs: [], modalidades: [6, 8, 4, 9, 7, 5, 12], diasRetroativos: 3, maxPaginasPorConsulta: 2000, sincronizarDetalhes: true },
+    config: { ufs: [], modalidades: MODALIDADES_TODAS, diasRetroativos: 3, maxPaginasPorConsulta: 2000, sincronizarDetalhes: true },
   },
   {
     codigo: 'comprasgov_14133', nome: 'Compras.gov.br — Dados Abertos (Contratações Lei 14.133)',

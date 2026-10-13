@@ -295,7 +295,7 @@ export async function buscar(alvo, rota, est) {
   const listaMunicipios = h('datalist', { id: 'municipios-atalho' }, h('option', { value: 'Grande Vitória' }, 'Vila Velha, Vitória, Serra, Cariacica, Viana e Fundão'));
 
   const contagens = await api('/dashboard').then((d) => d.por_visao).catch(() => ({}));
-  let avancada; let resumoAvancada;
+  let avancada; let resumoAvancada; let btnConferir;
   const form = h('form', { class: 'cartao', onsubmit: (e) => { e.preventDefault(); aplicar({ pagina: 1 }); } },
     h('div', { class: 'filtros' },
       campo('Palavras-chave (objeto e itens)', inp('q', { type: 'search', placeholder: 'ex.: mouse, material hospitalar' }), true),
@@ -308,7 +308,7 @@ export async function buscar(alvo, rota, est) {
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
       campo('Esfera', sel('esfera', Object.entries(ESF))),
       campo('Modalidades', multi('modalidade', Object.entries(meta.modalidades), 'Todas')),
-      campo('Tipo de disputa', multi('modo_disputa', [['Aberto', 'Aberto'], ['Aberto-Fechado', 'Aberto e fechado'], ['Fechado-Aberto', 'Fechado e aberto']], 'Todos')),
+      campo('Tipo de disputa', multi('modo_disputa', [['Aberto', 'Aberto'], ['Aberto-Fechado', 'Aberto e fechado'], ['Fechado-Aberto', 'Fechado e aberto'], ['Dispensa Com Disputa', 'Dispensa com disputa']], 'Todos')),
       campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar'))),
     // Filtros menos usados ficam na "Busca avançada"; abre sozinha se algum deles estiver em uso, para nada ficar escondido
     avancada = h('details', { class: 'busca-avancada', open: false },
@@ -343,7 +343,8 @@ export async function buscar(alvo, rota, est) {
       h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/buscar'; } }, 'Limpar'),
       h('button', { class: 'btn', type: 'button', onclick: salvarPesquisa }, '💾 Salvar pesquisa'),
       h('button', { class: 'btn', type: 'button', onclick: () => exportar('csv') }, '⬇ CSV'),
-      h('button', { class: 'btn', type: 'button', onclick: () => exportar('xlsx') }, '⬇ Excel')),
+      h('button', { class: 'btn', type: 'button', onclick: () => exportar('xlsx') }, '⬇ Excel'),
+      btnConferir = h('button', { class: 'btn', type: 'button', title: 'Compara com a busca do site do PNCP (mesma palavra e UF) e traz o que faltar', onclick: () => conferirPncp() }, '🔎 Conferir com o PNCP')),
     listaMunicipios);
 
   // Quantos filtros avançados estão em uso (a ordenação padrão não conta)
@@ -373,9 +374,38 @@ export async function buscar(alvo, rota, est) {
     window.location.href = `/api/licitacoes/exportar${qs({ ...lerFiltros(), formato })}`;
   }
 
+  // Conferência com o site do PNCP: mesma palavra e UF, editais recebendo propostas
+  const conferencia = h('div');
+  async function conferirPncp() {
+    const f = lerFiltros();
+    if (!f.q) { toast('Digite a palavra-chave para conferir com o PNCP.'); return; }
+    btnConferir.disabled = true;
+    render(conferencia, h('div', { class: 'cartao' }, carregando(`Conferindo "${f.q}"${f.uf ? ` em ${f.uf}` : ''} no PNCP e trazendo o que faltar… pode levar 1 a 2 minutos.`)));
+    try {
+      const r = await api('/licitacoes/conferir-pncp', { metodo: 'POST', corpo: { q: f.q, uf: f.uf || '' } });
+      const linkPncp = (n) => { const m = /^(\d{14})-\d+-(\d+)\/(\d{4})$/.exec(n); return m ? `https://pncp.gov.br/app/editais/${m[1]}/${m[3]}/${Number(m[2])}` : null; };
+      render(conferencia, h('div', { class: 'cartao' },
+        h('h2', {}, 'Conferência com o PNCP'),
+        h('p', {}, `Site do PNCP: ${numero(r.pncp)} edital(is) recebendo propostas com "${f.q}"${f.uf ? ` em ${f.uf}` : ''}. `,
+          `LicitPro (só abertas, objeto e itens): ${numero(r.licitpro)}. Em comum: ${numero(r.em_comum)}.`),
+        h('p', {}, `Trazidas agora do PNCP: ${numero(r.importadas)} licitação(ões) que faltavam na base; itens baixados de ${numero(r.itens_baixados)}. `,
+          `Passaram a aparecer na busca: ${numero(r.agora_aparecem)}.`,
+          r.so_licitpro ? ` O LicitPro mostra ${numero(r.so_licitpro)} que o site do PNCP não lista com essa palavra (em geral, a palavra está só nos itens).` : ''),
+        r.sem_tempo ? h('p', { style: { color: 'var(--alerta, #b45309)' } }, `Ficaram ${numero(r.sem_tempo)} para a próxima conferência (limite de consultas ao PNCP por vez). Clique de novo em "Conferir com o PNCP".`) : null,
+        r.so_pncp.length ? h('details', {}, h('summary', {}, `Continuam só no PNCP: ${numero(r.so_pncp.length)} (ver motivo de cada um)`),
+          h('div', { class: 'tabela-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'Edital'), h('th', {}, 'Órgão'), h('th', {}, 'Motivo'))),
+            h('tbody', {}, r.so_pncp.map((x) => h('tr', {},
+              h('td', {}, x.id ? h('a', { href: `#/licitacao/${x.id}` }, x.objeto || x.numero) : (x.objeto || x.numero), ' ',
+                linkPncp(x.numero) ? h('a', { href: linkPncp(x.numero), target: '_blank', rel: 'noopener' }, '(PNCP)') : null),
+              h('td', {}, x.orgao || '—'), h('td', {}, x.motivo))))))) : null,
+        h('button', { class: 'btn primario', type: 'button', onclick: () => aplicar({ pagina: 1 }) }, 'Atualizar resultados')));
+    } catch (e) { render(conferencia, erroBox(e)); }
+    finally { btnConferir.disabled = false; }
+  }
+
   const lista = h('div', { class: 'resultado' }, carregando());
   const pesquisas = h('div', { class: 'linha', style: { margin: '10px 0' } });
-  render(alvo, cabecalho('Buscar licitações', 'Pesquisa em todas as fontes habilitadas, sem duplicidades.'), form, pesquisas, lista);
+  render(alvo, cabecalho('Buscar licitações', 'Pesquisa em todas as fontes habilitadas, sem duplicidades.'), form, pesquisas, conferencia, lista);
 
   api('/pesquisas').then((ps) => {
     if (!ps.length) return;

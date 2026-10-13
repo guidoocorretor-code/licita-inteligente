@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { semAcento } from '../lib/texto.js';
-import { FONTES_PADRAO } from '../connectors/catalogo.js';
+import { FONTES_PADRAO, MODALIDADES_ANTIGAS, MODALIDADES_TODAS } from '../connectors/catalogo.js';
 import { migrarExecucao } from '../services/execucao.js';
 import { migrarFornecedores } from '../services/fornecedores.js';
 import { migrarPropostas } from '../services/propostas.js';
@@ -127,6 +127,12 @@ function semearFontes(conn) {
   const cfg = pncp ? JSON.parse(pncp.config_json || '{}') : null;
   if (cfg && cfg.maxPaginasPorConsulta === 20) {
     conn.prepare("UPDATE fontes SET config_json=? WHERE codigo='pncp'").run(JSON.stringify({ ...cfg, maxPaginasPorConsulta: 2000 }));
+  }
+  // Lista antiga de 7 modalidades (padrão de fábrica, não alterada pelo administrador) passa a ser a lista completa
+  const atual = pncp && JSON.parse(conn.prepare("SELECT config_json FROM fontes WHERE codigo='pncp'").get().config_json || '{}');
+  const igual = (a, b) => Array.isArray(a) && a.length === b.length && [...a].sort((x, y) => x - y).every((v, i) => v === [...b].sort((x, y) => x - y)[i]);
+  if (atual && igual(atual.modalidades, MODALIDADES_ANTIGAS)) {
+    conn.prepare("UPDATE fontes SET config_json=? WHERE codigo='pncp'").run(JSON.stringify({ ...atual, modalidades: MODALIDADES_TODAS }));
   }
 }
 

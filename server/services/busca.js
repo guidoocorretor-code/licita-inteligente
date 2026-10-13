@@ -9,7 +9,7 @@ export const REGIOES_MUNICIPIO = {
   'grande vitoria': { nome: 'Grande Vitória', uf: 'ES', cidades: ['Vila Velha', 'Vitória', 'Serra', 'Cariacica', 'Viana', 'Fundão'] },
 };
 // Modos de disputa do PNCP que a busca filtra (nomes exatos como o PNCP publica)
-export const MODOS_DISPUTA = ['Aberto', 'Aberto-Fechado', 'Fechado-Aberto'];
+export const MODOS_DISPUTA = ['Aberto', 'Aberto-Fechado', 'Fechado-Aberto', 'Dispensa Com Disputa'];
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
 export const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
 // Busca por prefixo para pegar plural e variações: "serviço" acha "serviços"; termos em -ção/-são
