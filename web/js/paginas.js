@@ -308,7 +308,7 @@ export async function buscar(alvo, rota, est) {
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
       campo('Esfera', sel('esfera', Object.entries(ESF))),
       campo('Modalidades', multi('modalidade', Object.entries(meta.modalidades), 'Todas')),
-      campo('Tipo de disputa', multi('modo_disputa', [['Aberto', 'Aberto'], ['Aberto-Fechado', 'Aberto e fechado'], ['Fechado-Aberto', 'Fechado e aberto']], 'Todos')),
+      campo('Tipo de disputa', multi('modo_disputa', [['Aberto', 'Aberto'], ['Aberto-Fechado', 'Aberto e fechado'], ['Fechado-Aberto', 'Fechado e aberto'], ['Dispensa Com Disputa', 'Dispensa com disputa']], 'Todos')),
       campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar'))),
     // Filtros menos usados ficam na "Busca avançada"; abre sozinha se algum deles estiver em uso, para nada ficar escondido
     avancada = h('details', { class: 'busca-avancada', open: false },

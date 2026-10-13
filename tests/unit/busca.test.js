@@ -137,9 +137,10 @@ test('Grande Vitória, várias modalidades e tipo de disputa', () => {
   db.prepare('UPDATE licitacoes SET modalidade_id = 6 WHERE id IN (?, ?, ?)').run(ids[2], ids[3], ids[4]);
   assert.equal(buscar(db, { modalidade: '8,4' }).total, 2);
   assert.equal(buscar(db, { modalidade: '6' }).total, 3);
-  const modos = ['Aberto', 'Aberto-Fechado', 'Fechado-Aberto', 'Fechado', null];
+  const modos = ['Aberto', 'Aberto-Fechado', 'Fechado-Aberto', 'Dispensa Com Disputa', null];
   ids.forEach((id, i) => db.prepare('UPDATE licitacoes SET modo_disputa_nome = ? WHERE id = ?').run(modos[i], id));
   assert.equal(buscar(db, { modo_disputa: 'Aberto' }).total, 1);
   assert.equal(buscar(db, { modo_disputa: 'Aberto-Fechado,Fechado-Aberto' }).total, 2);
+  assert.equal(buscar(db, { modo_disputa: 'Dispensa Com Disputa' }).total, 1);
   assert.equal(buscar(db, { modo_disputa: 'Qualquer coisa' }).total, 5);    // valor fora da lista é ignorado
 });
