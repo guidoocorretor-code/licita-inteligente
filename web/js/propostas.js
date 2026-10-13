@@ -130,6 +130,8 @@ export async function proposta(alvo, rota, est) {
       h('td', { class: 'marca-modelo' }, l.marca, l.modelo))))));
 
   render(alvo,
+    // Sem página anterior (aberta direto pelo link), volta para a lista de propostas
+    h('button', { class: 'btn pequeno', onclick: () => (history.length > 1 ? history.back() : (location.hash = '#/propostas')) }, '← Voltar'),
     cabecalho('Proposta de preços', op.objeto,
       h('span', { class: `etiqueta ${ST_COR[p.status]}` }, d.status[p.status]),
       h('a', { class: 'btn', href: `#/cotacao/${op.id}` }, '💲 Cotações'),
