@@ -71,7 +71,8 @@ test('filtros combinados, visões, ordenação e paginação', () => {
   assert.equal(buscar(db, { uf: 'ES' }, { agora }).total, 3);
   assert.equal(buscar(db, { uf: 'ES,SP', valor_min: 100000 }, { agora }).total, 2);
   assert.equal(buscar(db, { visao: 'abertas' }).total, 4);              // 1 com prazo encerrado
-  assert.equal(buscar(db, { visao: 'em_disputa' }).total, 1);
+  assert.equal(buscar(db, { visao: 'aguardando_resultado' }).total, 1); // prazo encerrado em outro dia
+  assert.equal(buscar(db, { visao: 'em_disputa' }).total, 0);
   assert.equal(buscar(db, { segmento: 'Saúde' }).total, 1);
   const p1 = buscar(db, { tamanho: 2, pagina: 1, ordenar: 'valor_desc' });
   assert.equal(p1.paginas, 3);

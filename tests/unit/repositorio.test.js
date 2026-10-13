@@ -69,7 +69,7 @@ test('itens oficiais desertos levam à classificação deserta, com evento de re
   const item = fixture('pncp-item-real');
   salvarItens(db, id, [normalizarItemPncp(item)], 'pncp', '2026-11-01T00:00:00');
   let l = db.prepare('SELECT * FROM licitacoes WHERE id=?').get(id);
-  assert.equal(l.status_calculado, 'em_disputa');
+  assert.equal(l.status_calculado, 'prazo_encerrado');
   assert.equal(l.valor_estimado, null);               // orçamento sigiloso em todos os itens
   assert.equal(l.valor_estimado_situacao, 'sigiloso');
   assert.equal(l.me_epp_exclusivo, 0);

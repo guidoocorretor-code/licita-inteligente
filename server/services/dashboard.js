@@ -13,7 +13,7 @@ export function indicadores(db, { usuarioId, agora = agoraBrasilia() } = {}) {
 
   const total = um('SELECT COUNT(*) n FROM licitacoes').n;
   const porVisao = {};
-  for (const v of ['abertas', 'em_disputa', 'encerradas', 'desertas_fracassadas', 'outras']) {
+  for (const v of ['abertas', 'em_disputa', 'aguardando_resultado', 'encerradas', 'desertas_fracassadas', 'outras']) {
     porVisao[v] = um(`SELECT COUNT(*) n FROM licitacoes WHERE status_calculado IN (${inSt(v)})`).n;
   }
   const valorAbertas = um(`SELECT COALESCE(SUM(valor_estimado),0) v, COUNT(valor_estimado) com_valor,
