@@ -131,8 +131,41 @@ function seloCredenciamento(l) {
     dias != null && dias > 60 ? 'Credenciamento · prazo longo' : 'Credenciamento');
 }
 
-// Cartão da licitação na lista de busca: faixa escura com modalidade, número e valor; objeto; 4 dados com ícone; ações.
-// Só mostra o que a fonte informou: sem UASG fora do Compras.gov.br, sem textos explicativos repetidos em cada cartão.
+// Ícones do cartão (traço branco, no círculo colorido). Texto fixo do próprio código, sem dado externo.
+const SVG_LIC = {
+  martelo: '<path d="m14 13-7.5 7.5a2.12 2.12 0 0 1-3-3L11 10"/><path d="m16 16 6-6"/><path d="m8 8 6-6"/><path d="m9 7 8 8"/><path d="m21 11-8-8"/>',
+  moedas: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+  documento: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/>',
+  megafone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  calendario: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/>',
+  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+  cartao: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
+  lampada: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+  quadro: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/><path d="M15 21V9"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  seta: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+};
+function iconeLic(nome, classe = '') {
+  const el = h('span', { class: `ic-lic ${classe}`, 'aria-hidden': 'true' });
+  el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SVG_LIC[nome]}</svg>`;
+  return el;
+}
+// Frase curta da modalidade: só afirma o que vale para aquela modalidade (nunca "disputa por lances" numa dispensa sem lances)
+function fraseModalidade(nome = '') {
+  const n = nome.toLowerCase();
+  if (/preg/.test(n) && /eletr/.test(n)) return 'Processo realizado de forma eletrônica, com disputa por lances.';
+  if (/preg/.test(n)) return 'Disputa por lances para bens e serviços comuns.';
+  if (/dispensa/.test(n)) return 'Contratação direta, sem licitação (Lei 14.133, art. 75).';
+  if (/inexig/.test(n)) return 'Contratação direta quando não há competição (Lei 14.133, art. 74).';
+  if (/concorr/.test(n)) return 'Para obras, serviços especiais e compras de maior porte.';
+  if (/credenc/.test(n)) return 'Preço fixado pelo órgão; credencia todos que cumprirem o edital.';
+  if (/leil/.test(n)) return 'Venda de bens do órgão a quem oferecer o maior lance.';
+  return 'Modalidade informada pelo órgão no PNCP.';
+}
+
+// Cartão da licitação na lista de busca, no padrão do modelo do Guido: faixa (modalidade, nº, UASG/órgão, valor),
+// objeto + resumo, cinco blocos coloridos, aviso do sistema e rodapé com etiquetas e botões.
+// Só mostra o que a fonte informou: UASG só no Compras.gov.br; sem nota CAPAG fica "Sem nota".
 function linhaLicitacao(l, est, { aoKanban } = {}) {
   const prazo = prazoRestante(l.data_encerramento_proposta);
   const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
@@ -141,50 +174,67 @@ function linhaLicitacao(l, est, { aoKanban } = {}) {
   const resumoItem = (i) => h('li', {}, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)');
   const id = identificacaoGoverno(l);
   const dest = destinoDisputa(l);
-  const local = [l.municipio, l.uf].filter(Boolean).join(' / ');
-  const dado = (icone, cor, rotulo, valor, extra = {}) => h('div', { class: `dado-lic ${cor}${extra.classe ? ' ' + extra.classe : ''}`, title: extra.title || '' },
-    h('span', { class: 'icone-dado', 'aria-hidden': 'true' }, icone),
-    h('span', { class: 'texto-dado' }, h('span', { class: 'rotulo' }, rotulo), h('span', { class: 'valor' }, valor)));
+  const cidade = [l.municipio, l.uf].filter(Boolean).join(' / ');
+  const modalidade = l.modalidade_nome || 'Não informada';
+  // Nós do DOM não podem aparecer em dois lugares: cada uso cria o seu
+  const publicacao = () => dataOuNao(l.data_publicacao, false);
+  const propostas = l.data_encerramento_proposta ? data(l.data_encerramento_proposta).replace(' ', ' às ') : naoInformado();
+  const sistema = () => nomeSistema(l, est.meta);
+  const capag = l.esfera === 'F' ? 'Federal' : l.capag ? `CAPAG ${l.capag}` : 'Sem nota';
+  const fraseCapag = l.esfera === 'F' ? 'Órgão federal: a CAPAG não se aplica.' : l.capag ? `Capacidade de pagamento ${PALAVRA_CAPAG[l.capag[0]].toLowerCase()} (Tesouro Nacional).` : 'Ente sem nota CAPAG publicada.';
+  const mini = (icone, cor, rotulo, valor) => h('div', { class: 'mini-lic' }, iconeLic(icone, cor), h('div', {}, h('span', { class: 'rot-lic' }, rotulo), h('b', {}, valor)));
+  const bloco = (icone, cor, rotulo, valor, frase, extra = {}) => h('div', { class: `bloco-lic ${cor}`, title: extra.title || '' },
+    iconeLic(icone, cor), h('div', { class: 'bloco-texto' }, h('span', { class: 'rot-lic' }, rotulo), h('b', { class: 'valor-bloco' }, valor), h('small', {}, frase)));
+  const s = sistemaInfo(l, est.meta);
   return h('article', { class: 'cartao-lic' },
     h('header', { class: 'topo-lic' },
-      h('div', { class: 'id-lic' },
-        h('span', { class: 'modalidade-lic' }, l.modalidade_nome || 'Modalidade não informada'),
-        id.numero ? h('span', { class: 'numero-lic' }, 'Nº ', botaoCopiar(id.numero, 'Número')) : null),
+      h('div', { class: 'id-lic' }, iconeLic('martelo', 'claro grande'),
+        h('div', {}, h('span', { class: 'modalidade-lic' }, modalidade),
+          h('div', { class: 'numero-lic' }, 'Nº ', id.numero ? botaoCopiar(id.numero, 'Número') : h('span', { class: 'sem' }, 'não informado')))),
       h('div', { class: 'orgao-lic' },
-        id.uasg ? h('span', { class: 'uasg-lic' }, 'UASG ', botaoCopiar(id.uasg, 'UASG')) : null,
-        h('span', { class: 'nome-orgao', title: l.orgao_nome || '' }, l.orgao_nome || 'Órgão não informado'),
-        local ? h('span', { class: 'local-lic' }, local) : null),
+        id.uasg ? h('div', { class: 'uasg-lic' }, h('span', { class: 'rot' }, 'UASG'), botaoCopiar(id.uasg, 'UASG')) : h('div', { class: 'uasg-lic' }, h('span', { class: 'rot' }, 'Órgão')),
+        h('span', { class: 'nome-orgao', title: l.orgao_nome || '' }, l.orgao_nome || 'Não informado'),
+        cidade ? h('span', { class: 'local-lic' }, cidade) : null),
       h('div', { class: 'valor-lic', title: l.valor_estimado === 0 ? 'A fonte informou valor estimado zero (comum quando o orçamento é sigiloso).' : '' },
-        h('span', { class: 'rotulo' }, 'Valor estimado'),
-        h('strong', {}, moeda(l.valor_estimado, l.valor_estimado_situacao)),
-        l.valor_estimado === 0 ? h('span', { class: 'pequeno' }, '(zero na fonte)') : null)),
-    h('div', { class: 'corpo-cartao-lic' },
-      h('div', { class: 'linha etiquetas-lic' },
+        iconeLic('moedas', 'claro grande'),
+        h('div', {}, h('span', { class: 'rot' }, 'Valor estimado do edital'), h('strong', {}, moeda(l.valor_estimado, l.valor_estimado_situacao))))),
+    h('div', { class: 'meio-lic' },
+      h('div', { class: 'objeto-box' }, iconeLic('documento', 'azul-escuro'),
+        h('div', {},
+          h('a', { class: 'objeto-lic', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
+          itens.length ? h('details', { class: 'itens-achados' },
+            h('summary', {}, h('strong', {}, `🔎 Encontrado em ${l.itens_encontrados_total || itens.length} item(ns)`),
+              h('span', { class: 'previa' }, ` · Item ${itens[0].numero_item}: ${itens[0].descricao || '(sem descrição)'}`)),
+            h('ul', {}, itens.map(resumoItem)),
+            l.itens_encontrados_total > itens.length ? h('div', { class: 'suave pequeno' }, `e mais ${l.itens_encontrados_total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null) : null)),
+      h('div', { class: 'resumo-lic' },
+        mini('martelo', 'azul-escuro', 'Modalidade', modalidade),
+        mini('megafone', 'verde', 'Publicação', publicacao()),
+        mini('calendario', 'vermelho', 'Propostas até', propostas),
+        mini('monitor', 'azul', 'Sistema eletrônico', sistema()),
+        mini('cartao', 'roxo', 'Pagômetro', capag))),
+    h('div', { class: 'blocos-lic' },
+      bloco('martelo', 'azul-escuro', 'Modalidade', modalidade, fraseModalidade(l.modalidade_nome || '')),
+      bloco('megafone', 'verde', 'Publicação', publicacao(), 'Edital publicado no PNCP.'),
+      bloco('calendario', 'vermelho', 'Propostas até', propostas, prazo ? `Prazo final para envio das propostas · faltam ${prazo}.` : 'Prazo final para envio das propostas.', { title: urgente ? 'Faltam 3 dias ou menos' : '' }),
+      bloco('monitor', 'azul', 'Sistema eletrônico', sistema(), 'Plataforma utilizada para a disputa.', { title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
+      bloco('cartao', 'roxo', 'Pagômetro', capag, fraseCapag)),
+    s && s.custo === 'pago' ? h('div', { class: 'aviso-lic' }, iconeLic('lampada', 'azul'),
+      h('div', {}, h('b', {}, `${s.nome} cobra do fornecedor. `), s.resumo, ' ',
+        s.cadastro ? h('a', { href: s.cadastro, target: '_blank', rel: 'noopener noreferrer' }, 'Ver planos e cadastrar ↗') : null,
+        s.fonte ? h('span', {}, ' / ', h('a', { href: s.fonte, target: '_blank', rel: 'noopener noreferrer' }, 'fonte')) : null)) : null,
+    h('footer', { class: 'rodape-lic' },
+      h('div', { class: 'etiquetas-lic' },
         etiquetaStatus(l.status_calculado, est.meta, l.status_motivo),
-        prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela'), title: 'Tempo restante para envio de propostas' }, `⏱ faltam ${prazo}`) : null,
-        l.credenciamento === 1 ? seloCredenciamento(l) : null,
+        prazo ? h('span', { class: 'etiqueta ' + (urgente ? 'vermelha' : 'amarela') }, `⏱ faltam ${prazo}`) : null,
         l.segmento ? h('span', { class: 'etiqueta' }, l.segmento) : null,
+        l.credenciamento === 1 ? seloCredenciamento(l) : null,
         l.me_epp_exclusivo === 1 ? h('span', { class: 'etiqueta verde' }, 'Exclusiva ME/EPP') : null),
-      h('a', { class: 'objeto-lic', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
-      h('div', { class: 'dados-lic' },
-        dado('📅', 'verde', 'Publicação', dataOuNao(l.data_publicacao, false)),
-        dado('⏰', urgente ? 'vermelho' : 'rosa', 'Propostas até', dataOuNao(l.data_encerramento_proposta), { classe: urgente ? 'urgente' : '' }),
-        dado('🖥', 'azul', 'Sistema eletrônico', nomeSistema(l, est.meta), { title: `Publicado no PNCP por: ${l.plataforma_origem || 'não informado'}` }),
-        dado('🏛', 'roxo', 'Pagômetro', l.esfera === 'F' ? h('span', { class: 'suave' }, 'Federal (sem CAPAG)') : l.capag
-          ? h('span', { class: 'capag-curta' }, seloCapag(l.capag), h('span', { class: 'capag-palavra' }, PALAVRA_CAPAG[l.capag[0]])) : seloCapag(null, { longo: true }),
-          { classe: l.capag ? `capag-${l.capag[0].toLowerCase()}` : '', title: l.capag ? `Nota CAPAG ${l.capag}: ${textoNotaCapag[l.capag[0]]}. Fonte: Tesouro Nacional.` : 'Sem nota CAPAG' })),
-      avisoSistema(l, est.meta),
-      itens.length ? h('details', { class: 'itens-achados' },
-        h('summary', {}, h('strong', {}, `🔎 Encontrado em ${l.itens_encontrados_total || itens.length} item(ns)`),
-          h('span', { class: 'previa' }, ` · Item ${itens[0].numero_item}: ${itens[0].descricao || '(sem descrição)'}`)),
-        h('ul', {}, itens.map(resumoItem)),
-        l.itens_encontrados_total > itens.length ? h('div', { class: 'suave pequeno' }, `e mais ${l.itens_encontrados_total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null) : null),
-    h('footer', { class: 'acoes-lic' },
-      h('a', { class: 'btn pequeno', href: `#/licitacao/${l.id}` }, 'Ver detalhes'),
-      dest.url ? h('a', { class: 'btn pequeno', href: dest.url, target: '_blank', rel: 'noopener noreferrer', title: dest.direto ? 'Abre o processo no sistema de origem' : `Abre a página do ${dest.nome}` },
-        dest.direto ? 'Sistema da disputa ↗' : `${dest.nome} ↗`) : null,
-      l.link_pncp ? h('a', { class: 'btn pequeno', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, 'PNCP ↗') : null,
-      aoKanban ? h('button', { class: 'btn pequeno primario', title: 'Subir para o Kanban (entra na primeira etapa)', onclick: () => aoKanban(l) }, '+ Kanban') : null));
+      h('div', { class: 'botoes-lic' },
+        dest.url ? h('a', { class: 'btn-lic contorno', href: dest.url, target: '_blank', rel: 'noopener noreferrer', title: dest.direto ? 'Abre o processo no sistema de origem' : `Abre a página do ${dest.nome}` },
+          iconeLic('seta'), dest.direto ? 'Sistema da disputa' : dest.nome) : null,
+        aoKanban ? h('button', { class: 'btn-lic contorno', title: 'Subir para o Kanban (entra na primeira etapa)', onclick: () => aoKanban(l) }, iconeLic('quadro'), 'Kanban') : null,
+        l.link_pncp ? h('a', { class: 'btn-lic cheio', href: l.link_pncp, target: '_blank', rel: 'noopener noreferrer', title: 'Abrir no PNCP' }, iconeLic('link'), 'PNCP') : null)));
 }
 
 // A busca nos itens só alcança licitações cujos itens já foram baixados do PNCP: dizer isso, sem esconder
