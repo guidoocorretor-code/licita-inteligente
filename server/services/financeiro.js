@@ -67,6 +67,10 @@ export function migrarFinanceiro(conn) {
     criado_em TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
   conn.exec('CREATE INDEX IF NOT EXISTS ix_custos_op ON oportunidade_custos(oportunidade_id)');
+  // Lançamento excluído: some de telas e totais, mas a linha fica (auditoria, e a mensalidade/êxito não é gerada de novo)
+  const cols = conn.prepare('PRAGMA table_info(honorarios_cobrancas)').all().map((c) => c.name);
+  if (!cols.includes('excluida_em')) conn.exec('ALTER TABLE honorarios_cobrancas ADD COLUMN excluida_em TEXT');
+  if (!cols.includes('excluida_por')) conn.exec('ALTER TABLE honorarios_cobrancas ADD COLUMN excluida_por INTEGER');
 }
 
 const falha = (status, msg) => Object.assign(new Error(msg), { status });
@@ -154,7 +158,7 @@ export function gerarCobrancas(db, empresaId, hoje) {
         const venc = somaDias(dia, c.prazo_exito_dias ?? 5);
         const ex = exitoDe.get(o.id);
         if (!ex) { insExito.run(empresaId, c.cliente_id, o.id, desc, o.recebido_valor, valor, venc); criadas++; }
-        else if (!ex.pago_em && (ex.valor !== valor || ex.base_valor !== o.recebido_valor || ex.vencimento !== venc || ex.cancelada_em)) attExito.run(o.recebido_valor, valor, venc, desc, ex.id);
+        else if (!ex.excluida_em && !ex.pago_em && (ex.valor !== valor || ex.base_valor !== o.recebido_valor || ex.vencimento !== venc || ex.cancelada_em)) attExito.run(o.recebido_valor, valor, venc, desc, ex.id);
       }
     }
   }
@@ -178,7 +182,7 @@ export function situacaoCobranca(c, hoje) {
 export function resumoHonorarios(db, empresaId, { clienteId = null, de = null, ate = null, hoje }) {
   gerarCobrancas(db, empresaId, hoje);
   const todas = db.prepare(`SELECT c.*, COALESCE(cl.nome_fantasia, cl.razao_social) cliente_nome FROM honorarios_cobrancas c
-    JOIN clientes cl ON cl.id=c.cliente_id WHERE c.empresa_id=?${clienteId ? ' AND c.cliente_id=?' : ''} ORDER BY c.vencimento DESC, c.id DESC`)
+    JOIN clientes cl ON cl.id=c.cliente_id WHERE c.empresa_id=? AND c.excluida_em IS NULL${clienteId ? ' AND c.cliente_id=?' : ''} ORDER BY c.vencimento DESC, c.id DESC`)
     .all(empresaId, ...(clienteId ? [clienteId] : [])).map((c) => ({ ...c, situacao: situacaoCobranca(c, hoje) }));
   const lista = todas.filter((c) => noPeriodo(c.vencimento, de, ate) || noPeriodo(c.pago_em, de, ate));
   const total = { previsto: 0, recebido: 0, em_aberto: 0, vencido: 0, n_vencidas: 0 };
@@ -215,7 +219,7 @@ export function criarCobrancaAvulsa(db, empresaId, usuarioId, b = {}) {
 }
 
 export function cobrancaDaEmpresa(db, empresaId, id) {
-  const c = db.prepare('SELECT * FROM honorarios_cobrancas WHERE id=? AND empresa_id=?').get(id, empresaId);
+  const c = db.prepare('SELECT * FROM honorarios_cobrancas WHERE id=? AND empresa_id=? AND excluida_em IS NULL').get(id, empresaId);
   if (!c) throw falha(404, 'Cobrança não encontrada.');
   return c;
 }
@@ -256,6 +260,13 @@ export function desfazerPagamento(db, empresaId, id) {
   db.prepare('UPDATE honorarios_cobrancas SET pago_em=NULL, valor_pago=NULL, forma_pagamento=NULL WHERE id=?').run(id);
 }
 
+/** Exclui o lançamento (some das telas e totais). Recebido só sai com senha de administrador, conferida na rota. */
+export function excluirCobranca(db, empresaId, id, usuarioId) {
+  const c = cobrancaDaEmpresa(db, empresaId, id);
+  db.prepare("UPDATE honorarios_cobrancas SET excluida_em=datetime('now'), excluida_por=? WHERE id=?").run(usuarioId, id);
+  return c;
+}
+
 // ---------------- Lucro real por contrato ----------------
 const FASES_CONTRATO = FASES_GANHAS; // ganha → recebida
 
@@ -292,7 +303,7 @@ export function lucroPorContrato(db, empresaId, { clienteId = null, de = null, a
     WHERE o.empresa_id=?${clienteId ? ' AND o.cliente_id=?' : ''}`).all(empresaId, ...(clienteId ? [clienteId] : []))
     .filter((o) => FASES_CONTRATO.includes(o.fase));
   const custos = db.prepare('SELECT categoria, SUM(valor) v, COUNT(*) n FROM oportunidade_custos WHERE oportunidade_id=? GROUP BY categoria');
-  const exito = db.prepare("SELECT COALESCE(valor_pago, valor) v FROM honorarios_cobrancas WHERE tipo='exito' AND oportunidade_id=? AND cancelada_em IS NULL");
+  const exito = db.prepare("SELECT COALESCE(valor_pago, valor) v FROM honorarios_cobrancas WHERE tipo='exito' AND oportunidade_id=? AND cancelada_em IS NULL AND excluida_em IS NULL");
   const linhas = [];
   let semData = 0;
   for (const o of ops) {

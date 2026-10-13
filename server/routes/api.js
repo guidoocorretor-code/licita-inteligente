@@ -29,7 +29,7 @@ import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '..
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, filtroDoPerfil, normalizarFiltros,
   resumoFiltros, funilDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
-import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, cobrancaDaEmpresa,
+import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, excluirCobranca, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
 import { buscarContratos, contratosDaLicitacao } from '../services/contratos.js';
@@ -1044,6 +1044,17 @@ r.post('/financeiro/cobrancas/:id/desfazer-pagamento', exigirPapel('gestor'), (r
     const adm = conferirSenhaAdmin(db(), req.usuario.empresa_id, req.usuario.id, req.body?.senha_admin, { aviso: 'Para desfazer um recebimento, um administrador precisa digitar a senha dele.' });
     desfazerPagamento(db(), req.usuario.empresa_id, id);
     auditar(req, 'honorarios_desfazer_pagamento', 'cobranca', id, { autorizado_por: adm.id });
+    res.json({ ok: true });
+  } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
+});
+// Excluir um lançamento de honorário; se já foi recebido, mexe no caixa: só com a senha de um administrador
+r.delete('/financeiro/cobrancas/:id', exigirPapel('gestor'), (req, res) => {
+  try {
+    const id = inteiro(req.params.id);
+    const c = cobrancaDaEmpresa(db(), req.usuario.empresa_id, id);
+    const adm = c.pago_em ? conferirSenhaAdmin(db(), req.usuario.empresa_id, req.usuario.id, req.body?.senha_admin, { aviso: 'Este honorário já foi recebido. Para excluir, um administrador precisa digitar a senha dele.' }) : null;
+    excluirCobranca(db(), req.usuario.empresa_id, id, req.usuario.id);
+    auditar(req, 'honorarios_cobranca_excluir', 'cobranca', id, { descricao: c.descricao, valor: c.valor, vencimento: c.vencimento, pago_em: c.pago_em, autorizado_por: adm?.id ?? null });
     res.json({ ok: true });
   } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
 });

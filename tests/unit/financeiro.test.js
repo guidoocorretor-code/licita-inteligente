@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { bancoMemoria } from '../helpers.js';
 import { garantirEtapas } from '../../server/routes/api.js';
 import { salvarContrato, gerarCobrancas, resumoHonorarios, atualizarCobranca, criarCobrancaAvulsa, cancelarCobranca,
-  lancarCusto, lucroPorContrato, mesesEntre } from '../../server/services/financeiro.js';
+  lancarCusto, lucroPorContrato, mesesEntre, excluirCobranca } from '../../server/services/financeiro.js';
 
 function cenario() {
   const db = bancoMemoria();
@@ -106,4 +106,25 @@ test('lucro por contrato: sem custo não há lucro; com custo e êxito, lucro e 
 
   // Período: o card a_entregar conta pela data do empenho
   assert.equal(lucroPorContrato(db, emp, { de: '2026-10-01', ate: '2026-10-31' }).contratos.length, 1);
+});
+
+test('excluir lançamento: some dos totais e não é gerado de novo', () => {
+  const { db, emp, cli, card } = cenario();
+  salvarContrato(db, emp, cli, { inicio: '2026-08-01', mensalidade: '800', dia_vencimento: 10, percentual_exito: '3' });
+  const rec = card('x', 'recebida', { recebido_valor: 10000, recebido_data: '2026-08-20' });
+  const hoje = '2026-09-15';
+  const antes = resumoHonorarios(db, emp, { hoje });
+  const mensal = antes.cobrancas.find((c) => c.tipo === 'mensalidade' && c.competencia === '2026-09');
+  const exito = antes.cobrancas.find((c) => c.tipo === 'exito' && c.oportunidade_id === rec);
+  const avulsa = criarCobrancaAvulsa(db, emp, null, { cliente_id: cli, valor: 500, vencimento: '2026-09-12', descricao: 'cadastro sicaf' });
+  atualizarCobranca(db, emp, avulsa, { pago_em: '2026-09-12' });
+  for (const id of [mensal.id, exito.id, avulsa]) excluirCobranca(db, emp, id, null);
+  const depois = resumoHonorarios(db, emp, { hoje });
+  assert.equal(depois.cobrancas.some((c) => [mensal.id, exito.id, avulsa].includes(c.id)), false);
+  assert.equal(depois.total.recebido, 0);
+  assert.equal(depois.total.previsto, antes.total.previsto - 800 - exito.valor);
+  // A geração seguinte não recria a mensalidade nem o êxito excluídos
+  gerarCobrancas(db, emp, hoje);
+  assert.equal(resumoHonorarios(db, emp, { hoje }).cobrancas.length, depois.cobrancas.length);
+  assert.throws(() => excluirCobranca(db, emp, avulsa, null), /não encontrada/);
 });
