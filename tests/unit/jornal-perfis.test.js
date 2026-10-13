@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria } from '../helpers.js';
-import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil, idsQueBatem, pendentesDeItens } from '../../server/services/jornal-perfis.js';
+import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil, idsQueBatem, pendentesDeItens, itensDoPerfil } from '../../server/services/jornal-perfis.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 
 const AGORA = '2026-10-12T08:00:00';
@@ -194,4 +194,19 @@ test('cidades: nome oficial é exato (Serra não pega Serra do Salitre); lista d
   const ids = (x) => idsQueBatem(db, normalizarFiltros(x), { agora: AGORA }).ids.sort((a, b) => a - b);
   assert.deepEqual(ids({ ufs: [], cidades: ['Serra'] }), [serra]);
   assert.deepEqual(ids({ ufs: ['ES'], cidades: ['serra', 'GUARAPARI'] }), [serra, gv]);
+});
+
+test('cartão do jornal: descritivo traz só os itens com as palavras do jornal (até 3, com o total)', () => {
+  const { db, lic } = cenario();
+  const a = lic('a', { objeto: 'Aquisição de gêneros alimentícios' });
+  const b = lic('b', { objeto: 'Aquisição de material de pintura' });
+  const it = db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)');
+  ['Carne bovina moída', 'Arroz tipo 1', 'Carne bovina em cubos', 'Carne suína pernil', 'Frango congelado', 'Carne bovina acém'].forEach((d, i) => it.run(a, i + 1, d));
+  it.run(b, 1, 'Tinta com carne de pintura'); // "carne" não abre o item: fica de fora
+  const f = normalizarFiltros({ ufs: ['ES'], produtos: 'carne', itens: 'frango' });
+  const r = itensDoPerfil(db, f, [a, b]);
+  assert.equal(r.get(a).total, 5);
+  assert.deepEqual(r.get(a).itens.map((x) => x.numero_item), [1, 3, 4]);
+  assert.equal(r.has(b), false);
+  assert.equal(itensDoPerfil(db, normalizarFiltros({ ufs: ['ES'], segmentos: ['Alimentação'] }), [a]).size, 0);
 });

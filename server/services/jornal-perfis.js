@@ -160,6 +160,25 @@ export function conferirLicitacoes(db, f, ids) {
   return out;
 }
 
+/**
+ * Itens de cada licitação com as palavras do jornal (produtos e itens do perfil), mesma regra da conferência:
+ * Map id -> { itens: até 3 { numero_item, descricao }, total }. Sem produto/item no perfil, Map vazio.
+ */
+export function itensDoPerfil(db, f, ids) {
+  const out = new Map();
+  const exprs = [...expressoesRamo(f.produtos), ...listaItens(f.itens)];
+  if (!ids.length || !exprs.length) return out;
+  const marcas = ids.map(() => '?').join(',');
+  for (const it of db.prepare(`SELECT licitacao_id, numero_item, descricao FROM licitacao_itens WHERE licitacao_id IN (${marcas}) ORDER BY licitacao_id, numero_item`).all(...ids)) {
+    const toks = palavras(it.descricao);
+    if (!exprs.some((ws) => noItem(toks, ws))) continue;
+    const r = out.get(it.licitacao_id) || { itens: [], total: 0 };
+    if (r.itens.length < 3) r.itens.push({ numero_item: it.numero_item, descricao: it.descricao });
+    r.total++; out.set(it.licitacao_id, r);
+  }
+  return out;
+}
+
 /** Por que cada licitação está no jornal (lista da tela). Sem motivo = o texto não confirma. */
 export function motivosDoPerfil(db, f, ids) {
   const c = conferirLicitacoes(db, f, ids);

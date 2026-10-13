@@ -165,11 +165,11 @@ function fraseModalidade(nome = '') {
 
 // Descritivo abaixo do objeto, só com texto da fonte (nada gerado): os itens que batem com a busca, senão a
 // informação complementar publicada pelo órgão; sem nenhum dos dois, diz que o órgão não publicou.
-function descritivoLic(l, itens) {
+function descritivoLic(l, itens, rotuloItens = 'Itens com as palavras buscadas') {
   const total = l.itens_encontrados_total || itens.length;
   if (itens.length) {
     return h('div', { class: 'descritivo-lic' },
-      h('span', { class: 'rot-desc' }, `🔎 Itens com as palavras buscadas (${total}${l.num_itens ? ` de ${l.num_itens} no edital` : ''})`),
+      h('span', { class: 'rot-desc' }, `🔎 ${rotuloItens} (${total}${l.num_itens ? ` de ${l.num_itens} no edital` : ''})`),
       h('ul', {}, itens.map((i) => h('li', { title: i.descricao || '' }, h('b', {}, `Item ${i.numero_item}: `), i.descricao || '(sem descrição)'))),
       total > itens.length ? h('small', { class: 'suave' }, `e mais ${total - itens.length} item(ns): veja todos no detalhe da licitação.`) : null);
   }
@@ -185,7 +185,8 @@ function descritivoLic(l, itens) {
 // Cartão da licitação na lista de busca, no padrão do modelo do Guido: faixa (modalidade, nº, UASG/órgão, valor),
 // objeto + resumo, cinco blocos coloridos, aviso do sistema e rodapé com etiquetas e botões.
 // Só mostra o que a fonte informou: UASG só no Compras.gov.br; sem nota CAPAG fica "Sem nota".
-function linhaLicitacao(l, est, { aoKanban } = {}) {
+// O Jornal usa o mesmo cartão: rotuloItens troca o título do descritivo e extra entra antes do rodapé ("Entrou por").
+export function linhaLicitacao(l, est, { aoKanban, rotuloItens, extra } = {}) {
   const prazo = prazoRestante(l.data_encerramento_proposta);
   const diasRestantes = l.data_encerramento_proposta ? (Date.parse(l.data_encerramento_proposta + '-03:00') - Date.now()) / 86400000 : null;
   const urgente = diasRestantes !== null && diasRestantes > 0 && diasRestantes <= 3;
@@ -223,7 +224,7 @@ function linhaLicitacao(l, est, { aoKanban } = {}) {
         h('div', { class: 'objeto-conteudo' },
           h('span', { class: 'rot-lic' }, 'Objeto da contratação'),
           h('a', { class: 'objeto-lic', href: `#/licitacao/${l.id}`, title: l.objeto || '' }, l.objeto || '(objeto não informado)'),
-          descritivoLic(l, itens)))),
+          descritivoLic(l, itens, rotuloItens)))),
     h('div', { class: 'blocos-lic' },
       bloco('martelo', 'azul-escuro', 'Modalidade', modalidade, fraseModalidade(l.modalidade_nome || '')),
       bloco('megafone', 'verde', 'Publicação', publicacao(), 'Edital publicado no PNCP.'),
@@ -234,6 +235,7 @@ function linhaLicitacao(l, est, { aoKanban } = {}) {
       h('div', {}, h('b', {}, `${s.nome} cobra do fornecedor. `), s.resumo, ' ',
         s.cadastro ? h('a', { href: s.cadastro, target: '_blank', rel: 'noopener noreferrer' }, 'Ver planos e cadastrar ↗') : null,
         s.fonte ? h('span', {}, ' / ', h('a', { href: s.fonte, target: '_blank', rel: 'noopener noreferrer' }, 'fonte')) : null)) : null,
+    extra || null,
     h('footer', { class: 'rodape-lic' },
       h('div', { class: 'etiquetas-lic' },
         etiquetaStatus(l.status_calculado, est.meta, l.status_motivo),

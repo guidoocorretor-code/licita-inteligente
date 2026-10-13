@@ -764,3 +764,9 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .seletor-cidades { display: flex; flex-direction: column; gap: 6px; }
 .lista-cidades { max-height: 220px; overflow-y: auto; border: 1px solid var(--borda); border-radius: 8px; padding: 6px 8px; background: var(--superficie); }
 .grade-cidades { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 2px 10px; }
+/* Jornal com o cartão da busca: marcação em cima, "Entrou por" antes do rodapé */
+.jornal-cartao { margin-bottom: 14px; }
+.jornal-cartao .cartao-lic { margin-top: 0; }
+.marca-cartao { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px 2px; cursor: pointer; }
+.marca-cartao input { width: 18px; height: 18px; }
+.motivo-cartao { margin: 0 16px 10px; padding: 8px 12px; border-left: 3px solid #1f5fa3; background: #eef4fb; border-radius: 6px; color: #14212e; }
