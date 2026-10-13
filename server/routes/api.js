@@ -43,6 +43,7 @@ import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
 import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
 import { dadosBusca, MAX_PDF_BUSCA } from '../services/jornal-cliente.js';
 import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, excluirEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO, dadosAssessoria, salvarDadosAssessoria } from '../services/jornal-cliente.js';
+import rotasCaptacao from './captacao.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -111,6 +112,8 @@ r.use((req, res, next) => {
   }
   next();
 });
+// Captação, Minha Empresa e documentos (proposta, contrato, procuração)
+r.use(rotasCaptacao);
 const doCliente = (req, col = 'cliente_id') => (req.clienteId ? { sql: ` AND ${col} = ?`, p: [req.clienteId] } : { sql: '', p: [] });
 
 // ---------------- Metadados ----------------
@@ -647,7 +650,8 @@ r.patch('/clientes/:id', exigirPapel('analista'), (req, res) => {
   auditar(req, 'cliente_editar', 'cliente', req.params.id); res.json({ ok: true });
 });
 r.delete('/clientes/:id', exigirPapel('gestor'), (req, res) => {
-  if (!excluirCliente(db(), req.usuario.empresa_id, inteiro(req.params.id))) return erro(res, 404, 'Empresa não encontrada.');
+  try { if (!excluirCliente(db(), req.usuario.empresa_id, inteiro(req.params.id))) return erro(res, 404, 'Empresa não encontrada.'); }
+  catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
   auditar(req, 'cliente_excluir', 'cliente', req.params.id); res.json({ ok: true });
 });
 r.get('/cnpj/validar', (req, res) => res.json({ valido: !!validarCnpj(req.query.cnpj) }));

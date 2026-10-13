@@ -34,11 +34,38 @@ function codificar(texto) {
   return out;
 }
 
+/**
+ * Lê largura, altura e cores de um JPEG (marcador SOF). Devolve null se não for JPEG válido.
+ * Só JPEG: o PDF desenha JPEG direto (filtro DCTDecode), sem precisar descompactar a imagem.
+ */
+export function lerJpeg(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xff) { i++; continue; }
+    const m = buf[i + 1];
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7) || m === 0xff) { i += m === 0xff ? 1 : 2; continue; }
+    const tam = buf.readUInt16BE(i + 2);
+    if (m >= 0xc0 && m <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(m)) {
+      const altura = buf.readUInt16BE(i + 5); const largura = buf.readUInt16BE(i + 7); const cores = buf[i + 9];
+      return largura && altura && [1, 3, 4].includes(cores) ? { largura, altura, cores } : null;
+    }
+    i += 2 + tam;
+  }
+  return null;
+}
+
 export function criarPdf({ margem = 50 } = {}) {
   const W = 595.28; const H = 841.89; const M = margem;
   const paginas = [];
+  const imagens = []; // { buf, info } (cada imagem entra uma vez no arquivo, mesmo usada em várias páginas)
   let ops = []; let links = []; let y = H - M;
   const novaPagina = () => { if (ops.length) paginas.push({ conteudo: ops.join('\n'), links }); ops = []; links = []; y = H - M; };
+  const registrarImagem = (buf) => {
+    let k = imagens.findIndex((im) => im.buf === buf);
+    if (k < 0) { const info = lerJpeg(buf); if (!info) return null; imagens.push({ buf, info }); k = imagens.length - 1; }
+    return k;
+  };
   const garantir = (alt) => { if (y - alt < M + 20) novaPagina(); };
 
   const quebrar = (texto, tam, negrito, maxW) => {
@@ -63,17 +90,19 @@ export function criarPdf({ margem = 50 } = {}) {
 
   const api = {
     /** Parágrafo com quebra automática. Com `url`, o texto vira link clicável (sublinhado). */
-    texto(t, { tam = 10, negrito = false, cor = [0, 0, 0], x = M, maxW = W - 2 * M - (x - M), espaco = 1.35, depois = 2, url = null } = {}) {
-      for (const l of quebrar(t, tam, negrito, maxW)) {
+    texto(t, { tam = 10, negrito = false, cor = [0, 0, 0], x = M, maxW = W - 2 * M - (x - M), espaco = 1.35, depois = 2, url = null, marcador = null } = {}) {
+      quebrar(t, tam, negrito, maxW).forEach((l, i) => {
         garantir(tam * espaco);
         y -= tam * espaco;
+        // Marcador de lista (ex.: •) à esquerda da primeira linha; as linhas seguintes ficam alinhadas ao texto
+        if (marcador && i === 0) ops.push(`BT /F1 ${tam} Tf ${cor.join(' ')} rg ${(x - largura(marcador, tam, false) - 4).toFixed(2)} ${y.toFixed(2)} Td (${codificar(limpar(marcador))}) Tj ET`);
         ops.push(`BT /${negrito ? 'F2' : 'F1'} ${tam} Tf ${cor.join(' ')} rg ${x.toFixed(2)} ${y.toFixed(2)} Td (${codificar(l)}) Tj ET`);
         if (url) {
           const w = largura(l, tam, negrito);
           ops.push(`${cor.join(' ')} RG 0.5 w ${x.toFixed(2)} ${(y - 1.5).toFixed(2)} m ${(x + w).toFixed(2)} ${(y - 1.5).toFixed(2)} l S`);
           links.push({ r: [x, y - 3, x + w, y + tam], url });
         }
-      }
+      });
       y -= depois;
       return api;
     },
@@ -186,6 +215,13 @@ export function criarPdf({ margem = 50 } = {}) {
         /** Quantas linhas o texto ocupa (para calcular a altura do bloco antes de desenhar). */
         linhasDe: (t, tam, negrito, maxW, max = 99) => Math.min(max, quebrar(t, tam, negrito, maxW).length),
         larguraDe: (t, tam, negrito = false) => largura(limpar(t), tam, negrito),
+        /** Imagem JPEG (Buffer) no retângulo w x h; dy = topo. JPEG inválido é ignorado (não quebra o documento). */
+        imagem(buf, x, dy, w, h) {
+          const k = registrarImagem(buf);
+          if (k == null) return false;
+          ops.push(`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${(yAbs(dy) - h).toFixed(2)} cm /Im${k + 1} Do Q`);
+          return true;
+        },
         /** Área clicável sem texto (ex.: botão desenhado com ret). */
         link(x, dy, w, h, url) { links.push({ r: [x, yAbs(dy) - h, x + w, yAbs(dy)], url }); },
         /** Gráfico de pizza: fatias [{ valor, cor }], começando às 12h no sentido horário, com 1,5 pt de separação branca. */
@@ -230,12 +266,15 @@ export function criarPdf({ margem = 50 } = {}) {
       const catalogo = add(null); const arvore = add(null);
       const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
       const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+      const espacos = { 1: '/DeviceGray', 3: '/DeviceRGB', 4: '/DeviceCMYK' };
+      const ims = imagens.map(({ buf, info }) => add(`<< /Type /XObject /Subtype /Image /Width ${info.largura} /Height ${info.altura} /ColorSpace ${espacos[info.cores]} /BitsPerComponent 8 /Filter /DCTDecode${info.cores === 4 ? ' /Decode [1 0 1 0 1 0 1 0]' : ''} /Length ${buf.length} >>\nstream\n${buf.toString('latin1')}\nendstream`));
+      const xobj = ims.length ? ` /XObject << ${ims.map((n, i) => `/Im${i + 1} ${n} 0 R`).join(' ')} >>` : '';
       const filhos = paginas.map(({ conteudo, links: lks }, i) => {
         const pe = `BT /F1 8 Tf 0.45 0.45 0.45 rg ${M} ${Math.min(28, M - 10)} Td (${codificar(limpar(`${rodape}${rodape ? '   ' : ''}Página ${i + 1} de ${total}`))}) Tj ET`;
         const corpo = Buffer.from(`${conteudo}\n${pe}`, 'latin1');
         const fluxo = add(`<< /Length ${corpo.length} >>\nstream\n${corpo.toString('latin1')}\nendstream`);
         const annots = lks.length ? ` /Annots [${lks.map((k) => `<< /Type /Annot /Subtype /Link /Rect [${k.r.map((n) => n.toFixed(2)).join(' ')}] /Border [0 0 0] /A << /S /URI /URI (${codificar(String(k.url).replace(/[^\x21-\x7e]/g, encodeURIComponent))}) >> >>`).join(' ')}]` : '';
-        return add(`<< /Type /Page /Parent ${arvore} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${fluxo} 0 R${annots} >>`);
+        return add(`<< /Type /Page /Parent ${arvore} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >>${xobj} >> /Contents ${fluxo} 0 R${annots} >>`);
       });
       objs[catalogo - 1] = `<< /Type /Catalog /Pages ${arvore} 0 R >>`;
       objs[arvore - 1] = `<< /Type /Pages /Kids [${filhos.map((n) => `${n} 0 R`).join(' ')}] /Count ${filhos.length} >>`;

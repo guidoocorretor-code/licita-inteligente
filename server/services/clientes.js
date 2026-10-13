@@ -36,16 +36,27 @@ export function validarCnpj(v) {
   return dv(d.slice(0, 12)) === Number(d[12]) && dv(d.slice(0, 13)) === Number(d[13]) ? d : null;
 }
 
+// CPF: 11 números e dígitos verificadores (empresa assessorada pessoa física)
+function cpfValido(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return null;
+  const dv = (n) => { const s = d.slice(0, n).split('').reduce((a, x, i) => a + Number(x) * (n + 1 - i), 0); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+  return dv(9) === Number(d[9]) && dv(10) === Number(d[10]) ? d : null;
+}
+
 function dadosCliente(b) {
-  const cnpj = validarCnpj(b.cnpj);
-  if (!cnpj) throw erro400('CNPJ inválido. Confira os 14 números.');
+  // Pessoa física guarda o CPF no mesmo campo do CNPJ (cadastro central único, sem duplicar por documento)
+  const pf = b.tipo_pessoa === 'PF';
+  const cnpj = pf ? cpfValido(b.cnpj) : validarCnpj(b.cnpj);
+  if (!cnpj) throw erro400(pf ? 'CPF inválido. Confira os 11 números.' : 'CNPJ inválido. Confira os 14 números.');
   const razao = texto(b.razao_social, 200);
-  if (!razao) throw erro400('Informe a razão social.');
+  if (!razao) throw erro400(pf ? 'Informe o nome completo.' : 'Informe a razão social.');
   if (b.porte && !PORTES.includes(b.porte)) throw erro400('Porte inválido.');
-  for (const k of ['email', 'resp_email', 'fin_email']) {
+  for (const k of ['email', 'resp_email', 'fin_email', 'email_documentos']) {
     if (b[k] && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b[k])) throw erro400('E-mail inválido.');
   }
   return {
+    tipo_pessoa: pf ? 'PF' : 'PJ', email_documentos: texto(b.email_documentos, 150), obs_comerciais: texto(b.obs_comerciais, 2000),
     cnpj, razao_social: razao, nome_fantasia: texto(b.nome_fantasia), porte: b.porte || null,
     uf: texto(b.uf, 2)?.toUpperCase() || null, municipio: texto(b.municipio, 100), email: texto(b.email, 150), telefone: texto(b.telefone, 30),
     resp_nome: texto(b.resp_nome, 150), resp_cargo: texto(b.resp_cargo, 80), resp_email: texto(b.resp_email, 150), resp_telefone: texto(b.resp_telefone, 30),
@@ -194,6 +205,8 @@ export function excluirDocumento(db, clienteId, id) {
 export function excluirCliente(db, empresaId, id) {
   const c = db.prepare('SELECT id FROM clientes WHERE id=? AND empresa_id=?').get(id, empresaId);
   if (!c) return false;
+  // Captações guardam propostas, contratos e procurações emitidos: não somem junto com o cadastro
+  if (db.prepare('SELECT 1 FROM captacoes WHERE cliente_id=?').get(id)) throw erro400('Esta empresa tem captações (propostas, contratos ou procurações). Arquive a empresa em vez de excluir.');
   // Favoritos, Kanban e pesquisas não são apagados: voltam para "sem empresa"
   for (const t of ['favoritos', 'oportunidades', 'pesquisas_salvas', 'notificacoes']) {
     db.prepare(`UPDATE OR IGNORE ${t} SET cliente_id=0 WHERE cliente_id=? AND empresa_id=?`).run(id, empresaId);
