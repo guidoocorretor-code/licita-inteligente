@@ -27,7 +27,7 @@ import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
-import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, filtroDoPerfil, normalizarFiltros,
+import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, idsQueBatem, normalizarFiltros,
   resumoFiltros, funilDoPerfil, motivosDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, excluirCobranca, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
@@ -280,8 +280,7 @@ r.get('/jornal/perfis/:id', (req, res) => {
 r.post('/jornal/perfis/previa', exigirPapel('analista'), (req, res) => {
   try {
     const f = normalizarFiltros(req.body?.filtros || {}); const agora = agoraBrasilia();
-    const { where, params } = filtroDoPerfil(f, { agora });
-    res.json({ total: db().prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n, funil: funilDoPerfil(db(), f, agora) });
+    res.json({ total: idsQueBatem(db(), f, { agora }).total, funil: funilDoPerfil(db(), f, agora) });
   } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
 });
 const salvarEGerar = (req, id) => {

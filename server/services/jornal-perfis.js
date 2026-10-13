@@ -1,7 +1,7 @@
 // Jornais salvos (perfis): estado, cidades, nicho/produtos, itens, modalidade, valor, portais, fase e encerramento.
 // Todo dia (a partir das 7h de Brasília) cada jornal ativo ganha uma edição com as licitações NOVAS no sistema
 // que batem com o perfil; a primeira edição traz todas as abertas que batem. Aviso no sino e no e-mail de alertas.
-import { montarFiltro, expressoesRamo, termos, fts } from './busca.js';
+import { montarFiltro, expressoesRamo, termos, fts, radical } from './busca.js';
 import { SISTEMAS } from './sistemas.js';
 import { semAcento } from '../lib/texto.js';
 
@@ -84,39 +84,85 @@ export function normalizarFiltros(b = {}) {
  * "O que" (nicho, produtos, itens): basta bater UM deles. Somar campos de "o que" amplia o jornal, não estreita
  * (antes era tudo junto e um jornal de obras com nicho + produtos + itens zerava).
  */
-const exprObjeto = (ws) => (ws.length > 1 ? `NEAR(${ws.map(fts).join(' ')}, 3)` : fts(ws[0]));
-const casa = (db, sql, ...p) => { try { return db.prepare(sql).get(...p); } catch { return null; } };
+// ---- Conferência no texto (sem depender do índice de busca) ----
+// O índice FTS serve de pré-filtro rápido; quem decide se a licitação entra é a conferência abaixo, feita no
+// texto real do objeto e dos itens. Em 13/10/2026 o jornal de alimentos trouxe "blocos estruturais" com o motivo
+// "gêneros alimentícios no objeto", que o objeto não tem: o índice apontava para a linha errada.
+const semAc = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const palavras = (t) => semAc(t).match(/[\p{L}\p{N}]+/gu) || [];
+const bate = (tok, w) => tok.startsWith(radical(w));
+// Expressão no objeto: uma palavra em qualquer lugar; várias, todas perto umas das outras (como o NEAR(…, 3))
+const noTexto = (toks, ws) => {
+  if (ws.length === 1) return toks.some((t) => bate(t, ws[0]));
+  const janela = ws.length + 3;
+  for (let i = 0; i < toks.length; i++) {
+    if (!ws.some((w) => bate(toks[i], w))) continue;
+    const jan = toks.slice(i, i + janela);
+    if (ws.every((w) => jan.some((t) => bate(t, w)))) return true;
+  }
+  return false;
+};
+// Expressão no item: a 1ª palavra ABRE a descrição (onde fica o produto) e as outras estão no mesmo item
+const noItem = (toks, ws) => toks.length > 0 && bate(toks[0], ws[0]) && ws.slice(1).every((w) => toks.some((t) => bate(t, w)));
+const temOque = (f) => f.segmentos.length > 0 || !!f.produtos || !!f.itens;
+const listaItens = (v) => String(v || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
 
 /**
- * Por que cada licitação entrou no jornal: o nicho, o produto (no objeto ou no item) ou o item que bateu.
- * Mostrado na lista para o usuário ver na hora qual palavra puxou uma licitação fora do segmento.
+ * Confere no texto real cada licitação: devolve Map id -> motivos (o que puxou ela para o jornal), sem as que
+ * caem em "Excluir palavras" e sem as que nada do "o que" (nicho, produtos, itens) explica.
  */
-export function motivosDoPerfil(db, f, ids) {
+export function conferirLicitacoes(db, f, ids) {
   const out = new Map();
   if (!ids.length) return out;
-  const lics = db.prepare(`SELECT id, segmento FROM licitacoes WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
-  const produtos = expressoesRamo(f.produtos);
-  const itens = String(f.itens || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
-  const noObjeto = 'SELECT 1 FROM licitacoes_fts WHERE licitacoes_fts MATCH ? AND rowid = ?';
-  const noItem = `SELECT i.descricao FROM licitacao_itens i WHERE i.licitacao_id = ?
-    AND i.id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?) LIMIT 1`;
-  for (const l of lics) {
-    const m = [];
-    if (f.segmentos.includes(l.segmento)) m.push(`nicho ${l.segmento}`);
-    for (const ws of produtos) {
-      if (m.length >= 3) break;
-      if (casa(db, noObjeto, `objeto : (${exprObjeto(ws)})`, l.id)) { m.push(`produto "${ws.join(' ')}" no objeto`); continue; }
-      const it = casa(db, noItem, l.id, `(^${ws.map(fts).join(' AND ')})`);
-      if (it) m.push(`produto "${ws.join(' ')}" no item "${String(it.descricao).slice(0, 70)}"`);
+  const produtos = expressoesRamo(f.produtos); const itens = listaItens(f.itens); const excl = expressoesRamo(f.excluir);
+  for (let i = 0; i < ids.length; i += 500) {
+    const lote = ids.slice(i, i + 500); const marcas = lote.map(() => '?').join(',');
+    const lics = db.prepare(`SELECT id, objeto, segmento FROM licitacoes WHERE id IN (${marcas})`).all(...lote);
+    const itensPor = new Map();
+    if (produtos.length || itens.length) {
+      for (const it of db.prepare(`SELECT licitacao_id, descricao FROM licitacao_itens WHERE licitacao_id IN (${marcas}) ORDER BY licitacao_id, numero_item`).all(...lote)) {
+        if (!itensPor.has(it.licitacao_id)) itensPor.set(it.licitacao_id, []);
+        itensPor.get(it.licitacao_id).push({ descricao: it.descricao, toks: palavras(it.descricao) });
+      }
     }
-    for (const ws of itens) {
-      if (m.length >= 3) break;
-      const it = casa(db, noItem, l.id, `(^${ws.map(fts).join(' AND ')})`);
-      if (it) m.push(`item "${ws.join(' ')}": "${String(it.descricao).slice(0, 70)}"`);
+    for (const l of lics) {
+      const obj = palavras(l.objeto);
+      if (excl.some((ws) => noTexto(obj, ws))) continue;
+      const m = [];
+      if (f.segmentos.includes(l.segmento)) m.push(`nicho ${l.segmento}`);
+      const its = itensPor.get(l.id) || [];
+      for (const ws of produtos) {
+        if (m.length >= 3) break;
+        if (noTexto(obj, ws)) { m.push(`produto "${ws.join(' ')}" no objeto`); continue; }
+        const it = its.find((x) => noItem(x.toks, ws));
+        if (it) m.push(`produto "${ws.join(' ')}" no item "${String(it.descricao).slice(0, 70)}"`);
+      }
+      for (const ws of itens) {
+        if (m.length >= 3) break;
+        const it = its.find((x) => noItem(x.toks, ws));
+        if (it) m.push(`item "${ws.join(' ')}": "${String(it.descricao).slice(0, 70)}"`);
+      }
+      if (temOque(f) && !m.length) continue;
+      out.set(l.id, m);
     }
-    out.set(l.id, m);
   }
   return out;
+}
+
+/** Por que cada licitação está no jornal (lista da tela). Sem motivo = o texto não confirma. */
+export function motivosDoPerfil(db, f, ids) {
+  const c = conferirLicitacoes(db, f, ids);
+  return new Map(ids.map((id) => [id, c.get(id) || []]));
+}
+
+export const MAX_CANDIDATAS = 5000;
+const ORDEM = 'ORDER BY l.data_encerramento_proposta IS NULL, l.data_encerramento_proposta, l.id DESC';
+/** Ids que batem com o perfil: pré-filtro no banco + conferência no texto. */
+export function idsQueBatem(db, f, { agora, desde = null, limite = MAX_CANDIDATAS } = {}) {
+  const { where, params } = filtroDoPerfil(f, { agora, desde });
+  const cand = db.prepare(`SELECT l.id FROM licitacoes l ${where} ${ORDEM} LIMIT ?`).all(...params, MAX_CANDIDATAS).map((x) => x.id);
+  const ok = temOque(f) || f.excluir ? (() => { const c = conferirLicitacoes(db, f, cand); return cand.filter((id) => c.has(id)); })() : cand;
+  return { ids: ok.slice(0, limite), total: ok.length };
 }
 
 export function filtroDoPerfil(f, { agora, desde = null } = {}) {
@@ -130,14 +176,7 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
   const w = []; const p = [...params];
   // Cidade: sem acento e sem maiúsculas ("vitoria" acha "Vitória")
   if (f.cidades.length) { w.push(`(${f.cidades.map(() => 'sem_acento(l.municipio) LIKE ?').join(' OR ')})`); p.push(...f.cidades.map((c) => `%${semAcento(c)}%`)); }
-  // Excluir: só no OBJETO (como a tela promete). Antes valia também para órgão, município e informação
-  // complementar, e um texto padrão do órgão ("não se aplica a obras…") tirava licitação de alimentos do jornal.
-  // Separado por ; ou vírgula; expressão de várias palavras ("obra civil") exige as palavras próximas.
-  const excl = expressoesRamo(f.excluir);
-  if (excl.length) {
-    w.push('l.id NOT IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)');
-    p.push(`objeto : (${excl.map(exprObjeto).join(' OR ')})`);
-  }
+  // Excluir palavras: aplicado na conferência do texto (conferirLicitacoes), só no objeto.
   const oque = []; const po = [];
   if (f.segmentos.length) { oque.push(`l.segmento IN (${f.segmentos.map(() => '?').join(',')})`); po.push(...f.segmentos); }
   if (f.produtos) {
@@ -181,7 +220,7 @@ export function funilDoPerfil(db, f, agora) {
     ['Fase', { fases: f.fases }, true],
     ['Encerramento', { encerramento: f.encerramento }, (f.encerramento || {}).modo !== 'qualquer'],
   ];
-  const contar = (x) => { const { where, params } = filtroDoPerfil(x, { agora }); return db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n; };
+  const contar = (x) => idsQueBatem(db, x, { agora }).total;
   let acc = { ...vazio };
   const out = [];
   for (const [nome, parte, ativo] of etapas) {
@@ -235,10 +274,7 @@ export function gerarEdicao(db, perfil, agora) {
   if (existe && unica && existe.total === 0) db.prepare('DELETE FROM jornal_edicoes WHERE id=?').run(existe.id);
   else if (existe) return { ...existe, nova: false };
   const anterior = db.prepare('SELECT gerado_em FROM jornal_edicoes WHERE perfil_id=? ORDER BY data DESC LIMIT 1').get(perfil.id);
-  const { where, params } = filtroDoPerfil(perfil.filtros, { agora, desde: anterior?.gerado_em || null });
-  const total = db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n;
-  const ids = db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.data_encerramento_proposta IS NULL, l.data_encerramento_proposta, l.id DESC LIMIT ?`)
-    .all(...params, MAX_EDICAO).map((x) => x.id);
+  const { ids, total } = idsQueBatem(db, perfil.filtros, { agora, desde: anterior?.gerado_em || null, limite: MAX_EDICAO });
   // Momento da edição em UTC (mesmo formato de licitacoes.criado_em), a partir do horário de Brasília recebido
   const geradoEm = new Date(Date.parse(`${agora}Z`) + 3 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
   const id = db.prepare('INSERT INTO jornal_edicoes (perfil_id, data, licitacoes, total, gerado_em) VALUES (?,?,?,?,?)').run(perfil.id, hoje, JSON.stringify(ids), total, geradoEm).lastInsertRowid;
@@ -286,10 +322,7 @@ export function idsDoPerfil(db, perfil, { edicao = null, agora }) {
     const e = db.prepare('SELECT licitacoes, total FROM jornal_edicoes WHERE perfil_id=? AND data=?').get(perfil.id, edicao);
     return e ? { ids: JSON.parse(e.licitacoes), total: e.total } : { ids: [], total: 0 };
   }
-  const { where, params } = filtroDoPerfil(perfil.filtros, { agora });
-  const total = db.prepare(`SELECT COUNT(*) n FROM licitacoes l ${where}`).get(...params).n;
-  const ids = db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.data_encerramento_proposta IS NULL, l.data_encerramento_proposta, l.id DESC LIMIT 1000`).all(...params).map((x) => x.id);
-  return { ids, total };
+  return idsQueBatem(db, perfil.filtros, { agora, limite: 1000 });
 }
 
 /** Resumo legível do perfil ("ES · Vila Velha, Serra · Pregão, Dispensa · até R$ 80 mil…"). */

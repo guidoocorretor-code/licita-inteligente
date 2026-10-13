@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria } from '../helpers.js';
-import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil } from '../../server/services/jornal-perfis.js';
+import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil, idsQueBatem } from '../../server/services/jornal-perfis.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 
 const AGORA = '2026-10-12T08:00:00';
@@ -34,7 +34,7 @@ test('filtros do perfil: cidade, modalidade, valor, portal, fase, encerramento e
   const e = lic('e', { objeto: 'Material de expediente', fim: '2026-10-15T09:00:00', sis: 'bll' });
   const it = db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)');
   it.run(e, 1, 'NOTEBOOK CORE I5 8GB'); it.run(a, 1, 'Resma papel A4 75g');
-  const ids = (b0) => { const { where, params } = filtroDoPerfil(normalizarFiltros(b0), { agora: AGORA }); return db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.id`).all(...params).map((x) => x.id); };
+  const ids = (b0) => idsQueBatem(db, normalizarFiltros(b0), { agora: AGORA }).ids.sort((x, y) => x - y);
   assert.deepEqual(ids({ ufs: ['ES'] }), [a, b, e]);
   assert.deepEqual(ids({ ufs: ['ES'], cidades: ['serra'] }), [b]);
   assert.deepEqual(ids({ ufs: ['ES'], modalidades: ['dispensa'] }), [a]);
@@ -88,7 +88,7 @@ test('jornal de obras (caso real do Guido): cidade sem acento, "o que" soma, fun
   lic('d', { objeto: 'Reforma de praça', mun: 'Linhares', mod: 4 });
   const filtros = { ufs: ['ES'], cidades: ['Vila velha', 'vitoria', 'serra', 'cariacica'], segmentos: ['Obras e engenharia'],
     produtos: 'obra civil; construção; reforma; pintura', itens: 'obra civil; construção; reforma; pintura', modalidades: ['dispensa', 'pregao'] };
-  const ids = (b0) => { const { where, params } = filtroDoPerfil(normalizarFiltros(b0), { agora: AGORA }); return db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.id`).all(...params).map((x) => x.id); };
+  const ids = (b0) => idsQueBatem(db, normalizarFiltros(b0), { agora: AGORA }).ids.sort((x, y) => x - y);
   // "vitoria" acha "Vitória"; nicho OU produtos OU itens (a de tintas entra pelo item)
   assert.deepEqual(ids({ ...filtros, modalidades: [] }), [a, b, c]);
   // Sem Concorrência a reforma da escola sai
@@ -115,7 +115,7 @@ test('excluir olha só o objeto; motivos dizem o que puxou cada licitação', ()
   it.run(bloco, 1, 'Óleo desmoldante para formas');
   const obra = lic('o', { objeto: 'Contratação de obra civil na escola' });
   const f = normalizarFiltros({ ufs: ['ES'], produtos: 'alimentação; refeição; óleo' });
-  const ids = (x) => { const { where, params } = filtroDoPerfil(normalizarFiltros(x), { agora: AGORA }); return db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.id`).all(...params).map((y) => y.id); };
+  const ids = (x) => idsQueBatem(db, normalizarFiltros(x), { agora: AGORA }).ids.sort((a, b) => a - b);
   assert.deepEqual(ids(f), [refeicao, bloco]);
   // "obra" e "seguro" no órgão / informação complementar não tiram a de refeições
   assert.deepEqual(ids({ ...f, excluir: 'obra, obra civil, seguro, mobiliario, blocos' }), [refeicao]);
@@ -123,4 +123,31 @@ test('excluir olha só o objeto; motivos dizem o que puxou cada licitação', ()
   const m = motivosDoPerfil(db, f, [refeicao, bloco, obra]);
   assert.match(m.get(refeicao).join(), /produto "alimentação" no objeto/);
   assert.match(m.get(bloco).join(), /produto "óleo" no item "Óleo desmoldante/);
+});
+
+test('índice de busca apontando para a linha errada não põe licitação no jornal nem inventa motivo', () => {
+  const { db, lic } = cenario();
+  const alimento = lic('a', { objeto: 'Aquisição de gêneros alimentícios para merenda' });
+  const bloco = lic('b', { objeto: 'Aquisição de insumos para produção de blocos estruturais' });
+  // Simula o índice desalinhado visto em produção (13/10/2026): o texto de alimentos indexado na linha dos blocos
+  db.prepare('INSERT INTO licitacoes_fts(rowid, objeto, orgao_nome, municipio, informacao_complementar) VALUES (?,?,?,?,?)')
+    .run(bloco, 'Aquisição de gêneros alimentícios', '', '', '');
+  const f = normalizarFiltros({ ufs: ['ES'], produtos: 'gêneros alimentícios; aquisição de alimentos' });
+  assert.deepEqual(idsQueBatem(db, f, { agora: AGORA }).ids, [alimento]);
+  const m = motivosDoPerfil(db, f, [alimento, bloco]);
+  assert.deepEqual(m.get(bloco), []);
+  assert.deepEqual(m.get(alimento), ['produto "gêneros alimentícios" no objeto']);
+});
+
+test('conferência do índice de busca: desalinhado é refeito e volta a achar a linha certa', async () => {
+  const { conferirIndiceBusca } = await import('../../server/db/index.js');
+  const { db, lic } = cenario();
+  lic('a', { objeto: 'Aquisição de gêneros alimentícios' });
+  const bloco = lic('b', { objeto: 'Blocos estruturais' });
+  assert.equal(conferirIndiceBusca(db, { log: () => {} }).refeito, false);
+  db.prepare('INSERT INTO licitacoes_fts(rowid, objeto, orgao_nome, municipio, informacao_complementar) VALUES (?,?,?,?,?)').run(bloco, 'gêneros alimentícios', '', '', '');
+  const achar = () => db.prepare("SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH 'genero*'").all().map((x) => x.rowid).sort();
+  assert.ok(achar().includes(bloco));
+  assert.equal(conferirIndiceBusca(db, { log: () => {} }).refeito, true);
+  assert.ok(!achar().includes(bloco));
 });

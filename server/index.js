@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { getDb, indexarItensEmSegundoPlano } from './db/index.js';
+import { getDb, indexarItensEmSegundoPlano, conferirIndiceBusca } from './db/index.js';
 import { classificarSistemasEmSegundoPlano } from './services/sistemas.js';
 import { reclassificarSegmentosEmSegundoPlano } from './services/segmentos.js';
 import { criarApp } from './app.js';
@@ -15,4 +15,6 @@ app.listen(config.port, () => {
   indexarItensEmSegundoPlano(db);
   classificarSistemasEmSegundoPlano(db);
   reclassificarSegmentosEmSegundoPlano(db);
+  // Índice de busca desalinhado traz licitação errada na busca e nos jornais: confere e, se preciso, refaz
+  setTimeout(() => { try { conferirIndiceBusca(db); } catch (e) { console.error('[indice]', e.message); } }, 15_000).unref();
 });

@@ -166,3 +166,24 @@ export function indexarItensEmSegundoPlano(conn, { lote = 2000, log = console.lo
     setTimeout(passo, 0);
   });
 }
+
+/**
+ * Confere se o índice de busca das licitações bate com a tabela e, se não bater, refaz o índice.
+ * Índice desalinhado faz a busca e os jornais trazerem a licitação errada (13/10/2026: jornal de alimentos
+ * trouxe "blocos estruturais"). Roda uma vez, logo depois de o servidor subir.
+ */
+export function conferirIndiceBusca(conn, { log = console.log } = {}) {
+  const t = Date.now();
+  try {
+    conn.exec("INSERT INTO licitacoes_fts(licitacoes_fts, rank) VALUES('integrity-check', 1)");
+    const r = { ok: true, refeito: false, ms: Date.now() - t };
+    log(`[indice] índice de busca conferido: ok (${r.ms} ms).`);
+    return r;
+  } catch (e) {
+    log(`[indice] índice de busca desalinhado (${e.message}); refazendo…`);
+    conn.exec("INSERT INTO licitacoes_fts(licitacoes_fts) VALUES('rebuild')");
+    const r = { ok: false, refeito: true, ms: Date.now() - t };
+    log(`[indice] índice de busca refeito em ${r.ms} ms.`);
+    return r;
+  }
+}
