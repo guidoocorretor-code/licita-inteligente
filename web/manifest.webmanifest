@@ -1,6 +1,6 @@
 {
-  "name": "Licita Inteligente",
-  "short_name": "Licita",
+  "name": "LicitPro",
+  "short_name": "LicitPro",
   "description": "Inteligência e gestão de licitações públicas",
   "start_url": "/#/dashboard",
   "display": "standalone",

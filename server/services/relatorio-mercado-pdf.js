@@ -154,5 +154,5 @@ export function pdfRelatorio(r, { modo = 'interno', para = '', preparadoPor = ''
   pdf.espaco(6);
   pdf.texto(`Fonte: Compras.gov.br, Dados Abertos (módulo Pesquisa de Preços): compras de órgãos federais e de estados e municípios que usam o Compras.gov.br. Compras feitas em outros sistemas não aparecem. Valores sem os preços fora da curva (critério estatístico).${parcial ? ' * Amostra parcial: o valor soma só as compras baixadas; o número de compras é o total oficial.' : ''}`,
     { tam: 7.5, cor: [0.4, 0.4, 0.4] });
-  return pdf.gerar({ titulo: `${lead ? 'Oportunidade' : 'Análise de mercado'} - ${nome}`, rodape: lead ? (preparadoPor || 'Licita Inteligente') : 'Uso interno - Licita Inteligente' });
+  return pdf.gerar({ titulo: `${lead ? 'Oportunidade' : 'Análise de mercado'} - ${nome}`, rodape: lead ? (preparadoPor || 'LicitPro') : 'Uso interno - LicitPro' });
 }

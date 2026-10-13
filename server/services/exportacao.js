@@ -26,7 +26,7 @@ export function paraCsv(linhas) {
 
 export async function paraXlsx(linhas) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Licita Inteligente';
+  wb.creator = 'LicitPro';
   const ws = wb.addWorksheet('Licitações');
   ws.columns = COLS.map(([header, , width]) => ({ header, width }));
   for (const r of linhas) ws.addRow(COLS.map(([, c]) => val(r, c)));

@@ -5,7 +5,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { montarEmailInteresse, resumoLicitacoes, faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios, ordenarPorCidade } from '../../server/services/jornal-cliente.js';
+import { montarEmailInteresse, resumoLicitacoes, faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios, ordenarPorCidade, salvarDadosAssessoria } from '../../server/services/jornal-cliente.js';
 
 // Base de TESTE: uma licitação real do fixture do PNCP e uma empresa assessorada de exemplo
 function preparar() {
@@ -150,4 +150,15 @@ test('PDF/impressão: agrupa por cidade na ordem do jornal salvo e lista os iten
   const e2 = criarEnvio(db, { empresaId: outra, usuarioId: uid, ids: [vit], perfilId: p.id ?? p });
   assert.equal(db.prepare('SELECT perfil_id FROM jornal_envios WHERE id=?').get(e2.id).perfil_id, null);
   assert.deepEqual(ordenarPorCidade([{ municipio: 'Serra' }, { municipio: 'Vitória' }], []).map((l) => l.municipio), ['Serra', 'Vitória']);
+});
+
+test('dados da assessoria: nome e e-mail de contato vão para o jornal; e-mail inválido é recusado', () => {
+  const { db, emp, uid, lic } = preparar();
+  const e = criarEnvio(db, { empresaId: emp, usuarioId: uid, ids: [lic] });
+  assert.equal(dadosEnvio(db, e.id).assessoria.email, 'ana@teste.com'); // sem e-mail de contato: o de quem montou
+  salvarDadosAssessoria(db, emp, { nome: 'LicitPro', email_contato: 'guidolicitacoes@gmail.com' });
+  const a = dadosEnvio(db, e.id).assessoria;
+  assert.equal(a.nome, 'LicitPro'); assert.equal(a.email, 'guidolicitacoes@gmail.com');
+  assert.throws(() => salvarDadosAssessoria(db, emp, { nome: 'LicitPro', email_contato: 'sem-arroba' }), /inválido/);
+  assert.throws(() => salvarDadosAssessoria(db, emp, { nome: '' }), /nome/);
 });

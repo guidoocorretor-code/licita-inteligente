@@ -34,8 +34,8 @@ function codificar(texto) {
   return out;
 }
 
-export function criarPdf() {
-  const W = 595.28; const H = 841.89; const M = 50;
+export function criarPdf({ margem = 50 } = {}) {
+  const W = 595.28; const H = 841.89; const M = margem;
   const paginas = [];
   let ops = []; let links = []; let y = H - M;
   const novaPagina = () => { if (ops.length) paginas.push({ conteudo: ops.join('\n'), links }); ops = []; links = []; y = H - M; };
@@ -218,6 +218,8 @@ export function criarPdf() {
     linhasDe: (t, tam, negrito, maxW, max = 99) => Math.min(max, quebrar(t, tam, negrito, maxW).length),
     /** Espaço que ainda cabe na página atual. */
     restante: () => y - (M + 20),
+    /** Largura útil da página (entre as margens). */
+    largura: W - 2 * M,
     novaPagina() { novaPagina(); return api; },
     /** Monta o arquivo e devolve um Buffer. */
     gerar({ titulo = 'Documento', rodape = '' } = {}) {
@@ -229,7 +231,7 @@ export function criarPdf() {
       const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
       const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
       const filhos = paginas.map(({ conteudo, links: lks }, i) => {
-        const pe = `BT /F1 8 Tf 0.45 0.45 0.45 rg ${M} 28 Td (${codificar(limpar(`${rodape}${rodape ? '   ' : ''}Página ${i + 1} de ${total}`))}) Tj ET`;
+        const pe = `BT /F1 8 Tf 0.45 0.45 0.45 rg ${M} ${Math.min(28, M - 10)} Td (${codificar(limpar(`${rodape}${rodape ? '   ' : ''}Página ${i + 1} de ${total}`))}) Tj ET`;
         const corpo = Buffer.from(`${conteudo}\n${pe}`, 'latin1');
         const fluxo = add(`<< /Length ${corpo.length} >>\nstream\n${corpo.toString('latin1')}\nendstream`);
         const annots = lks.length ? ` /Annots [${lks.map((k) => `<< /Type /Annot /Subtype /Link /Rect [${k.r.map((n) => n.toFixed(2)).join(' ')}] /Border [0 0 0] /A << /S /URI /URI (${codificar(String(k.url).replace(/[^\x21-\x7e]/g, encodeURIComponent))}) >> >>`).join(' ')}]` : '';
@@ -237,7 +239,7 @@ export function criarPdf() {
       });
       objs[catalogo - 1] = `<< /Type /Catalog /Pages ${arvore} 0 R >>`;
       objs[arvore - 1] = `<< /Type /Pages /Kids [${filhos.map((n) => `${n} 0 R`).join(' ')}] /Count ${filhos.length} >>`;
-      const info = add(`<< /Title (${codificar(limpar(titulo))}) /Producer (Licita Inteligente) >>`);
+      const info = add(`<< /Title (${codificar(limpar(titulo))}) /Producer (LicitPro) >>`);
       let pdf = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
       const pos = [];
       objs.forEach((o, i) => { pos.push(Buffer.byteLength(pdf, 'latin1')); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
