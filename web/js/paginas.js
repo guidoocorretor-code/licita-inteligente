@@ -55,7 +55,8 @@ export async function dashboard(alvo, rota, est) {
       kpi('Licitações monitoradas', numero(d.total)),
       kpi('Abertas', numero(d.por_visao.abertas), '#/buscar?visao=abertas'),
       kpi('Encerram em até 7 dias', numero(d.sessoes_proximas), '#/buscar?sessao_dias=7', 'Prazo final de propostas nos próximos 7 dias (o PNCP não informa a data da sessão de disputa separadamente).'),
-      kpi('Em disputa / aguardando resultado', numero(d.por_visao.em_disputa), '#/buscar?visao=em_disputa'),
+      kpi('Em disputa hoje', numero(d.por_visao.em_disputa), '#/buscar?visao=em_disputa', 'Prazo de propostas encerrou hoje: no pregão eletrônico a disputa de lances começa logo após.'),
+      kpi('Aguardando resultado', numero(d.por_visao.aguardando_resultado), '#/buscar?visao=aguardando_resultado', 'Prazo de propostas já encerrado em outro dia e a fonte ainda não publicou o resultado.'),
       kpi('Encerradas', numero(d.por_visao.encerradas), '#/buscar?visao=encerradas'),
       kpi('Desertas ou fracassadas', numero(d.por_visao.desertas_fracassadas), '#/buscar?visao=desertas_fracassadas', 'Somente com situação oficial informada pela fonte nos itens.'),
       kpi('Valor estimado das abertas', moedaKpi(va.v), '#/buscar?visao=abertas', `Soma apenas de valores informados (${va.com_valor} licitações). ${va.sigilosos || 0} com orçamento sigiloso e ${va.sem_valor || 0} sem valor/zero não entram na soma.`,
@@ -68,7 +69,7 @@ export async function dashboard(alvo, rota, est) {
       kpi('Alertas não lidos', numero(d.alertas_pendentes), '#/notificacoes')),
     h('div', { class: 'grade tres', style: { marginTop: '14px' } },
       h('div', { class: 'cartao' }, h('h2', {}, 'Por situação'),
-        rosca([['abertas', 'Abertas'], ['em_disputa', 'Em disputa / aguardando'], ['encerradas', 'Encerradas'], ['desertas_fracassadas', 'Desertas ou fracassadas'], ['outras', 'Suspensas, revogadas e outras']]
+        rosca([['abertas', 'Abertas'], ['em_disputa', 'Em disputa hoje'], ['aguardando_resultado', 'Aguardando resultado'], ['encerradas', 'Encerradas'], ['desertas_fracassadas', 'Desertas ou fracassadas'], ['outras', 'Suspensas, revogadas e outras']]
           .map(([v, rotulo]) => ({ v, rotulo, n: d.por_visao[v] || 0 })), { aoClicar: (f) => ir({ visao: f.v }) })),
       h('div', { class: 'cartao' }, h('h2', {}, 'Por modalidade'),
         rosca(d.por_modalidade, { aoClicar: (f) => (f.id ? ir({ visao: '', modalidade: f.id }) : null) })),
@@ -194,6 +195,7 @@ export async function buscar(alvo, rota, est) {
     opcoes.map(([v, t]) => h('option', { value: v, selected: String(filtros[nome] ?? '') === String(v) }, t))));
   const campo = (rot, el, largo) => h('div', { class: largo ? 'largo' : '' }, h('label', { for: el.id }, rot), el);
 
+  const contagens = await api('/dashboard').then((d) => d.por_visao).catch(() => ({}));
   let avancada; let resumoAvancada;
   const form = h('form', { class: 'cartao', onsubmit: (e) => { e.preventDefault(); aplicar({ pagina: 1 }); } },
     h('div', { class: 'filtros' },
@@ -212,6 +214,9 @@ export async function buscar(alvo, rota, est) {
     avancada = h('details', { class: 'busca-avancada', open: false },
       resumoAvancada = h('summary', {}, 'Busca avançada'),
       h('div', { class: 'filtros' },
+      campo('Situação', campos.visao = h('select', { id: 'f-visao' },
+        [['todas', 'Todas as situações'], ...Object.entries(meta.visoes)].map(([v, t]) => h('option', { value: v, selected: (filtros.visao || 'todas') === v },
+          contagens[v] != null ? `${t} (${numero(contagens[v])})` : t)))),
       campo('Segmento (estimado)', sel('segmento', meta.segmentos.map((s) => [s, s]))),
       campo('Sistema eletrônico', sel('sistema', Object.entries(meta.sistemas || {}).map(([k, x]) => [k, `${x.nome}${x.custo === 'pago' ? ' · pago' : x.custo === 'gratuito' ? ' · gratuito' : ''}`]), 'Todos')),
       campo('Pagômetro (CAPAG)', sel('capag', [['A,B', 'Só A e B (contas saudáveis)'], ['A', 'Só A'], ['B', 'Só B'], ['C', 'Só C'], ['D', 'Só D'], ['sem', 'Sem nota / federal']], 'Todas')),
@@ -243,11 +248,12 @@ export async function buscar(alvo, rota, est) {
   // Quantos filtros avançados estão em uso (a ordenação padrão não conta)
   const AVANCADOS = ['segmento', 'sistema', 'capag', 'sistema_custo', 'plataforma', 'regime_legal', 'valor_min', 'valor_max', 'publicacao_de', 'publicacao_ate',
     'abertura_de', 'abertura_ate', 'prazo_min_dias', 'tipo_item', 'me_epp', 'srp', 'com_documentos', 'sessao_dias', 'publicadas_dias', 'catalogo', 'ordenar'];
-  const emUso = AVANCADOS.filter((k) => filtros[k] != null && filtros[k] !== '' && !(k === 'ordenar' && filtros[k] === FILTROS_PADRAO.ordenar)).length;
+  const emUso = AVANCADOS.filter((k) => filtros[k] != null && filtros[k] !== '' && !(k === 'ordenar' && filtros[k] === FILTROS_PADRAO.ordenar)).length
+    + ((filtros.visao || 'todas') !== FILTROS_PADRAO.visao ? 1 : 0);
   if (emUso) { avancada.open = true; resumoAvancada.append(h('span', { class: 'etiqueta azul pequena' }, `${emUso} em uso`)); }
 
   const lerFiltros = () => {
-    const f = { visao: filtros.visao };
+    const f = {};
     for (const [k, el] of Object.entries(campos)) if (el.value !== '') f[k] = el.value.trim();
     return f;
   };
@@ -266,16 +272,9 @@ export async function buscar(alvo, rota, est) {
     window.location.href = `/api/licitacoes/exportar${qs({ ...lerFiltros(), formato })}`;
   }
 
-  const contagens = await api('/dashboard').then((d) => d.por_visao).catch(() => ({}));
-  const abas = h('div', { class: 'abas', role: 'tablist' },
-    [['', 'Todas'], ...Object.entries(meta.visoes)].map(([v, rot]) => h('button', {
-      class: (filtros.visao || '') === v ? 'ativo' : '', role: 'tab',
-      onclick: () => { filtros.visao = v; aplicar({ pagina: 1, visao: v }); },
-    }, rot, v && contagens[v] != null ? h('span', { class: 'contagem' }, numero(contagens[v])) : null)));
-
   const lista = h('div', { class: 'resultado' }, carregando());
   const pesquisas = h('div', { class: 'linha', style: { margin: '10px 0' } });
-  render(alvo, cabecalho('Buscar licitações', 'Pesquisa em todas as fontes habilitadas, sem duplicidades.'), abas, form, pesquisas, lista);
+  render(alvo, cabecalho('Buscar licitações', 'Pesquisa em todas as fontes habilitadas, sem duplicidades.'), form, pesquisas, lista);
 
   api('/pesquisas').then((ps) => {
     if (!ps.length) return;
@@ -283,12 +282,18 @@ export async function buscar(alvo, rota, est) {
       ps.map((p) => h('a', { class: 'btn pequeno', href: `#/buscar${qs(JSON.parse(p.filtros_json))}` }, p.alertar ? '🔔 ' : '', p.nome)));
   }).catch(() => {});
 
+  // Página aberta sem pesquisa: só o buscador; a lista aparece depois de clicar em Buscar
+  if (!rota.query.toString()) {
+    render(lista, h('div', { class: 'cartao' }, vazio('Preencha os campos que quiser e clique em Buscar. Por padrão a busca traz as licitações abertas; para outra situação (em disputa hoje, aguardando resultado, encerradas…), use a Busca avançada.')));
+    return;
+  }
+  const situacao = filtros.visao && filtros.visao !== 'todas' ? meta.visoes[filtros.visao] : 'todas as situações';
   try {
     const res = await api(`/licitacoes${qs({ ...filtros, tamanho: 20 })}`);
     const aviso = avisoCoberturaItens(res.cobertura_itens, filtros);
-    if (!res.total) { render(lista, aviso, vazio('Nenhuma licitação encontrada com esses filtros.')); return; }
+    if (!res.total) { render(lista, aviso, vazio(`Nenhuma licitação encontrada com esses filtros (situação: ${situacao}).`)); return; }
     render(lista, aviso,
-      h('div', { class: 'suave pequeno' }, `${numero(res.total)} licitação(ões) encontrada(s).`),
+      h('div', { class: 'suave pequeno' }, `${numero(res.total)} licitação(ões) encontrada(s) · situação: ${situacao}`),
       ...res.dados.map((l) => linhaLicitacao(l, est, { aoKanban: podeEditar(est) ? (x) => enviarAoKanban(x, est) : null })),
       paginacao(res.pagina, res.paginas, (pagina) => aplicar({ pagina })));
   } catch (e) { render(lista, erroBox(e)); }

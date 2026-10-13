@@ -30,7 +30,7 @@ test('deserta/fracassada somente com situação oficial dos itens', () => {
   assert.equal(classificarStatus(base, it(4, 5), '2026-11-01T00:00:00').status, 'deserta_fracassada');
   assert.equal(classificarStatus(base, it(2, 4), '2026-11-01T00:00:00').status, 'encerrada');
   assert.equal(classificarStatus(base, it(2, 1), '2026-11-01T00:00:00').status, 'resultado_parcial');
-  assert.equal(classificarStatus(base, it(1, 1), '2026-11-01T00:00:00').status, 'em_disputa');
+  assert.equal(classificarStatus(base, it(1, 1), '2026-11-01T00:00:00').status, 'prazo_encerrado');
   assert.equal(classificarStatus(base, it(1, 1), '2026-10-10T00:00:00').status, 'aberta');
   assert.equal(classificarStatus(base, it(3, 3), '2026-11-01T00:00:00').status, 'encerrada_sem_itens_validos');
 });
@@ -38,4 +38,13 @@ test('deserta/fracassada somente com situação oficial dos itens', () => {
 test('fontes sem código: usa texto da situação', () => {
   assert.equal(classificarStatus({ situacao_oficial_nome: 'Licitação Deserta' }, null, '2026-11-01T00:00:00').status, 'deserta');
   assert.equal(classificarStatus({ situacao_oficial_nome: 'Publicado' }, null, '2026-11-01T00:00:00').status, 'indeterminada');
+});
+
+test('em disputa só no dia em que o prazo de propostas encerra (sessão do dia); depois, aguardando resultado', () => {
+  assert.equal(classificarStatus(base, null, '2026-10-23T13:29:59').status, 'aberta');
+  assert.equal(classificarStatus(base, null, '2026-10-23T13:30:00').status, 'em_disputa');
+  assert.equal(classificarStatus(base, it(1, 1), '2026-10-23T18:00:00').status, 'em_disputa');
+  assert.equal(classificarStatus(base, null, '2026-10-24T08:00:00').status, 'prazo_encerrado');
+  // licitação antiga sem resultado na fonte nunca aparece como "em disputa"
+  assert.equal(classificarStatus({ ...base, data_encerramento_proposta: '2022-10-10T09:00:00' }, it(1), '2026-10-12T10:00:00').status, 'prazo_encerrado');
 });

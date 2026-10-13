@@ -6,9 +6,11 @@
 export const STATUS = {
   aguardando_propostas: { rotulo: 'Aguardando propostas', visao: 'abertas' },
   aberta: { rotulo: 'Aberta (recebendo propostas)', visao: 'abertas' },
-  prazo_encerrado: { rotulo: 'Prazo encerrado (aguardando resultado)', visao: 'em_disputa' },
-  em_disputa: { rotulo: 'Em disputa/julgamento', visao: 'em_disputa' },
-  resultado_parcial: { rotulo: 'Resultado parcial', visao: 'em_disputa' },
+  // Em disputa = sessão do dia: o prazo de propostas encerrou HOJE (no pregão eletrônico a disputa de lances
+  // começa logo após o fim das propostas). Dia seguinte em diante, sem resultado na fonte: aguardando resultado.
+  em_disputa: { rotulo: 'Em disputa (sessão hoje)', visao: 'em_disputa' },
+  prazo_encerrado: { rotulo: 'Prazo encerrado (aguardando resultado)', visao: 'aguardando_resultado' },
+  resultado_parcial: { rotulo: 'Resultado parcial', visao: 'aguardando_resultado' },
   encerrada: { rotulo: 'Encerrada (homologada)', visao: 'encerradas' },
   encerrada_sem_itens_validos: { rotulo: 'Encerrada (itens cancelados)', visao: 'encerradas' },
   deserta: { rotulo: 'Deserta', visao: 'desertas_fracassadas' },
@@ -22,7 +24,8 @@ export const STATUS = {
 
 export const VISOES = {
   abertas: 'Licitações abertas',
-  em_disputa: 'Em disputa',
+  em_disputa: 'Em disputa hoje',
+  aguardando_resultado: 'Aguardando resultado',
   encerradas: 'Encerradas',
   desertas_fracassadas: 'Desertas ou fracassadas',
   outras: 'Suspensas, revogadas, anuladas e indeterminadas',
@@ -71,9 +74,9 @@ export function classificarStatus(lic, itens, agoraIso) {
       return { status: 'encerrada_sem_itens_validos', motivo: resumo };
     }
     if (finalizados > 0) return { status: 'resultado_parcial', motivo: resumo };
-    // todos em andamento: cai na regra por datas, com o resumo
+    // todos em andamento: cai na regra por datas (em disputa só no dia do fim das propostas), com o resumo
     const porData = classificarPorDatas(lic, agoraIso);
-    return { status: porData.status === 'prazo_encerrado' ? 'em_disputa' : porData.status, motivo: `${porData.motivo} ${resumo}` };
+    return { status: porData.status, motivo: `${porData.motivo} ${resumo}` };
   }
 
   return classificarPorDatas(lic, agoraIso);
@@ -85,6 +88,9 @@ function classificarPorDatas(lic, agora) {
   if (!ab && !enc) return { status: 'indeterminada', motivo: 'Fonte não informou datas de propostas.' };
   if (ab && agora < ab) return { status: 'aguardando_propostas', motivo: `Recebimento de propostas inicia em ${fmt(ab)}.` };
   if (enc && agora < enc) return { status: 'aberta', motivo: `Recebendo propostas até ${fmt(enc)}.` };
+  if (enc && agora >= enc && enc.slice(0, 10) === agora.slice(0, 10)) {
+    return { status: 'em_disputa', motivo: `Prazo de propostas encerrou hoje às ${enc.slice(11, 16)}: no pregão eletrônico a disputa de lances começa logo em seguida. Confira no sistema da disputa.` };
+  }
   if (enc && agora >= enc) return { status: 'prazo_encerrado', motivo: `Prazo de propostas encerrado em ${fmt(enc)}; resultado ainda não informado pela fonte (ou itens não sincronizados).` };
   return { status: 'indeterminada', motivo: 'Data de encerramento das propostas não informada.' };
 }
