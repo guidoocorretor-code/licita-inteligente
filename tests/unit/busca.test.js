@@ -123,3 +123,23 @@ test('credenciamentos: esconder, mostrar só eles e marcar no resultado', () => 
   const marcados = buscar(db, {}).dados.filter((d) => d.credenciamento === 1).map((d) => d.id).sort();
   assert.deepEqual(marcados, [ids[0], ids[1]].sort());
 });
+
+test('Grande Vitória, várias modalidades e tipo de disputa', () => {
+  const db = bancoMemoria(); popular(db);
+  const ids = db.prepare('SELECT id FROM licitacoes ORDER BY id').all().map((r) => r.id);
+  // "Viana" do MA não pode entrar na Grande Vitória
+  db.prepare("UPDATE licitacoes SET municipio = 'Viana', uf = 'MA' WHERE id = ?").run(ids[4]);
+  assert.equal(buscar(db, { municipio: 'Grande Vitória' }).total, 3);       // Vila Velha, Vitória, Serra (ES)
+  assert.equal(buscar(db, { municipio: 'grande vitoria' }).total, 3);
+  assert.equal(buscar(db, { municipio: 'Vila Velha' }).total, 1);           // texto comum continua por trecho
+  db.prepare('UPDATE licitacoes SET modalidade_id = 8 WHERE id = ?').run(ids[0]);
+  db.prepare('UPDATE licitacoes SET modalidade_id = 4 WHERE id = ?').run(ids[1]);
+  db.prepare('UPDATE licitacoes SET modalidade_id = 6 WHERE id IN (?, ?, ?)').run(ids[2], ids[3], ids[4]);
+  assert.equal(buscar(db, { modalidade: '8,4' }).total, 2);
+  assert.equal(buscar(db, { modalidade: '6' }).total, 3);
+  const modos = ['Aberto', 'Aberto-Fechado', 'Fechado-Aberto', 'Fechado', null];
+  ids.forEach((id, i) => db.prepare('UPDATE licitacoes SET modo_disputa_nome = ? WHERE id = ?').run(modos[i], id));
+  assert.equal(buscar(db, { modo_disputa: 'Aberto' }).total, 1);
+  assert.equal(buscar(db, { modo_disputa: 'Aberto-Fechado,Fechado-Aberto' }).total, 2);
+  assert.equal(buscar(db, { modo_disputa: 'Qualquer coisa' }).total, 5);    // valor fora da lista é ignorado
+});

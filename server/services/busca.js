@@ -4,6 +4,12 @@ import { SQL_CAPAG_LIC } from './capag.js';
 import { SISTEMAS } from './sistemas.js';
 import { semAcento } from '../lib/texto.js';
 
+// Atalhos de região no campo Município (chave sem acento e em minúsculas)
+export const REGIOES_MUNICIPIO = {
+  'grande vitoria': { nome: 'Grande Vitória', uf: 'ES', cidades: ['Vila Velha', 'Vitória', 'Serra', 'Cariacica', 'Viana', 'Fundão'] },
+};
+// Modos de disputa do PNCP que a busca filtra (nomes exatos como o PNCP publica)
+export const MODOS_DISPUTA = ['Aberto', 'Aberto-Fechado', 'Fechado-Aberto'];
 const lista = (v) => (v == null || v === '' ? [] : Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
 export const termos = (v) => (v ? String(v).toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [] : []);
 // Busca por prefixo para pegar plural e variações: "serviço" acha "serviços"; termos em -ção/-são
@@ -77,6 +83,7 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   inList('l.uf', lista(f.uf).map((s) => s.toUpperCase()));
   inList('l.esfera', lista(f.esfera));
   inList('l.modalidade_id', lista(f.modalidade).map(Number).filter(Number.isFinite));
+  inList('l.modo_disputa_nome', lista(f.modo_disputa).filter((m) => MODOS_DISPUTA.includes(m)));
   if (f.credenciamento === 'ocultar') w.push(`NOT ${SQL_CREDENCIAMENTO}`);
   if (f.credenciamento === 'so') w.push(SQL_CREDENCIAMENTO);
   inList('l.plataforma_origem', lista(f.plataforma));
@@ -88,7 +95,15 @@ export function montarFiltro(f = {}, agora = agoraBrasilia()) {
   if (f.visao) status = [...status, ...statusDaVisao(f.visao)];
   inList('l.status_calculado', status);
 
-  if (f.municipio) { w.push('sem_acento(l.municipio) LIKE ?'); p.push(`%${semAcento(String(f.municipio).trim())}%`); }
+  // Município: "Grande Vitória" é um atalho para as 6 cidades da região (nome exato e UF ES, para não pegar
+  // "Viana" do MA nem "Serra Talhada"); qualquer outro texto continua buscando por trecho do nome.
+  if (f.municipio) {
+    const regiao = REGIOES_MUNICIPIO[semAcento(String(f.municipio).trim()).toLowerCase()];
+    if (regiao) {
+      w.push(`(l.uf = ? AND sem_acento(l.municipio) IN (${regiao.cidades.map(() => '?').join(',')}))`);
+      p.push(regiao.uf, ...regiao.cidades.map((c) => semAcento(c)));
+    } else { w.push('sem_acento(l.municipio) LIKE ?'); p.push(`%${semAcento(String(f.municipio).trim())}%`); }
+  }
   if (f.codigo_ibge) { w.push('l.codigo_ibge = ?'); p.push(String(f.codigo_ibge)); }
   if (f.orgao) {
     const d = String(f.orgao).replace(/\D/g, '');
