@@ -27,7 +27,7 @@ import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
-import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, idsQueBatem, normalizarFiltros,
+import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, idsQueBatem, pendentesDeItens, normalizarFiltros,
   resumoFiltros, funilDoPerfil, motivosDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, excluirCobranca, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
@@ -273,14 +273,14 @@ r.get('/jornal/perfis', (req, res) => res.json({
   modalidades: Object.fromEntries(Object.entries(MODALIDADES_JORNAL).map(([k, v]) => [k, v.nome])), fases: FASES_JORNAL,
 }));
 r.get('/jornal/perfis/:id', (req, res) => {
-  try { const p = perfilDaEmpresa(db(), req.usuario.empresa_id, inteiro(req.params.id)); res.json({ ...p, resumo: resumoFiltros(p.filtros), edicoes: edicoesDoPerfil(db(), p.id) }); }
+  try { const p = perfilDaEmpresa(db(), req.usuario.empresa_id, inteiro(req.params.id)); res.json({ ...p, resumo: resumoFiltros(p.filtros), edicoes: edicoesDoPerfil(db(), p.id), itens: pendentesDeItens(db(), p.filtros, agoraBrasilia()) }); }
   catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
 });
 // Quantas abertas batem agora com o filtro do formulário (antes de salvar)
 r.post('/jornal/perfis/previa', exigirPapel('analista'), (req, res) => {
   try {
     const f = normalizarFiltros(req.body?.filtros || {}); const agora = agoraBrasilia();
-    res.json({ total: idsQueBatem(db(), f, { agora }).total, funil: funilDoPerfil(db(), f, agora) });
+    res.json({ total: idsQueBatem(db(), f, { agora }).total, funil: funilDoPerfil(db(), f, agora), itens: pendentesDeItens(db(), f, agora) });
   } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro.'); }
 });
 const salvarEGerar = (req, id) => {

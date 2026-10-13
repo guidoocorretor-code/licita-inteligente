@@ -155,6 +155,17 @@ export function motivosDoPerfil(db, f, ids) {
   return new Map(ids.map((id) => [id, c.get(id) || []]));
 }
 
+/**
+ * Quantas abertas do recorte do jornal (estado, cidade, modalidade, valor, fase) ainda não têm os itens baixados
+ * do PNCP. Produto citado só no item (ex.: "carne bovina" dentro de "gêneros alimentícios") só aparece depois.
+ */
+export function pendentesDeItens(db, f, agora) {
+  const recorte = { ...f, segmentos: [], produtos: '', itens: '', excluir: '' };
+  const { where, params } = filtroDoPerfil(recorte, { agora });
+  const r = db.prepare(`SELECT COUNT(*) total, SUM(l.detalhes_sincronizados_em IS NULL) sem_itens FROM licitacoes l ${where}`).get(...params);
+  return { abertas: r.total || 0, sem_itens: r.sem_itens || 0 };
+}
+
 export const MAX_CANDIDATAS = 5000;
 const ORDEM = 'ORDER BY l.data_encerramento_proposta IS NULL, l.data_encerramento_proposta, l.id DESC';
 /** Ids que batem com o perfil: pré-filtro no banco + conferência no texto. */
@@ -170,10 +181,12 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
     uf: f.ufs, status: f.fases,
     modalidade: f.modalidades.flatMap((m) => MODALIDADES_JORNAL[m].ids),
     sistema: f.sistemas, valor_min: f.valor_min ?? undefined, valor_max: f.valor_max ?? undefined,
-    criado_apos: desde || undefined,
   };
   const { where, params } = montarFiltro(base, agora);
   const w = []; const p = [...params];
+  // Edição do dia: as que entraram no sistema depois da edição anterior OU cujos itens chegaram do PNCP depois
+  // dela (os itens são baixados aos poucos; sem isso, "carne bovina" só no item nunca entraria no jornal)
+  if (desde) { w.push('(l.criado_em > ? OR l.detalhes_sincronizados_em > ?)'); p.push(desde, desde); }
   // Cidade: sem acento e sem maiúsculas ("vitoria" acha "Vitória")
   if (f.cidades.length) { w.push(`(${f.cidades.map(() => 'sem_acento(l.municipio) LIKE ?').join(' OR ')})`); p.push(...f.cidades.map((c) => `%${semAcento(c)}%`)); }
   // Excluir palavras: aplicado na conferência do texto (conferirLicitacoes), só no objeto.
@@ -274,7 +287,12 @@ export function gerarEdicao(db, perfil, agora) {
   if (existe && unica && existe.total === 0) db.prepare('DELETE FROM jornal_edicoes WHERE id=?').run(existe.id);
   else if (existe) return { ...existe, nova: false };
   const anterior = db.prepare('SELECT gerado_em FROM jornal_edicoes WHERE perfil_id=? ORDER BY data DESC LIMIT 1').get(perfil.id);
-  const { ids, total } = idsQueBatem(db, perfil.filtros, { agora, desde: anterior?.gerado_em || null, limite: MAX_EDICAO });
+  const r = idsQueBatem(db, perfil.filtros, { agora, desde: anterior?.gerado_em || null, limite: MAX_CANDIDATAS });
+  // Não repete o que já saiu em edição anterior deste jornal
+  const jaSaiu = new Set(anterior ? db.prepare(`SELECT DISTINCT j.value id FROM jornal_edicoes e, json_each(e.licitacoes) j
+    WHERE e.perfil_id=? AND e.data<?`).all(perfil.id, hoje).map((x) => x.id) : []);
+  const novas = r.ids.filter((id) => !jaSaiu.has(id));
+  const ids = novas.slice(0, MAX_EDICAO); const total = novas.length;
   // Momento da edição em UTC (mesmo formato de licitacoes.criado_em), a partir do horário de Brasília recebido
   const geradoEm = new Date(Date.parse(`${agora}Z`) + 3 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
   const id = db.prepare('INSERT INTO jornal_edicoes (perfil_id, data, licitacoes, total, gerado_em) VALUES (?,?,?,?,?)').run(perfil.id, hoje, JSON.stringify(ids), total, geradoEm).lastInsertRowid;

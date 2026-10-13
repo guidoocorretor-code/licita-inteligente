@@ -191,6 +191,8 @@ export async function completarItensAbertas(db, { limite = 40, fetchImpl, agora 
       AND detalhes_sincronizados_em IS NULL
       ORDER BY (id IN (SELECT licitacao_id FROM oportunidades)
         OR id IN (SELECT j.value FROM jornal_edicoes e, json_each(e.licitacoes) j WHERE e.data >= date('now', '-3 day'))) DESC,
+        -- depois, as dos estados que os jornais ativos acompanham (produto citado só no item depende disso)
+        (uf IN (SELECT j.value FROM jornal_perfis p, json_each(p.filtros, '$.ufs') j WHERE p.ativo = 1)) DESC,
         data_encerramento_proposta LIMIT ?`).all(limite + falhasRecentes.size);
     for (const lic of candidatas) {
       if (r.baixadas + r.falhas >= limite) break;
