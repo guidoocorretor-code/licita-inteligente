@@ -162,3 +162,23 @@ test('dados da assessoria: nome e e-mail de contato vão para o jornal; e-mail i
   assert.throws(() => salvarDadosAssessoria(db, emp, { nome: 'LicitPro', email_contato: 'sem-arroba' }), /inválido/);
   assert.throws(() => salvarDadosAssessoria(db, emp, { nome: '' }), /nome/);
 });
+
+test('PDF da busca: mesmo modelo do jornal, itens com as palavras buscadas e sem "Tenho interesse"', async () => {
+  const { dadosBusca } = await import('../../server/services/jornal-cliente.js');
+  const { buscarTodos, marcarItensEncontrados } = await import('../../server/services/busca.js');
+  const { db, emp, uid, lic } = preparar();
+  const f = { q: 'papel' };
+  const lics = buscarTodos(db, f, 200);
+  marcarItensEncontrados(db, f, lics, { limite: 5 });
+  const enc = new Map(lics.filter((l) => l.itens_encontrados).map((l) => [l.id, { itens: l.itens_encontrados, total: l.itens_encontrados_total }]));
+  const d = dadosBusca(db, lics, { empresaId: emp, usuarioId: uid, itensEncontrados: enc });
+  assert.equal(d.itens[0].id, lic);
+  assert.equal(d.itens[0].itens_card.tipo, 'filtro');
+  assert.equal(d.itens[0].itens_card.itens[0].descricao, 'PAPEL A4');
+  const pdf = pdfJornal(d, { urlBase: 'https://exemplo.app', busca: { resumo: 'Filtros: Palavras-chave: papel.' } }).toString('latin1');
+  assert.match(pdf, /\(RESULTADO DA BUSCA\)/);
+  assert.match(pdf, /ITENS COM AS PALAVRAS BUSCADAS/);
+  assert.match(pdf, /Filtros: Palavras-chave: papel\./);
+  assert.ok(!pdf.includes('Tenho interesse') && !pdf.includes('/j/null'));
+  assert.match(pdf, /\/URI \(https:\/\/pncp\.gov\.br\/app\/editais\//);
+});

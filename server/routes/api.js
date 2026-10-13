@@ -5,7 +5,7 @@ import express from 'express';
 import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
 import { getDb, transacao } from '../db/index.js';
 import { autenticar, definirCookie, limparCookie, exigirLogin, exigirPapel, auditar, criarUsuario, validarSenha, hashSenha, PAPEIS } from '../lib/auth.js';
-import { buscar, buscarTodos, COLUNAS_LISTA } from '../services/busca.js';
+import { buscar, buscarTodos, COLUNAS_LISTA, marcarItensEncontrados, termos } from '../services/busca.js';
 import { indicadores } from '../services/dashboard.js';
 import { STATUS, VISOES } from '../services/status.js';
 import { ESFERAS, MODALIDADES_PNCP, normalizarPncp, normalizarCompras14133 } from '../services/normalizacao.js';
@@ -41,6 +41,7 @@ import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { propostaDaOportunidade, salvarProposta, mudarStatusProposta, listarPropostas } from '../services/propostas.js';
 import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
 import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
+import { dadosBusca, MAX_PDF_BUSCA } from '../services/jornal-cliente.js';
 import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, excluirEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO, dadosAssessoria, salvarDadosAssessoria } from '../services/jornal-cliente.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
@@ -140,6 +141,27 @@ r.post('/licitacoes/conferir-pncp', async (req, res) => {
   } catch (e) {
     erro(res, e.tipo === 'bloqueada_rede' || e.status ? 502 : 400, e.status || e.tipo ? `Não foi possível consultar o PNCP agora (${e.message}). Tente de novo em alguns minutos.` : e.message);
   } finally { conferindo = false; }
+});
+
+// PDF do resultado da busca, no mesmo modelo do PDF do jornal (por cidade, itens com as palavras buscadas)
+r.get('/licitacoes/pdf', (req, res) => {
+  try {
+    const f = { ...req.query }; delete f.resumo; delete f.pagina; delete f.tamanho;
+    const total = buscar(db(), { ...f, tamanho: 1 }).total;
+    const lics = buscarTodos(db(), f, MAX_PDF_BUSCA);
+    const encontrados = new Map();
+    if (termos(f.q).length || termos(f.obrigatorias).length) {
+      marcarItensEncontrados(db(), f, lics, { limite: 5 });
+      for (const l of lics) if (l.itens_encontrados) encontrados.set(l.id, { itens: l.itens_encontrados, total: l.itens_encontrados_total });
+    }
+    const d = dadosBusca(db(), lics, { empresaId: req.usuario.empresa_id, usuarioId: req.usuario.id, itensEncontrados: encontrados });
+    const filtros = String(req.query.resumo || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    const resumo = [filtros && `Filtros: ${filtros}.`, total > lics.length ? `Mostrando as ${lics.length} primeiras de ${total} licitações encontradas; refine a busca para ver as demais.` : null].filter(Boolean).join(' ');
+    auditar(req, 'exportar', 'licitacoes', null, { formato: 'pdf', total: lics.length });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="licitacoes-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdfJornal(d, { urlBase: urlBaseDe(req), busca: { resumo } }));
+  } catch (e) { erro(res, 400, `Não foi possível gerar o PDF: ${e.message}`); }
 });
 
 r.get('/licitacoes/exportar', async (req, res) => {
