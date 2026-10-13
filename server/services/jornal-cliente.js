@@ -178,7 +178,7 @@ const MAX_ITENS_CARD = 5;
 export function comItens(db, lics, perfilId = null) {
   const p = perfilId ? db.prepare('SELECT filtros FROM jornal_perfis WHERE id=?').get(perfilId) : null;
   const batem = p && lics.length ? itensDoPerfil(db, JSON.parse(p.filtros), lics.map((l) => l.id), { limite: MAX_ITENS_CARD }) : new Map();
-  const cols = 'numero_item, descricao, quantidade, unidade_medida, valor_unitario_estimado';
+  const cols = 'numero_item, descricao, quantidade, unidade_medida, valor_unitario_estimado, valor_total_estimado';
   const primeiros = db.prepare(`SELECT ${cols} FROM licitacao_itens WHERE licitacao_id=? ORDER BY numero_item LIMIT ?`);
   const escolhidos = db.prepare(`SELECT ${cols} FROM licitacao_itens WHERE licitacao_id=? AND numero_item IN (SELECT value FROM json_each(?)) ORDER BY numero_item`);
   const total = db.prepare('SELECT COUNT(*) n FROM licitacao_itens WHERE licitacao_id=?');
@@ -393,8 +393,12 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
   // Fonte menor que a da tela para sobrar espaço aos itens; modalidade, sistema e CAPAG em três quadros.
   const PALAVRA_CAPAG = { A: 'boa', B: 'razoável', C: 'fraca', D: 'muito fraca' };
   const textoCapag = (l) => (l.esfera === 'F' ? 'Federal: CAPAG não se aplica' : l.capag ? `CAPAG ${l.capag} (${PALAVRA_CAPAG[l.capag[0]] || 'ver nota'})` : 'Sem nota CAPAG publicada');
-  const qtdTexto = (i) => [i.quantidade != null ? `${QTD.format(i.quantidade)} ${i.unidade_medida || ''}`.trim() : null,
-    i.valor_unitario_estimado != null ? `${BRL.format(i.valor_unitario_estimado)}/un` : null].filter(Boolean).join(' · ');
+  // Tabela de itens igual à do PNCP: Número, Descrição, Quantidade, Valor unitário estimado, Valor total estimado
+  const COLS_ITENS = [['Número', 34, ''], ['Descrição', 203, ''], ['Quantidade', 62, 'r'], ['Valor unitário estimado', 76, 'r'], ['Valor total estimado', 84, 'r']];
+  const celulas = (i) => [String(i.numero_item ?? ''), i.descricao || '(sem descrição)', i.quantidade != null ? QTD.format(i.quantidade) : 'Não informado',
+    i.valor_unitario_estimado != null ? BRL.format(i.valor_unitario_estimado) : 'Não informado', i.valor_total_estimado != null ? BRL.format(i.valor_total_estimado) : 'Não informado'];
+  const MAX_LINHAS_DESC = 4;
+  const altLinha = (i) => pdf.linhasDe(i.descricao || '(sem descrição)', 7, false, COLS_ITENS[1][1] - 6, MAX_LINHAS_DESC) * 8.6 + 6;
   const tituloItens = (c) => (c.tipo === 'filtro' ? `ITENS COM AS PALAVRAS DO JORNAL (${c.total} de ${c.no_edital} no edital)`
     : c.tipo === 'primeiros' ? `ITENS DO EDITAL (${c.itens.length < c.total ? `primeiros ${c.itens.length} de ${c.total}` : c.total})`
       : c.tipo === 'sem_itens' ? 'O ÓRGÃO NÃO PUBLICOU ITENS NO PNCP: CONFIRA NO EDITAL' : 'ITENS AINDA NÃO BAIXADOS DO PNCP: CONFIRA NO EDITAL');
@@ -408,9 +412,8 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
       : l.sistema.custo === 'pago' ? ['Sistema cobra taxa', [0.6, 0.36, 0], [0.99, 0.96, 0.92]] : ['Taxa do sistema: verificar', CINZA, [0.96, 0.97, 0.98]],
     l.me_epp_exclusivo ? ['Exclusiva ME/EPP', [0.36, 0.24, 0.66], [0.96, 0.94, 0.99]] : null].filter(Boolean);
     const c = l.itens_card || { tipo: 'nao_baixados', itens: [], total: 0, no_edital: 0 };
-    const wItem = L - 24 - 118;
     const altObj = pdf.linhasDe(l.objeto || '(objeto não informado)', 8.5, true, wEsq, 3) * 10.5;
-    const altItens = c.itens.reduce((s2, i) => s2 + pdf.linhasDe(`Item ${i.numero_item}: ${i.descricao || '(sem descrição)'}`, 7, false, wItem, 2) * 8.6 + 1.5, 0);
+    const altItens = c.itens.length ? 18 + c.itens.reduce((s2, i) => s2 + altLinha(i), 0) : 0;
     const maisItens = c.tipo === 'filtro' && c.total > c.itens.length;
     const altCaixaItens = 6 + 9 + altItens + (maisItens ? 9 : 0) + 3;
     const topo = Math.max(20 + altObj + 12, 20 + 50);
@@ -456,11 +459,21 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
       t.ret(x + 12, dy, t.largura - 24, altCaixaItens, { borda: LINHA, raio: 4, espessura: 0.5 });
       t.txt(tituloItens(c), x + 18, dy + 5, { tam: 6.5, negrito: true, cor: AZUL2, maxW: t.largura - 36, max: 1 });
       let iy = dy + 15;
-      for (const i of c.itens) {
-        const h1 = t.txt(`Item ${i.numero_item}: ${i.descricao || '(sem descrição)'}`, x + 18, iy, { tam: 7, maxW: wItem, max: 2, espaco: 1.23 });
-        const q = qtdTexto(i);
-        if (q) t.txt(q, x + t.largura - 18 - 112, iy, { tam: 7, cor: CINZA, maxW: 112, alinhar: 'r', max: 1 });
-        iy += h1 + 1.5;
+      if (c.itens.length) {
+        const x0 = x + 18; const wT = COLS_ITENS.reduce((s2, k) => s2 + k[1], 0);
+        // Cabeçalho da tabela (como no PNCP) e linhas separadas por um fio
+        let cx = x0;
+        for (const [rot, w, al] of COLS_ITENS) { t.txt(rot, cx, iy + 1, { tam: 6.3, negrito: true, cor: CINZA, maxW: w - 6, alinhar: al, max: 2, espaco: 1.15 }); cx += w; }
+        iy += 16; t.ret(x0, iy, wT, 0.6, { cor: LINHA });
+        for (const i of c.itens) {
+          const vals = celulas(i); cx = x0; iy += 3;
+          COLS_ITENS.forEach(([, w, al], k) => {
+            t.txt(vals[k], cx, iy, { tam: 7, maxW: w - 6, alinhar: al, max: k === 1 ? MAX_LINHAS_DESC : 1, espaco: 1.23, cor: k === 1 || k === 0 ? [0, 0, 0] : [0.15, 0.17, 0.2] });
+            cx += w;
+          });
+          iy += altLinha(i) - 3; t.ret(x0, iy, wT, 0.4, { cor: LINHA });
+        }
+        iy += 3;
       }
       if (maisItens) t.txt(`e mais ${c.total - c.itens.length} item(ns) com as palavras do jornal: veja no resumo do edital.`, x + 18, iy, { tam: 6.5, cor: CINZA, maxW: t.largura - 36, max: 1 });
       dy += altCaixaItens + 5;
