@@ -33,7 +33,9 @@ const upload = (max, campo = 'arquivo') => {
   const m = multer({ storage: multer.memoryStorage(), limits: { fileSize: max, files: 1 } }).single(campo);
   return (req, res, next) => m(req, res, (e) => (e ? res.status(400).json({ erro: e.code === 'LIMIT_FILE_SIZE' ? `Arquivo maior que ${Math.round(max / 1048576)} MB.` : 'Falha no envio do arquivo.' }) : next()));
 };
-function enviarArquivo(res, abs, nome, { baixar = false, tipo = 'application/pdf' } = {}) {
+function enviarArquivo(res, abs, nome, { baixar = false, tipo = 'application/pdf', imprimir = false } = {}) {
+  // Imprimir: o PDF abre num quadro escondido da própria tela (mesma origem) e o navegador imprime
+  if (imprimir) { res.setHeader('X-Frame-Options', 'SAMEORIGIN'); res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'self'"); }
   res.setHeader('Content-Type', tipo);
   res.setHeader('Content-Disposition', `${baixar ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(nome)}`);
   res.setHeader('Cache-Control', 'private, no-store');
@@ -133,7 +135,7 @@ r.post('/captacao-documentos/:id/gerar', exigirPapel('analista'), rota((req, res
 r.get('/captacao-documentos/:id/arquivo', rota((req, res) => {
   const { abs, nome } = arquivoDoDocumento(db(), emp(req), inteiro(req.params.id), inteiro(req.query.arquivo));
   auditar(req, 'captacao_arquivo_baixar', 'captacao_documento', req.params.id);
-  enviarArquivo(res, abs, nome, { baixar: req.query.baixar === '1' });
+  enviarArquivo(res, abs, nome, { baixar: req.query.baixar === '1', imprimir: req.query.imprimir === '1' });
 }));
 r.get('/captacao-documentos/:id/email', rota((req, res) => res.json({ ...rascunhoEmail(db(), emp(req), inteiro(req.params.id)), email_configurado: emailConfigurado() })));
 r.post('/captacao-documentos/:id/enviar', exigirPapel('analista'), rota(async (req, res) => {

@@ -375,7 +375,7 @@ r.get('/jornal/envios/:id.pdf', (req, res) => {
 r.post('/jornal/envios/:id/email', exigirPapel('analista'), async (req, res) => {
   const d = envioDaEmpresa(req, res); if (!d) return;
   const para = String(req.body?.para || d.cliente?.resp_email || d.cliente?.email || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return erro(res, 400, 'Informe o e-mail do representante legal (Cadastro > Empresa ou no campo).');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(para)) return erro(res, 400, 'Informe o e-mail do representante legal (Cadastro > Empresas Assessoradas ou no campo).');
   if (!emailConfigurado()) return erro(res, 503, 'O e-mail do sistema ainda não foi configurado (BREVO_API_KEY). Use "Baixar PDF" e envie pelo seu e-mail ou WhatsApp.');
   const st = await enviarJornal(db(), d.envio.id, { para, urlBase: urlBaseDe(req) });
   if (st !== 'enviado') return erro(res, 502, `Não foi possível enviar: ${db().prepare('SELECT email_erro FROM jornal_envios WHERE id=?').get(d.envio.id)?.email_erro || st}`);
@@ -637,7 +637,8 @@ const clienteDaConta = (req) => db().prepare('SELECT * FROM clientes WHERE id=? 
 
 r.get('/clientes', (req, res) => res.json({ clientes: listarClientes(db(), req.usuario.empresa_id, hojeBr()), tipos: TIPOS_DOCUMENTO, portes: PORTES }));
 r.post('/clientes', exigirPapel('analista'), (req, res) => {
-  const id = criarCliente(db(), req.usuario.empresa_id, req.body || {});
+  let id;
+  try { id = criarCliente(db(), req.usuario.empresa_id, req.body || {}); } catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
   auditar(req, 'cliente_criar', 'cliente', id); res.status(201).json({ id });
 });
 r.get('/clientes/:id', (req, res) => {
@@ -646,7 +647,8 @@ r.get('/clientes/:id', (req, res) => {
   res.json({ cliente: c, documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: c.id, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO, portes: PORTES });
 });
 r.patch('/clientes/:id', exigirPapel('analista'), (req, res) => {
-  if (!atualizarCliente(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Empresa não encontrada.');
+  try { if (!atualizarCliente(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Empresa não encontrada.'); }
+  catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
   auditar(req, 'cliente_editar', 'cliente', req.params.id); res.json({ ok: true });
 });
 r.delete('/clientes/:id', exigirPapel('gestor'), (req, res) => {
