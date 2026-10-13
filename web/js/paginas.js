@@ -272,7 +272,27 @@ export async function buscar(alvo, rota, est) {
   const inp = (nome, attrs = {}) => (campos[nome] = h('input', { type: 'text', value: filtros[nome] || '', id: `f-${nome}`, ...attrs }));
   const sel = (nome, opcoes, vazioTxt = 'Todos') => (campos[nome] = h('select', { id: `f-${nome}` }, h('option', { value: '' }, vazioTxt),
     opcoes.map(([v, t]) => h('option', { value: v, selected: String(filtros[nome] ?? '') === String(v) }, t))));
+  // Várias opções de uma vez: caixa que abre uma lista de caixinhas; o valor vai na URL separado por vírgula
+  const multi = (nome, opcoes, vazioTxt) => {
+    const marcados = new Set(String(filtros[nome] ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const resumo = h('summary', { id: `f-${nome}` });
+    const caixas = opcoes.map(([v, t]) => h('input', { type: 'checkbox', value: String(v), checked: marcados.has(String(v)) }));
+    const atualizar = () => {
+      const sel = caixas.filter((c) => c.checked);
+      resumo.textContent = !sel.length ? vazioTxt : sel.length === 1 ? opcoes.find(([v]) => String(v) === sel[0].value)[1] : `${sel.length} selecionadas`;
+    };
+    const el = h('details', { class: 'multi-sel' }, resumo,
+      h('div', { class: 'multi-lista' }, opcoes.map(([, t], i) => h('label', {}, caixas[i], ' ', t))));
+    caixas.forEach((c) => c.addEventListener('change', atualizar));
+    // Fecha a lista ao clicar fora dela
+    const fechar = (e) => { if (!el.isConnected) document.removeEventListener('click', fechar); else if (!el.contains(e.target)) el.open = false; };
+    document.addEventListener('click', fechar);
+    Object.defineProperty(el, 'value', { get: () => caixas.filter((c) => c.checked).map((c) => c.value).join(',') });
+    atualizar();
+    return (campos[nome] = el);
+  };
   const campo = (rot, el, largo) => h('div', { class: largo ? 'largo' : '' }, h('label', { for: el.id }, rot), el);
+  const listaMunicipios = h('datalist', { id: 'municipios-atalho' }, h('option', { value: 'Grande Vitória' }, 'Vila Velha, Vitória, Serra, Cariacica, Viana e Fundão'));
 
   const contagens = await api('/dashboard').then((d) => d.por_visao).catch(() => ({}));
   let avancada; let resumoAvancada;
@@ -284,10 +304,11 @@ export async function buscar(alvo, rota, est) {
       campo('Excluir palavras', inp('excluir', { placeholder: 'ex.: locação' })),
       campo('Qualquer destas (separe com ;)', inp('ramo', { placeholder: 'ex.: informática; papelaria' })),
       campo('Estado (UF)', sel('uf', meta.ufs.map((u) => [u, u]))),
-      campo('Município', inp('municipio', { placeholder: 'ex.: Vila Velha' })),
+      campo('Município', inp('municipio', { placeholder: 'ex.: Vila Velha ou Grande Vitória', list: 'municipios-atalho' })),
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
       campo('Esfera', sel('esfera', Object.entries(ESF))),
-      campo('Modalidade', sel('modalidade', Object.entries(meta.modalidades), 'Todas')),
+      campo('Modalidades', multi('modalidade', Object.entries(meta.modalidades), 'Todas')),
+      campo('Tipo de disputa', multi('modo_disputa', [['Aberto', 'Aberto'], ['Aberto-Fechado', 'Aberto e fechado'], ['Fechado-Aberto', 'Fechado e aberto']], 'Todos')),
       campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar'))),
     // Filtros menos usados ficam na "Busca avançada"; abre sozinha se algum deles estiver em uso, para nada ficar escondido
     avancada = h('details', { class: 'busca-avancada', open: false },
@@ -322,7 +343,8 @@ export async function buscar(alvo, rota, est) {
       h('button', { class: 'btn', type: 'button', onclick: () => { location.hash = '#/buscar'; } }, 'Limpar'),
       h('button', { class: 'btn', type: 'button', onclick: salvarPesquisa }, '💾 Salvar pesquisa'),
       h('button', { class: 'btn', type: 'button', onclick: () => exportar('csv') }, '⬇ CSV'),
-      h('button', { class: 'btn', type: 'button', onclick: () => exportar('xlsx') }, '⬇ Excel')));
+      h('button', { class: 'btn', type: 'button', onclick: () => exportar('xlsx') }, '⬇ Excel')),
+    listaMunicipios);
 
   // Quantos filtros avançados estão em uso (a ordenação padrão não conta)
   const AVANCADOS = ['segmento', 'sistema', 'capag', 'sistema_custo', 'plataforma', 'regime_legal', 'valor_min', 'valor_max', 'publicacao_de', 'publicacao_ate',
