@@ -86,6 +86,26 @@ function novaAvulsa(contratos, aoSalvar) {
   } }]);
 }
 
+// Excluir um lançamento de honorário: confirma; se já foi recebido, o servidor pede a senha de um administrador
+function botaoExcluirCobranca(c, recarregar) {
+  return h('button', { class: 'btn pequeno perigo nao-imprimir', title: 'Excluir este lançamento do sistema', onclick: () => {
+    modal('Excluir lançamento', h('div', {},
+      h('p', {}, `${c.cliente_nome} · ${c.descricao || ''} · ${moeda(c.valor)} · vence ${dataBr(c.vencimento)}`),
+      h('p', { class: 'pequeno suave' }, c.pago_em ? 'Este honorário já foi recebido: excluir tira o valor dos recebidos e pede a senha de um administrador.' : 'O lançamento sai das telas e dos totais. Fica registrado na auditoria.')),
+    // Fecha a confirmação antes; a janela da senha (se o servidor pedir) abre em seguida
+    [{ texto: 'Excluir', classe: 'perigo', acao: () => {
+      setTimeout(async () => {
+        try {
+          await comSenhaAdmin((extra) => api(`/financeiro/cobrancas/${c.id}`, { metodo: 'DELETE', corpo: { ...extra } }),
+            'Este honorário já foi recebido. Para excluir, um administrador precisa digitar a senha dele.', 'Fica registrado na auditoria com o nome do administrador.');
+          toast('Lançamento excluído.'); recarregar();
+        } catch (e) { toast(e.message, 5000); }
+      }, 0);
+      return true;
+    } }]);
+  } }, 'Excluir');
+}
+
 async function honorarios(alvo, rota, est) {
   render(alvo, carregando());
   const per = lerPeriodo(rota.query);
@@ -145,7 +165,7 @@ async function honorarios(alvo, rota, est) {
           h('td', {}, c.descricao || '', c.tipo === 'exito' && c.base_valor != null ? h('div', { class: 'suave pequeno' }, `sobre ${moeda(c.base_valor)} recebidos do órgão`) : null),
           h('td', { style: { whiteSpace: 'nowrap' } }, moeda(c.valor), c.valor_pago != null && c.valor_pago !== c.valor ? h('div', { class: 'suave pequeno' }, `pago ${moeda(c.valor_pago)}`) : null),
           h('td', {}, h('span', { class: `etiqueta ${SITUACAO[c.situacao][1]}` }, SITUACAO[c.situacao][0])),
-          h('td', {}, acoes(c)))))))
+          h('td', {}, h('div', { class: 'linha' }, acoes(c), botaoExcluirCobranca(c, recarregar))))))))
         : vazio(r.contratos.some((c) => c.contrato_id) ? 'Nenhuma cobrança com esse filtro.' : 'Cadastre o contrato de honorários de uma empresa para gerar as cobranças.')));
 }
 
@@ -278,8 +298,9 @@ export async function relatorios(alvo, rota, est) {
           h('td', {}, c.receita != null ? moeda(c.receita) : 'Não informada'), h('td', {}, c.total_custos != null ? moeda(c.total_custos) : 'Sem custo'),
           h('td', {}, c.lucro != null ? moeda(c.lucro) : '—'), h('td', {}, pctBr(c.margem_pct))))))) : vazio('Nenhum contrato no período.')),
     h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Honorários'),
-      hon.cobrancas.length ? h('div', { class: 'tabela-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Vencimento', 'Empresa', 'Descrição', 'Valor', 'Situação'].map((x) => h('th', {}, x)))),
+      hon.cobrancas.length ? h('div', { class: 'tabela-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Vencimento', 'Empresa', 'Descrição', 'Valor', 'Situação', ''].map((x, i) => h('th', { class: i === 5 ? 'nao-imprimir' : '' }, x)))),
         h('tbody', {}, hon.cobrancas.map((c) => h('tr', {}, h('td', {}, dataBr(c.vencimento)), h('td', {}, c.cliente_nome), h('td', {}, c.descricao || ''), h('td', {}, moeda(c.valor)),
-          h('td', {}, SITUACAO[c.situacao][0], c.pago_em ? ` em ${dataBr(c.pago_em)}` : '')))))) : vazio('Nenhuma cobrança no período.')),
+          h('td', {}, SITUACAO[c.situacao][0], c.pago_em ? ` em ${dataBr(c.pago_em)}` : ''),
+          h('td', { class: 'nao-imprimir' }, botaoExcluirCobranca(c, () => relatorios(alvo, rota, est)))))))) : vazio('Nenhuma cobrança no período.')),
     h('p', { class: 'suave pequeno' }, 'Valores conforme informados no sistema. Contrato sem custo lançado não entra no lucro. Confira com a contabilidade antes de usar para fins fiscais.'));
 }
