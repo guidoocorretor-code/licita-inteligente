@@ -315,7 +315,7 @@ r.post('/jornal/envios/excluir', exigirPapel('analista'), (req, res) => {
 });
 r.post('/jornal/envios', exigirPapel('analista'), (req, res) => {
   try {
-    const x = criarEnvio(db(), { empresaId: req.usuario.empresa_id, clienteId: req.clienteId, usuarioId: req.usuario.id, ids: req.body?.ids });
+    const x = criarEnvio(db(), { empresaId: req.usuario.empresa_id, clienteId: req.clienteId, usuarioId: req.usuario.id, ids: req.body?.ids, perfilId: req.body?.perfil });
     const d = dadosEnvio(db(), x.id);
     res.status(201).json({ ...d, url: `${urlBaseDe(req)}/j/${x.token}` });
   } catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro ao montar o jornal.'); }

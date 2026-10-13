@@ -74,7 +74,7 @@ export async function jornal(alvo, rota, est) {
 
   const montar = async () => {
     if (!sel.size) { toast('Marque pelo menos uma licitação.'); return null; }
-    return api('/jornal/envios', { metodo: 'POST', corpo: { ids: [...sel] } });
+    return api('/jornal/envios', { metodo: 'POST', corpo: { ids: [...sel], perfil: f.perfil || null } });
   };
   const imprimir = async () => {
     const janela = window.open('', '_blank');
@@ -212,7 +212,8 @@ export function resumoJornal(itens) {
     total: itens.length, abertas: abertas.length, soma: comValor.reduce((s, l) => s + Number(l.valor_estimado), 0), comValor: comValor.length,
     gratuitas: itens.filter((l) => l.sistema?.custo === 'gratuito').length,
     meEpp: itens.filter((l) => l.me_epp_exclusivo).length,
-    proxima: abertas.find((l) => l.faltam) || null, // itens já vêm do prazo mais curto para o mais longo
+    // Os itens vêm agrupados por cidade: a próxima a encerrar é a de menor prazo entre as abertas
+    proxima: abertas.filter((l) => l.faltam).sort((x, y) => String(x.data_encerramento_proposta).localeCompare(String(y.data_encerramento_proposta)))[0] || null,
   };
 }
 
@@ -297,7 +298,7 @@ ${cab}
 <a class="btn" href="${esc(d.url)}">Responder agora →</a></section>
 ${cards}
 <footer class="rodape"><div><b>${esc([a.responsavel, a.nome].filter(Boolean).join(' · '))}</b>${a.email ? `<br>${esc(a.email)}` : ''}</div>
-<div class="aviso">Dados públicos do PNCP, organizados do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.</div></footer>
+<div class="aviso">Dados públicos do PNCP, organizados por cidade e, dentro de cada cidade, do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.</div></footer>
 </div></body></html>`;
   janela.document.open(); janela.document.write(html); janela.document.close();
   // A política de segurança do site bloqueia script dentro da página impressa: o botão é ligado daqui
