@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { MUNICIPIOS_IBGE } from '../services/municipios.js';
 import { urlDoDocumento, buscarArquivo, nomeDoArquivo, paginaFalha } from '../services/documentos-pncp.js';
 import express from 'express';
 import { recebimento, pdfComprovante, protocolo, enviarComprovante } from '../services/comprovante-cotacao.js';
@@ -238,10 +239,10 @@ r.get('/jornal', (req, res) => {
   res.json({ total, pagina, paginas: Math.ceil(total / 30), dados });
 });
 // Municípios com licitação no banco (sugestões do filtro do Jornal), da UF escolhida
+// Lista OFICIAL do IBGE (todos os municípios, mesmo os que ainda não publicaram licitação). uf=ES ou uf=ES,MG
 r.get('/jornal/municipios', (req, res) => {
-  const uf = String(req.query.uf || '').toUpperCase().slice(0, 2);
-  const linhas = db().prepare(`SELECT DISTINCT municipio FROM licitacoes WHERE municipio IS NOT NULL AND municipio <> ''${uf ? ' AND uf = ?' : ''} ORDER BY municipio LIMIT 1500`).all(...(uf ? [uf] : []));
-  res.json({ municipios: linhas.map((x) => x.municipio) });
+  const ufs = String(req.query.uf || '').toUpperCase().split(',').map((u) => u.trim()).filter((u) => MUNICIPIOS_IBGE[u]);
+  res.json({ municipios: ufs.flatMap((u) => MUNICIPIOS_IBGE[u]), por_uf: Object.fromEntries(ufs.map((u) => [u, MUNICIPIOS_IBGE[u]])) });
 });
 // Licitações (sem repetir) de todos os resultados do filtro, para "marcar todos"
 r.get('/jornal/ids', (req, res) => {

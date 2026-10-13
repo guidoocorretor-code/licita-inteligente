@@ -4,6 +4,9 @@
 import { montarFiltro, expressoesRamo, termos, fts, radical } from './busca.js';
 import { SISTEMAS } from './sistemas.js';
 import { semAcento } from '../lib/texto.js';
+import { MUNICIPIOS_IBGE } from './municipios.js';
+
+const NOMES_OFICIAIS = new Set(Object.values(MUNICIPIOS_IBGE).flat().map((c) => semAcento(c)));
 
 export const MODALIDADES_JORNAL = {
   dispensa: { nome: 'Dispensa', ids: [8] },
@@ -58,7 +61,7 @@ export function normalizarFiltros(b = {}) {
   if (modo !== 'qualquer' && !data) throw falha(400, 'Encerramento: escolha a data.');
   const f = {
     ufs: arr(b.ufs).map((u) => u.toUpperCase()).filter((u) => UFS.has(u)),
-    cidades: arr(b.cidades).slice(0, 50),
+    cidades: arr(b.cidades).slice(0, 1000),
     segmentos: arr(b.segmentos),
     produtos: String(b.produtos || '').trim().slice(0, 500),
     itens: String(b.itens || '').trim().slice(0, 500),
@@ -196,7 +199,14 @@ export function filtroDoPerfil(f, { agora, desde = null } = {}) {
   // dela (os itens são baixados aos poucos; sem isso, "carne bovina" só no item nunca entraria no jornal)
   if (desde) { w.push('(l.criado_em > ? OR l.detalhes_sincronizados_em > ?)'); p.push(desde, desde); }
   // Cidade: sem acento e sem maiúsculas ("vitoria" acha "Vitória")
-  if (f.cidades.length) { w.push(`(${f.cidades.map(() => 'sem_acento(l.municipio) LIKE ?').join(' OR ')})`); p.push(...f.cidades.map((c) => `%${semAcento(c)}%`)); }
+  // Nome oficial do IBGE: igual (assim "Serra" não pega "Serra do Salitre"); texto antigo digitado à mão: "contém"
+  if (f.cidades.length) {
+    const exatas = f.cidades.filter((c) => NOMES_OFICIAIS.has(semAcento(c).trim())); const soltas = f.cidades.filter((c) => !exatas.includes(c));
+    const partes = [];
+    if (exatas.length) { partes.push(`sem_acento(l.municipio) IN (${exatas.map(() => '?').join(',')})`); p.push(...exatas.map((c) => semAcento(c).trim())); }
+    for (const c of soltas) { partes.push('sem_acento(l.municipio) LIKE ?'); p.push(`%${semAcento(c).trim()}%`); }
+    w.push(`(${partes.join(' OR ')})`);
+  }
   // Excluir palavras: aplicado na conferência do texto (conferirLicitacoes), só no objeto.
   const oque = []; const po = [];
   if (f.segmentos.length) { oque.push(`l.segmento IN (${f.segmentos.map(() => '?').join(',')})`); po.push(...f.segmentos); }
