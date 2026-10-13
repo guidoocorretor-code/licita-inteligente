@@ -5,7 +5,7 @@ import { bancoMemoria, fixture } from '../helpers.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 import { normalizarPncp } from '../../server/services/normalizacao.js';
 import { salvarLicitacao, salvarItens } from '../../server/services/repositorio.js';
-import { montarEmailInteresse, resumoLicitacoes, faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios } from '../../server/services/jornal-cliente.js';
+import { montarEmailInteresse, resumoLicitacoes, faltam, ordenarPorPrazo, excluirEnvios, criarEnvio, dadosEnvio, jornalPublico, responderJornal, pdfJornal, sistemaDaLicitacao, montarEmailJornal, listarEnvios, ordenarPorCidade } from '../../server/services/jornal-cliente.js';
 
 // Base de TESTE: uma licitação real do fixture do PNCP e uma empresa assessorada de exemplo
 function preparar() {
@@ -122,4 +122,32 @@ test('e-mail de interesse do cliente lista as licitações marcadas com link e o
   assert.match(m.texto, /Observação: Ligar amanhã/);
   const vazio = montarEmailInteresse({ respondente: 'Ana', cliente: null, observacao: null, lics: [] });
   assert.match(vazio.assunto, /sem marcar/);
+});
+
+test('PDF/impressão: agrupa por cidade na ordem do jornal salvo e lista os itens que batem com ele', async () => {
+  const { salvarPerfil } = await import('../../server/services/jornal-perfis.js');
+  const { db, emp, uid } = preparar();
+  const ins = db.prepare(`INSERT INTO licitacoes (chave_canonica, objeto, uf, municipio, modalidade_id, status_calculado, data_encerramento_proposta, detalhes_sincronizados_em)
+    VALUES (?,?,'ES',?,6,'aberta',?,'2026-10-12 10:00:00')`);
+  const lic = (k, mun, fim) => Number(ins.run(k, 'Aquisição de gêneros alimentícios', mun, fim).lastInsertRowid);
+  const vit = lic('v', 'Vitória', '2026-10-20T10:00:00'); const vv1 = lic('a', 'Vila Velha', '2026-10-25T10:00:00');
+  const vv2 = lic('b', 'Vila Velha', '2026-10-21T10:00:00'); const ab = lic('c', 'Afonso Cláudio', '2026-10-19T10:00:00');
+  const it = db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao, quantidade, unidade_medida) VALUES (?,?,?,?,?)');
+  ['Arroz tipo 1', 'Carne bovina moída', 'Carne bovina em cubos'].forEach((d, i) => it.run(vit, i + 1, d, 100, 'KG'));
+  it.run(vv1, 1, 'Feijão preto', 50, 'KG');
+  const p = salvarPerfil(db, emp, uid, { nome: 'Grupo B', filtros: { ufs: ['ES'], cidades: ['Vila Velha', 'Vitória'], produtos: 'carne bovina' } });
+  const e = criarEnvio(db, { empresaId: emp, usuarioId: uid, ids: [vit, vv1, vv2, ab], perfilId: p.id ?? p });
+  const d = dadosEnvio(db, e.id);
+  // Vila Velha (prazo mais curto antes), Vitória, depois as cidades fora do jornal em ordem alfabética
+  assert.deepEqual(d.itens.map((l) => l.id), [vv2, vv1, vit, ab]);
+  const v = d.itens.find((l) => l.id === vit).itens_card;
+  assert.equal(v.tipo, 'filtro'); assert.deepEqual(v.itens.map((i) => i.numero_item), [2, 3]); assert.equal(v.no_edital, 3);
+  assert.equal(d.itens.find((l) => l.id === vv1).itens_card.tipo, 'primeiros'); // nada bate: primeiros do edital
+  assert.equal(d.itens.find((l) => l.id === vv2).itens_card.tipo, 'sem_itens');
+  assert.ok(pdfJornal(d, { urlBase: 'https://x.app' }).length > 1000);
+  // Jornal salvo de outra empresa não vale
+  const outra = Number(db.prepare("INSERT INTO empresas (nome) VALUES ('Outra')").run().lastInsertRowid);
+  const e2 = criarEnvio(db, { empresaId: outra, usuarioId: uid, ids: [vit], perfilId: p.id ?? p });
+  assert.equal(db.prepare('SELECT perfil_id FROM jornal_envios WHERE id=?').get(e2.id).perfil_id, null);
+  assert.deepEqual(ordenarPorCidade([{ municipio: 'Serra' }, { municipio: 'Vitória' }], []).map((l) => l.municipio), ['Serra', 'Vitória']);
 });

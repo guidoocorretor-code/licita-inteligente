@@ -9,6 +9,8 @@ import { SISTEMAS } from './sistemas.js';
 import { criarPdf } from '../lib/pdf-simples.js';
 import { enviarEmail } from './email.js';
 import { ETAPAS_PADRAO } from './execucao.js';
+import { SQL_CAPAG_LIC } from './capag.js';
+import { itensDoPerfil } from './jornal-perfis.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const assinar = (nonce) => crypto.createHmac('sha256', config.jwtSecret).update(`jornal-link:${nonce}`).digest('base64url').slice(0, 32);
@@ -18,6 +20,7 @@ export const MAX_ITENS_ENVIO = 60;
 
 // Até 4 casas: o órgão publica valor unitário com 4 casas (ex.: R$ 139,0815) e o lance aceita 0,0001; arredondar a 2 mostra valor errado
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const QTD = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 4 });
 const cnpjFmt = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 /** Data do PNCP (horário de Brasília, sem fuso) em dd/mm/aaaa hh:mm. */
 export const dataBr = (iso) => {
@@ -48,6 +51,9 @@ export function migrarJornalEnvios(conn) {
     revogado INTEGER NOT NULL DEFAULT 0
   )`);
   conn.exec('CREATE INDEX IF NOT EXISTS ix_jornal_envios_emp ON jornal_envios(empresa_id, criado_em)');
+  // Jornal salvo de onde saiu a seleção: o PDF lista os itens que batem com os produtos/itens dele
+  const cols = conn.prepare('PRAGMA table_info(jornal_envios)').all().map((c) => c.name);
+  if (!cols.includes('perfil_id')) conn.exec('ALTER TABLE jornal_envios ADD COLUMN perfil_id INTEGER');
 }
 
 /** Participação no sistema da disputa: gratuita / paga / não verificada (só marcamos com fonte, ver sistemas.js). */
@@ -89,13 +95,30 @@ export const ordenarPorPrazo = (itens) => [...itens].sort((a, b) => {
   return peso(a) - peso(b) || String(a.data_encerramento_proposta || '').localeCompare(String(b.data_encerramento_proposta || ''));
 });
 
+const semAc = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const cidadesDoPerfil = (db, perfilId) => {
+  const p = perfilId ? db.prepare('SELECT filtros FROM jornal_perfis WHERE id=?').get(perfilId) : null;
+  return p ? JSON.parse(p.filtros).cidades || [] : [];
+};
+/**
+ * Agrupa por cidade: primeiro as cidades na ordem em que estão no jornal salvo (ex.: Vila Velha, Vitória, Cariacica…),
+ * depois as demais em ordem alfabética (UF e cidade). Dentro da cidade mantém a ordem recebida (prazo mais curto antes).
+ */
+export function ordenarPorCidade(itens, cidades = []) {
+  const pos = new Map(cidades.map((c, i) => [semAc(c), i]));
+  const chave = (l) => { const c = semAc(l.municipio); return pos.has(c) ? [0, pos.get(c), ''] : [1, 0, `${l.uf || ''} ${c}`]; };
+  return itens.map((l, i) => ({ l, i, k: chave(l) }))
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2].localeCompare(b.k[2], 'pt-BR') || a.i - b.i).map((x) => x.l);
+}
+
 /** Dados de cada licitação para o card do jornal, na ordem dos ids. */
 export function cartoes(db, ids) {
   if (!ids.length) return [];
-  const linhas = db.prepare(`SELECT id, objeto, orgao_nome, unidade_nome, municipio, uf, modalidade_nome, numero_compra, ano, valor_estimado, valor_estimado_situacao,
-      data_abertura_proposta, data_encerramento_proposta, sistema_eletronico, plataforma_origem, link_origem, link_pncp, status_calculado,
-      me_epp_exclusivo, srp, criterio_julgamento, modo_disputa_nome, informacao_complementar
-    FROM licitacoes WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const linhas = db.prepare(`SELECT l.id, l.objeto, l.orgao_nome, l.unidade_nome, l.municipio, l.uf, l.modalidade_nome, l.numero_compra, l.ano, l.valor_estimado, l.valor_estimado_situacao,
+      l.data_abertura_proposta, l.data_encerramento_proposta, l.sistema_eletronico, l.plataforma_origem, l.link_origem, l.link_pncp, l.status_calculado,
+      l.me_epp_exclusivo, l.srp, l.criterio_julgamento, l.modo_disputa_nome, l.informacao_complementar, l.esfera, l.detalhes_sincronizados_em,
+      ${SQL_CAPAG_LIC} AS capag
+    FROM licitacoes l WHERE l.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
   const porId = new Map(linhas.map((l) => [l.id, l]));
   return ids.map((id) => porId.get(id)).filter(Boolean).map((l) => ({
     ...l, numero_texto: numeroCompra(l), valor_texto: valorTexto(l), prazo_texto: dataBr(l.data_encerramento_proposta) || 'Não informado', sistema: sistemaDaLicitacao(l),
@@ -112,18 +135,23 @@ const idsValidos = (db, ids) => {
 };
 
 /** Registra o jornal e devolve o link (token) que o cliente usa para ver os resumos e marcar o interesse. */
-export function criarEnvio(db, { empresaId, clienteId = null, usuarioId, ids }) {
+export function criarEnvio(db, { empresaId, clienteId = null, usuarioId, ids, perfilId = null }) {
   const lista = idsValidos(db, ids);
   if (!lista.length) throw erro(400, 'Licitações não encontradas.');
   if (clienteId && !db.prepare('SELECT 1 FROM clientes WHERE id=? AND empresa_id=?').get(clienteId, empresaId)) throw erro(404, 'Empresa não encontrada.');
+  // Jornal salvo de outra empresa (ou inexistente) é ignorado: o PDF sai com os primeiros itens do edital
+  const perfil = Number(perfilId) > 0 && db.prepare('SELECT id FROM jornal_perfis WHERE id=? AND empresa_id=?').get(Number(perfilId), empresaId) ? Number(perfilId) : null;
   // Mesma seleção, mesma empresa e mesmo usuário nas últimas 24h: reaproveita o jornal (imprimir, PDF e e-mail usam o mesmo link)
   const igual = db.prepare(`SELECT id, nonce, expira_em FROM jornal_envios WHERE empresa_id=? AND cliente_id IS ? AND criado_por IS ? AND licitacoes=? AND revogado=0
     AND criado_em > datetime('now','-1 day') ORDER BY id DESC LIMIT 1`).get(empresaId, clienteId || null, usuarioId ?? null, JSON.stringify(lista));
-  if (igual) return { id: igual.id, token: tokenDe(igual.nonce), expira_em: igual.expira_em };
+  if (igual) {
+    if (perfil) db.prepare('UPDATE jornal_envios SET perfil_id=? WHERE id=?').run(perfil, igual.id);
+    return { id: igual.id, token: tokenDe(igual.nonce), expira_em: igual.expira_em };
+  }
   const nonce = crypto.randomBytes(16).toString('base64url');
   const expira = new Date(Date.now() + DIAS_VALIDADE * 86400000).toISOString().slice(0, 19).replace('T', ' ');
-  const id = Number(db.prepare('INSERT INTO jornal_envios (nonce, empresa_id, cliente_id, licitacoes, criado_por, expira_em) VALUES (?,?,?,?,?,?)')
-    .run(nonce, empresaId, clienteId || null, JSON.stringify(lista), usuarioId, expira).lastInsertRowid);
+  const id = Number(db.prepare('INSERT INTO jornal_envios (nonce, empresa_id, cliente_id, licitacoes, criado_por, expira_em, perfil_id) VALUES (?,?,?,?,?,?,?)')
+    .run(nonce, empresaId, clienteId || null, JSON.stringify(lista), usuarioId, expira, perfil).lastInsertRowid);
   return { id, token: tokenDe(nonce), expira_em: expira };
 }
 
@@ -138,8 +166,28 @@ export function dadosEnvio(db, envioId) {
   return {
     envio: e, token: tokenDe(e.nonce),
     assessoria: { nome: emp?.nome || null, cnpj: emp?.cnpj || null, responsavel: u?.nome || null, email: u?.email || null },
-    cliente: cli, itens: ordenarPorPrazo(cartoes(db, JSON.parse(e.licitacoes))),
+    cliente: cli, itens: comItens(db, ordenarPorCidade(ordenarPorPrazo(cartoes(db, JSON.parse(e.licitacoes))), cidadesDoPerfil(db, e.perfil_id)), e.perfil_id),
   };
+}
+
+const MAX_ITENS_CARD = 5;
+/**
+ * Itens de cada licitação para o card: os que batem com os produtos/itens do jornal salvo (quando a seleção veio
+ * de um); sem isso, os primeiros do edital. Só texto da fonte; sem itens baixados, diz isso.
+ */
+export function comItens(db, lics, perfilId = null) {
+  const p = perfilId ? db.prepare('SELECT filtros FROM jornal_perfis WHERE id=?').get(perfilId) : null;
+  const batem = p && lics.length ? itensDoPerfil(db, JSON.parse(p.filtros), lics.map((l) => l.id), { limite: MAX_ITENS_CARD }) : new Map();
+  const cols = 'numero_item, descricao, quantidade, unidade_medida, valor_unitario_estimado';
+  const primeiros = db.prepare(`SELECT ${cols} FROM licitacao_itens WHERE licitacao_id=? ORDER BY numero_item LIMIT ?`);
+  const escolhidos = db.prepare(`SELECT ${cols} FROM licitacao_itens WHERE licitacao_id=? AND numero_item IN (SELECT value FROM json_each(?)) ORDER BY numero_item`);
+  const total = db.prepare('SELECT COUNT(*) n FROM licitacao_itens WHERE licitacao_id=?');
+  return lics.map((l) => {
+    const n = total.get(l.id).n; const b = batem.get(l.id);
+    if (b) return { ...l, itens_card: { tipo: 'filtro', itens: escolhidos.all(l.id, JSON.stringify(b.itens.map((i) => i.numero_item))), total: b.total, no_edital: n } };
+    if (!n) return { ...l, itens_card: { tipo: l.detalhes_sincronizados_em ? 'sem_itens' : 'nao_baixados', itens: [], total: 0, no_edital: 0 } };
+    return { ...l, itens_card: { tipo: 'primeiros', itens: primeiros.all(l.id, MAX_ITENS_CARD), total: n, no_edital: n } };
+  });
 }
 
 // Confere a assinatura em tempo constante e devolve o envio válido
@@ -293,7 +341,8 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
   const abertas = d.itens.filter((l) => !l.faltam || l.faltam.urgencia !== 'encerrada');
   const comValor = abertas.filter((l) => l.valor_estimado != null && !['sigiloso', 'nao_informado'].includes(l.valor_estimado_situacao));
   const soma = comValor.reduce((s, l) => s + Number(l.valor_estimado), 0);
-  const proxima = d.itens.find((l) => l.faltam && l.faltam.urgencia !== 'encerrada');
+  // Agrupado por cidade: a próxima a encerrar é a de menor prazo entre as abertas
+  const proxima = d.itens.filter((l) => l.faltam && l.faltam.urgencia !== 'encerrada').sort((x, y) => String(x.data_encerramento_proposta).localeCompare(String(y.data_encerramento_proposta)))[0];
   const gratuitas = d.itens.filter((l) => l.sistema?.custo === 'gratuito').length;
 
   // Capa
@@ -321,7 +370,9 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
     kpis.forEach(([n, r], i) => {
       const x = t.x + i * (w + g);
       t.ret(x, 0, w, 46, { cor: CLARO, borda: LINHA, raio: 6 });
-      t.txt(n, x + 8, 7, { tam: 13, negrito: true, cor: AZUL, maxW: w - 14, max: 1 });
+      // Valor longo (ex.: R$ 3.783.537,24) diminui a fonte até caber, em vez de virar "R$..."
+      let tam = 13; while (tam > 7 && t.larguraDe(n, tam, true) > w - 14) tam -= 0.5;
+      t.txt(n, x + 8, 7 + (13 - tam) / 2, { tam, negrito: true, cor: AZUL, maxW: w - 14, max: 1 });
       t.txt(r, x + 8, 25, { tam: 7.2, cor: CINZA, maxW: w - 14, max: 2, espaco: 1.2 });
     });
   }, { depois: 8 });
@@ -338,52 +389,101 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
       t.link(bx, 9, bw, 22, pagina);
     }, { depois: 10 });
   }
-  // Cards (do prazo mais curto para o mais longo)
+  // Cards agrupados por cidade (na ordem do jornal salvo); dentro da cidade, prazo mais curto antes.
+  // Fonte menor que a da tela para sobrar espaço aos itens; modalidade, sistema e CAPAG em três quadros.
+  const PALAVRA_CAPAG = { A: 'boa', B: 'razoável', C: 'fraca', D: 'muito fraca' };
+  const textoCapag = (l) => (l.esfera === 'F' ? 'Federal: CAPAG não se aplica' : l.capag ? `CAPAG ${l.capag} (${PALAVRA_CAPAG[l.capag[0]] || 'ver nota'})` : 'Sem nota CAPAG publicada');
+  const qtdTexto = (i) => [i.quantidade != null ? `${QTD.format(i.quantidade)} ${i.unidade_medida || ''}`.trim() : null,
+    i.valor_unitario_estimado != null ? `${BRL.format(i.valor_unitario_estimado)}/un` : null].filter(Boolean).join(' · ');
+  const tituloItens = (c) => (c.tipo === 'filtro' ? `ITENS COM AS PALAVRAS DO JORNAL (${c.total} de ${c.no_edital} no edital)`
+    : c.tipo === 'primeiros' ? `ITENS DO EDITAL (${c.itens.length < c.total ? `primeiros ${c.itens.length} de ${c.total}` : c.total})`
+      : c.tipo === 'sem_itens' ? 'O ÓRGÃO NÃO PUBLICOU ITENS NO PNCP: CONFIRA NO EDITAL' : 'ITENS AINDA NÃO BAIXADOS DO PNCP: CONFIRA NO EDITAL');
+  let cidadeAtual = null;
   for (const l of d.itens) {
+    const cidade = [l.municipio, l.uf].filter(Boolean).join('/') || 'Local não informado';
     const f = l.faltam; const urg = f?.urgencia || 'sem'; const cor = COR_URG[urg];
     const link = pagina ? `${pagina}#lic-${l.id}` : null;
-    const wDir = 140; const wEsq = 495 - wDir - 30;
+    const L = 495; const wDir = 120; const wEsq = L - wDir - 34;
     const tags = [l.sistema.custo === 'gratuito' ? ['Participação gratuita', [0.07, 0.47, 0.36], [0.93, 0.97, 0.95]]
       : l.sistema.custo === 'pago' ? ['Sistema cobra taxa', [0.6, 0.36, 0], [0.99, 0.96, 0.92]] : ['Taxa do sistema: verificar', CINZA, [0.96, 0.97, 0.98]],
-    l.me_epp_exclusivo ? ['Exclusiva ME/EPP', [0.36, 0.24, 0.66], [0.96, 0.94, 0.99]] : null, [l.sistema.nome, CINZA, BRANCO]].filter(Boolean);
-    const altObj = pdf.linhasDe(l.objeto || '(objeto não informado)', 10, true, wEsq, 3) * 13;
-    const alt = Math.max(18 + 7 + altObj + 13 + 17 + 26, 18 + 70 + 26);
+    l.me_epp_exclusivo ? ['Exclusiva ME/EPP', [0.36, 0.24, 0.66], [0.96, 0.94, 0.99]] : null].filter(Boolean);
+    const c = l.itens_card || { tipo: 'nao_baixados', itens: [], total: 0, no_edital: 0 };
+    const wItem = L - 24 - 118;
+    const altObj = pdf.linhasDe(l.objeto || '(objeto não informado)', 8.5, true, wEsq, 3) * 10.5;
+    const altItens = c.itens.reduce((s2, i) => s2 + pdf.linhasDe(`Item ${i.numero_item}: ${i.descricao || '(sem descrição)'}`, 7, false, wItem, 2) * 8.6 + 1.5, 0);
+    const maisItens = c.tipo === 'filtro' && c.total > c.itens.length;
+    const altCaixaItens = 6 + 9 + altItens + (maisItens ? 9 : 0) + 3;
+    const topo = Math.max(20 + altObj + 12, 20 + 50);
+    const alt = topo + 4 + 30 + 5 + altCaixaItens + 5 + 13 + 4 + 16 + 8;
+    if (cidade !== cidadeAtual) {
+      cidadeAtual = cidade;
+      // Título da cidade nunca fica sozinho no pé da página: vai junto com o primeiro card
+      if (pdf.restante() < 21 + alt) pdf.novaPagina();
+      const qtd = d.itens.filter((x) => ([x.municipio, x.uf].filter(Boolean).join('/') || 'Local não informado') === cidade).length;
+      pdf.bloco(16, (t) => {
+        t.txt(cidade.toUpperCase(), t.x, 3, { tam: 9.5, negrito: true, cor: AZUL, maxW: t.largura - 120, max: 1 });
+        t.txt(`${qtd} ${qtd === 1 ? 'oportunidade' : 'oportunidades'}`, t.x + t.largura - 120, 4, { tam: 7.5, cor: CINZA, maxW: 120, alinhar: 'r' });
+        t.ret(t.x, 15, t.largura, 1, { cor: AZUL2 });
+      }, { depois: 5 });
+    }
     pdf.bloco(alt, (t) => {
       const x = t.x;
       t.ret(x, 0, t.largura, alt, { cor: BRANCO, borda: LINHA, raio: 6 });
-      t.ret(x, 0, t.largura, 18, { cor: [0.965, 0.973, 0.984], raio: 0 });
+      t.ret(x, 0, t.largura, 15, { cor: [0.965, 0.973, 0.984], raio: 0 });
       t.ret(x, 0, 4, alt, { cor });
-      t.txt(`${l.modalidade_nome || 'Licitação'}${l.numero_texto ? ` nº ${l.numero_texto}` : ''}   ${[l.municipio, l.uf].filter(Boolean).join('/')}`, x + 12, 4.5, { tam: 8, negrito: true, cor: AZUL, maxW: 300, max: 1 });
-      t.txt(!f ? 'Prazo não informado' : urg === 'encerrada' ? 'Prazo encerrado' : `${f.texto} · ${ROT_URG[urg]}`, x + 300, 4.5, { tam: 8, negrito: true, cor, maxW: t.largura - 312, alinhar: 'r', max: 1 });
-      let dy = 25;
-      t.txt(l.objeto || '(objeto não informado)', x + 12, dy, { tam: 10, negrito: true, maxW: wEsq, max: 3, url: link }); dy += altObj;
-      t.txt(l.orgao_nome || 'Órgão não informado', x + 12, dy + 1, { tam: 8.5, cor: CINZA, maxW: wEsq, max: 1 }); dy += 14;
+      t.txt(`${l.modalidade_nome || 'Licitação'}${l.numero_texto ? ` nº ${l.numero_texto}` : ''}   ${cidade}`, x + 12, 3.8, { tam: 7.5, negrito: true, cor: AZUL, maxW: 300, max: 1 });
+      t.txt(!f ? 'Prazo não informado' : urg === 'encerrada' ? 'Prazo encerrado' : `${f.texto} · ${ROT_URG[urg]}`, x + 300, 3.8, { tam: 7.5, negrito: true, cor, maxW: t.largura - 312, alinhar: 'r', max: 1 });
+      t.txt(l.objeto || '(objeto não informado)', x + 12, 20, { tam: 8.5, negrito: true, maxW: wEsq, max: 3, url: link });
+      t.txt(l.orgao_nome || 'Órgão não informado', x + 12, 20 + altObj + 1, { tam: 7, cor: CINZA, maxW: wEsq, max: 1 });
+      const xd = x + t.largura - wDir - 10;
+      t.txt('VALOR ESTIMADO', xd, 20, { tam: 6.5, cor: CINZA, maxW: wDir, alinhar: 'r' });
+      let tv = 11.5; while (tv > 7 && t.larguraDe(l.valor_texto, tv, true) > wDir) tv -= 0.5;
+      t.txt(l.valor_texto, xd, 29, { tam: tv, negrito: true, cor: AZUL, maxW: wDir, alinhar: 'r', max: 1 });
+      t.txt('PROPOSTAS ATÉ', xd, 47, { tam: 6.5, cor: CINZA, maxW: wDir, alinhar: 'r' });
+      t.txt(l.prazo_texto, xd, 55, { tam: 8.5, negrito: true, maxW: wDir, alinhar: 'r', max: 1 });
+      // Modalidade · Sistema eletrônico · Pagômetro
+      let dy = topo + 4;
+      const g = 6; const wq = (t.largura - 24 - 2 * g) / 3;
+      [['MODALIDADE', l.modalidade_nome || 'Não informada'], ['SISTEMA ELETRÔNICO', `${l.sistema.nome} · ${l.sistema.participacao}`], ['PAGÔMETRO', textoCapag(l)]]
+        .forEach(([rot, val], k) => {
+          const qx = x + 12 + k * (wq + g);
+          t.ret(qx, dy, wq, 30, { cor: CLARO, borda: LINHA, raio: 4, espessura: 0.5 });
+          t.txt(rot, qx + 6, dy + 3.5, { tam: 6, negrito: true, cor: CINZA, maxW: wq - 12, max: 1 });
+          t.txt(val, qx + 6, dy + 11.5, { tam: 7, negrito: true, cor: AZUL, maxW: wq - 12, max: 2, espaco: 1.2 });
+        });
+      dy += 30 + 5;
+      // Itens (os que batem com o jornal; sem filtro, os primeiros do edital)
+      t.ret(x + 12, dy, t.largura - 24, altCaixaItens, { borda: LINHA, raio: 4, espessura: 0.5 });
+      t.txt(tituloItens(c), x + 18, dy + 5, { tam: 6.5, negrito: true, cor: AZUL2, maxW: t.largura - 36, max: 1 });
+      let iy = dy + 15;
+      for (const i of c.itens) {
+        const h1 = t.txt(`Item ${i.numero_item}: ${i.descricao || '(sem descrição)'}`, x + 18, iy, { tam: 7, maxW: wItem, max: 2, espaco: 1.23 });
+        const q = qtdTexto(i);
+        if (q) t.txt(q, x + t.largura - 18 - 112, iy, { tam: 7, cor: CINZA, maxW: 112, alinhar: 'r', max: 1 });
+        iy += h1 + 1.5;
+      }
+      if (maisItens) t.txt(`e mais ${c.total - c.itens.length} item(ns) com as palavras do jornal: veja no resumo do edital.`, x + 18, iy, { tam: 6.5, cor: CINZA, maxW: t.largura - 36, max: 1 });
+      dy += altCaixaItens + 5;
       let tx = x + 12;
       for (const [rot, ct, fundo] of tags) {
-        const w = t.larguraDe(rot, 7.5, true) + 12;
-        if (tx + w > x + 12 + wEsq) break;
-        t.ret(tx, dy, w, 13, { cor: fundo, borda: ct, raio: 6.5, espessura: 0.5 });
-        t.txt(rot, tx, dy + 3, { tam: 7.5, negrito: true, cor: ct, maxW: w, alinhar: 'c', max: 1 });
+        const w = t.larguraDe(rot, 6.8, true) + 10;
+        t.ret(tx, dy, w, 12, { cor: fundo, borda: ct, raio: 6, espessura: 0.5 });
+        t.txt(rot, tx, dy + 2.8, { tam: 6.8, negrito: true, cor: ct, maxW: w, alinhar: 'c', max: 1 });
         tx += w + 5;
       }
-      const xd = x + t.largura - wDir - 10;
-      t.txt('VALOR ESTIMADO', xd, 26, { tam: 7, cor: CINZA, maxW: wDir, alinhar: 'r' });
-      t.txt(l.valor_texto, xd, 36, { tam: 13, negrito: true, cor: AZUL, maxW: wDir, alinhar: 'r', max: 1 });
-      t.txt('PROPOSTAS ATÉ', xd, 58, { tam: 7, cor: CINZA, maxW: wDir, alinhar: 'r' });
-      t.txt(l.prazo_texto, xd, 68, { tam: 9.5, negrito: true, maxW: wDir, alinhar: 'r', max: 1 });
-      const ya = alt - 24;
+      const ya = dy + 13 + 4;
       if (link) {
-        t.ret(x + 12, ya, 104, 17, { cor: AZUL, raio: 8.5 });
-        t.txt('Tenho interesse', x + 12, ya + 4.2, { tam: 8.5, negrito: true, cor: BRANCO, maxW: 104, alinhar: 'c' });
-        t.link(x + 12, ya, 104, 17, link);
-        t.txt('Ver resumo do edital', x + 128, ya + 4.2, { tam: 8.5, cor: AZUL2, url: link, maxW: 120 });
+        t.ret(x + 12, ya, 96, 16, { cor: AZUL, raio: 8 });
+        t.txt('Tenho interesse', x + 12, ya + 4, { tam: 8, negrito: true, cor: BRANCO, maxW: 96, alinhar: 'c' });
+        t.link(x + 12, ya, 96, 16, link);
+        t.txt('Ver resumo do edital', x + 118, ya + 4, { tam: 8, cor: AZUL2, url: link, maxW: 110 });
       }
-      if (l.link_pncp) t.txt('Edital completo no PNCP', x + (link ? 238 : 12), ya + 4.2, { tam: 8.5, cor: AZUL2, url: l.link_pncp, maxW: 150 });
-    }, { depois: 8 });
+      if (l.link_pncp) t.txt('Edital completo no PNCP', x + (link ? 222 : 12), ya + 4, { tam: 8, cor: AZUL2, url: l.link_pncp, maxW: 140 });
+    }, { depois: 7 });
   }
   pdf.linha({ cor: AZUL, antes: 2, depois: 6 });
   pdf.texto([a.responsavel, a.nome].filter(Boolean).join(' · ') + (a.email ? ` · ${a.email}` : ''), { tam: 9, negrito: true, depois: 2 });
-  pdf.texto('Dados públicos do PNCP, organizados do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.', { tam: 7.5, cor: CINZA });
+  pdf.texto('Dados públicos do PNCP, organizados por cidade e, dentro de cada cidade, do prazo mais curto para o mais longo. Confira sempre o edital: datas, valores e o sistema da disputa podem mudar por retificação. "Participação gratuita" quer dizer que o sistema eletrônico não cobra taxa do fornecedor.', { tam: 7.5, cor: CINZA });
   return pdf.gerar({ titulo: `Jornal de licitações${nomeCli ? ` - ${nomeCli}` : ''}`, rodape: `Jornal de licitações${nomeCli ? ` · ${nomeCli}` : ''}${a.nome ? ` · ${a.nome}` : ''}` });
 }
 

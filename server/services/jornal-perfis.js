@@ -162,9 +162,9 @@ export function conferirLicitacoes(db, f, ids) {
 
 /**
  * Itens de cada licitação com as palavras do jornal (produtos e itens do perfil), mesma regra da conferência:
- * Map id -> { itens: até 3 { numero_item, descricao }, total }. Sem produto/item no perfil, Map vazio.
+ * Map id -> { itens: até `limite` { numero_item, descricao }, total }. Sem produto/item no perfil, Map vazio.
  */
-export function itensDoPerfil(db, f, ids) {
+export function itensDoPerfil(db, f, ids, { limite = 3 } = {}) {
   const out = new Map();
   const exprs = [...expressoesRamo(f.produtos), ...listaItens(f.itens)];
   if (!ids.length || !exprs.length) return out;
@@ -173,7 +173,7 @@ export function itensDoPerfil(db, f, ids) {
     const toks = palavras(it.descricao);
     if (!exprs.some((ws) => noItem(toks, ws))) continue;
     const r = out.get(it.licitacao_id) || { itens: [], total: 0 };
-    if (r.itens.length < 3) r.itens.push({ numero_item: it.numero_item, descricao: it.descricao });
+    if (r.itens.length < limite) r.itens.push({ numero_item: it.numero_item, descricao: it.descricao });
     r.total++; out.set(it.licitacao_id, r);
   }
   return out;
