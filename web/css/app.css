@@ -787,6 +787,11 @@ textarea.texto-pedido { font-size: 13px; line-height: 1.45; }
 .form-captacao label, .form-dados label { display: block; }
 .form-captacao h3 { margin-top: 14px; }
 .form-captacao .filtros, .form-dados .filtros { margin-bottom: 8px; }
+.form-captacao .secao-socios input, .form-captacao .secao-socios select { font-size: .82rem; }
+.form-captacao .socio-flags select { width: auto; }
+.form-captacao .flag-socio { display: inline-flex; color: var(--texto); margin: 0; }
+.form-captacao .flag-socio input { width: auto; }
+.form-captacao .secao-socios { margin-bottom: 10px; }
 label.opcao, .opcao { display: flex; align-items: flex-start; gap: 6px; font-size: .9rem; color: var(--texto); margin: 4px 0; }
 label.opcao input { margin-top: 3px; flex: none; }
 .logo-mini { max-width: 90px; max-height: 40px; object-fit: contain; }

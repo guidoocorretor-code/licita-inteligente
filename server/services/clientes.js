@@ -74,7 +74,7 @@ function dadosCliente(b) {
 export const ASSINATURAS = { isolada: 'Assina sozinho', conjunta: 'Assina em conjunto' };
 // Sócios digitados (lista) ou já gravados (texto JSON). Nome obrigatório; CPF com 11 números quando informado;
 // forma de assinatura só "isolada" ou "conjunta" (vem do contrato social; a Receita não informa).
-function sociosJson(b) {
+export function sociosJson(b) {
   if (!Array.isArray(b.socios)) return b.socios_json ?? null;
   const ok = [];
   for (const x of b.socios.slice(0, 30)) {
