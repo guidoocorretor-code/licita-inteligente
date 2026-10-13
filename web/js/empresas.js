@@ -11,6 +11,8 @@ const SITUACAO = {
 // Certidões que o SICAF mostra com validade (o usuário confere no PDF e digita as datas)
 const DO_SICAF = ['sicaf', 'federal', 'fgts', 'trabalhista', 'estadual', 'municipal', 'qualificacao'];
 
+const fmtCpf = (c) => String(c || '').replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+const ASSINA = { isolada: 'Assina sozinho', conjunta: 'Assina em conjunto' };
 const fmtCnpj = (c) => String(c || '').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 const nomeCli = (c) => c.nome_fantasia || c.razao_social;
 const etiquetaSit = (d) => {
@@ -45,6 +47,39 @@ function formEmpresa(est, c = {}, aoSalvar) {
     ? h('ul', {}, cnaes.map((x) => h('li', {}, h('code', {}, x.codigo), ` ${x.descricao}`, x.principal ? h('strong', {}, ' (principal)') : null)))
     : h('span', { class: 'suave' }, 'Os CNAEs aparecem aqui ao consultar o CNPJ na Receita (botão 🔎 Receita).'));
   mostrarCnaes();
+  // Sócios: lista editável (a Receita traz nome e qualificação; CPF e forma de assinatura vêm do contrato social)
+  let socios = [];
+  try { socios = c.socios_json ? JSON.parse(c.socios_json) : []; } catch { socios = []; }
+  const caixaSocios = h('div', { class: 'lista-socios' });
+  const linhaSocio = (sc) => {
+    const el = {
+      nome: h('input', { value: sc.nome || '', placeholder: 'Nome completo', 'aria-label': 'Nome do sócio' }),
+      cpf: h('input', { value: sc.cpf ? fmtCpf(sc.cpf) : '', inputmode: 'numeric', placeholder: '000.000.000-00', 'aria-label': 'CPF do sócio' }),
+      qualificacao: h('input', { value: sc.qualificacao || '', placeholder: 'ex.: Sócio-Administrador', 'aria-label': 'Qualificação' }),
+      email: h('input', { type: 'email', value: sc.email || '', placeholder: 'E-mail', 'aria-label': 'E-mail do sócio' }),
+      telefone: h('input', { type: 'tel', value: sc.telefone || '', placeholder: 'Telefone / WhatsApp', 'aria-label': 'Telefone do sócio' }),
+      administrador: h('input', { type: 'checkbox', checked: !!sc.administrador }),
+      assinatura: h('select', { 'aria-label': 'Forma de assinatura' }, [['', 'Assinatura: não informada'], ['isolada', 'Assina sozinho'], ['conjunta', 'Assina em conjunto']]
+        .map(([v, t]) => h('option', { value: v, selected: (sc.assinatura || '') === v }, t))),
+    };
+    const bloco = h('div', { class: 'socio-linha' },
+      h('div', { class: 'filtros' },
+        h('div', { class: 'largo' }, h('label', {}, 'Nome do sócio'), el.nome),
+        h('div', {}, h('label', {}, 'CPF'), el.cpf),
+        h('div', {}, h('label', {}, 'Qualificação'), el.qualificacao),
+        h('div', {}, h('label', {}, 'E-mail'), el.email),
+        h('div', {}, h('label', {}, 'Telefone'), el.telefone)),
+      h('div', { class: 'linha socio-flags' },
+        h('label', { class: 'flag-socio' }, el.administrador, ' Sócio administrador'),
+        el.assinatura,
+        h('button', { type: 'button', class: 'btn pequeno perigo', onclick: () => { bloco.remove(); itensSocios.splice(itensSocios.indexOf(item), 1); } }, 'Remover')));
+    const item = { bloco, ler: () => ({ nome: el.nome.value.trim(), cpf: el.cpf.value.replace(/\D/g, ''), qualificacao: el.qualificacao.value.trim(),
+      email: el.email.value.trim(), telefone: el.telefone.value.trim(), administrador: el.administrador.checked, assinatura: el.assinatura.value || null }) };
+    return item;
+  };
+  const itensSocios = [];
+  const addSocio = (sc = {}) => { const it = linhaSocio(sc); itensSocios.push(it); caixaSocios.append(it.bloco); };
+  socios.forEach(addSocio);
   const statusReceita = h('div', { class: 'status-receita' });
   const seletorSocio = h('div', {});
   let ultimaConsulta = '';
@@ -67,6 +102,10 @@ function formEmpresa(est, c = {}, aoSalvar) {
       if (d.porte && (sempre || !campos.porte.value)) campos.porte.value = d.porte;
       const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
       escolherSocio(d.responsavel);
+      if (d.socios?.length && !itensSocios.some((it) => it.ler().nome)) {
+        itensSocios.splice(0).forEach((it) => it.bloco.remove());
+        d.socios.forEach((sc) => addSocio({ nome: sc.nome, qualificacao: sc.qualificacao, administrador: /administrador/i.test(sc.qualificacao || '') }));
+      }
       if (d.cnaes?.length) { cnaes = d.cnaes; mostrarCnaes(); }
       if (d.palavras_sugeridas?.length && !campos.palavras_chave.value.trim()) campos.palavras_chave.value = d.palavras_sugeridas.join('; ');
       render(seletorSocio, d.socios.length > 1 ? h('div', { class: 'campo' }, h('label', { for: 'e-socio' }, `Sócios na Receita (${d.socios.length}): escolha quem é o responsável`),
@@ -104,15 +143,24 @@ function formEmpresa(est, c = {}, aoSalvar) {
       inp('endereco', 'Endereço (rua, nº, bairro)', {}, true),
       inp('cep', 'CEP', { inputmode: 'numeric', placeholder: '29100-000' })),
     statusReceita,
-    h('h3', {}, 'Responsável legal'),
+    h('h3', {}, 'Sócios'),
+    h('p', { class: 'suave pequeno' }, 'A Receita traz nome e qualificação. CPF e se assina sozinho ou em conjunto estão no contrato social: confira lá.'),
+    caixaSocios,
+    h('button', { type: 'button', class: 'btn pequeno', onclick: () => addSocio() }, '+ Adicionar sócio'),
+    h('h3', {}, 'Responsável legal (assina a proposta)'),
     seletorSocio,
     h('div', { class: 'filtros' },
       inp('resp_nome', 'Nome', {}, true), inp('resp_cargo', 'Cargo', { placeholder: 'Sócio-administrador' }),
       inp('resp_email', 'E-mail', { type: 'email' }), inp('resp_telefone', 'Telefone / WhatsApp', { type: 'tel' }),
       inp('resp_cpf', 'CPF (assina a proposta)', { inputmode: 'numeric', placeholder: '000.000.000-00' })),
+    h('h3', {}, 'Responsável financeiro'),
+    h('div', { class: 'filtros' },
+      inp('fin_nome', 'Nome', {}, true), inp('fin_cargo', 'Cargo', { placeholder: 'ex.: Financeiro' }),
+      inp('fin_email', 'E-mail', { type: 'email' }), inp('fin_telefone', 'Telefone / WhatsApp', { type: 'tel' })),
     h('h3', {}, 'Dados bancários (saem na proposta de preços)'),
     h('div', { class: 'filtros' },
-      inp('banco', 'Banco', { placeholder: 'ex.: 001 · Banco do Brasil' }), inp('agencia', 'Agência'), inp('conta', 'Conta corrente')),
+      inp('banco', 'Banco', { placeholder: 'ex.: 001 · Banco do Brasil' }), inp('agencia', 'Agência'), inp('conta', 'Conta corrente'),
+      inp('pix', 'Chave Pix', { placeholder: 'CNPJ, e-mail, telefone ou chave aleatória' }, true)),
     h('h3', {}, 'Ramo de atuação'),
     listaCnaes,
     h('div', { class: 'campo' }, h('label', { for: 'e-palavras_chave' }, 'Palavras do ramo (separe com ;)'), campos.palavras_chave,
@@ -122,6 +170,9 @@ function formEmpresa(est, c = {}, aoSalvar) {
     const corpo = Object.fromEntries(Object.entries(campos).map(([k, el]) => [k, el.value.trim()]));
     corpo.cnpj = corpo.cnpj.replace(/\D/g, '');
     if (cnaes) corpo.cnaes = cnaes;
+    corpo.socios = itensSocios.map((it) => it.ler()).filter((x) => x.nome);
+    const semNome = itensSocios.map((it) => it.ler()).find((x) => !x.nome && (x.cpf || x.email || x.telefone));
+    if (semNome) { toast('Preencha o nome do sócio (ou remova a linha).', 5000); return false; }
     try {
       const r = c.id ? await api(`/clientes/${c.id}`, { metodo: 'PATCH', corpo }) : await api('/clientes', { metodo: 'POST', corpo });
       toast('Empresa salva.'); avisarAlteracao(); aoSalvar?.(c.id || r.id);
@@ -170,6 +221,8 @@ async function empresaDetalhe(alvo, rota, est) {
   const recarregar = () => empresaDetalhe(alvo, rota, est);
   const linha = (rot, val) => [h('dt', {}, rot), h('dd', {}, val || h('span', { class: 'nao-info' }, 'Não informado'))];
   const selecionada = clienteSelecionado() === String(c.id);
+  let socios = [];
+  try { socios = c.socios_json ? JSON.parse(c.socios_json) : []; } catch { socios = []; }
 
   const excluirDoc = async (d) => {
     if (!confirmar(`Excluir "${d.tipo_nome}"${d.validade ? ` (validade ${data(d.validade, false)})` : ''}?`)) return;
@@ -194,6 +247,19 @@ async function empresaDetalhe(alvo, rota, est) {
         linha('E-mail', c.resp_email ? h('a', { href: `mailto:${c.resp_email}` }, c.resp_email) : null),
         linha('Telefone', c.resp_telefone ? h('a', { href: `tel:${c.resp_telefone.replace(/[^\d+]/g, '')}` }, c.resp_telefone) : null)),
       c.resp_telefone ? h('a', { class: 'btn pequeno', href: `https://wa.me/55${c.resp_telefone.replace(/\D/g, '').replace(/^55/, '')}`, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp ↗') : null)),
+    h('div', { class: 'grade duas', style: { marginTop: '14px' } },
+      h('div', { class: 'cartao' }, h('h2', {}, `Sócios (${socios.length})`),
+        socios.length ? h('ul', { class: 'lista-socios-det' }, socios.map((sc) => h('li', {},
+          h('strong', {}, sc.nome), sc.qualificacao ? ` · ${sc.qualificacao}` : '',
+          h('div', { class: 'linha', style: { gap: '6px', marginTop: '4px' } },
+            sc.administrador ? h('span', { class: 'etiqueta azul pequena' }, 'Sócio administrador') : null,
+            h('span', { class: `etiqueta pequena ${sc.assinatura ? 'verde' : ''}` }, ASSINA[sc.assinatura] || 'Assinatura não informada')),
+          h('div', { class: 'suave pequeno' }, [sc.cpf ? `CPF ${fmtCpf(sc.cpf)}` : 'CPF não informado', sc.email, sc.telefone].filter(Boolean).join(' · ')))))
+          : h('p', { class: 'suave' }, 'Nenhum sócio cadastrado. Use "Editar dados" (ou o botão 🔎 Receita lá dentro).')),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Responsável financeiro'), h('dl', { class: 'dados' },
+        linha('Nome', c.fin_nome), linha('Cargo', c.fin_cargo),
+        linha('E-mail', c.fin_email ? h('a', { href: `mailto:${c.fin_email}` }, c.fin_email) : null),
+        linha('Telefone', c.fin_telefone ? h('a', { href: `tel:${c.fin_telefone.replace(/[^\d+]/g, '')}` }, c.fin_telefone) : null)))),
     h('div', { class: 'cartao', style: { marginTop: '14px' } },
       h('div', { class: 'linha', style: { justifyContent: 'space-between' } },
         h('h2', {}, `Certidões e validades (${documentos.length})`),

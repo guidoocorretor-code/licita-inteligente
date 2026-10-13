@@ -42,7 +42,7 @@ function dadosCliente(b) {
   const razao = texto(b.razao_social, 200);
   if (!razao) throw erro400('Informe a razão social.');
   if (b.porte && !PORTES.includes(b.porte)) throw erro400('Porte inválido.');
-  for (const k of ['email', 'resp_email']) {
+  for (const k of ['email', 'resp_email', 'fin_email']) {
     if (b[k] && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b[k])) throw erro400('E-mail inválido.');
   }
   return {
@@ -52,10 +52,31 @@ function dadosCliente(b) {
     observacoes: texto(b.observacoes, 2000),
     // Usados no cabeçalho e no rodapé da proposta de preços
     endereco: texto(b.endereco, 300), cep: texto(b.cep, 10), resp_cpf: texto(b.resp_cpf, 14),
-    banco: texto(b.banco, 80), agencia: texto(b.agencia, 20), conta: texto(b.conta, 30),
+    banco: texto(b.banco, 80), agencia: texto(b.agencia, 20), conta: texto(b.conta, 30), pix: texto(b.pix, 120),
+    fin_nome: texto(b.fin_nome, 150), fin_cargo: texto(b.fin_cargo, 80), fin_email: texto(b.fin_email, 150), fin_telefone: texto(b.fin_telefone, 30),
+    socios_json: sociosJson(b),
     cnaes_json: cnaesJson(b),
     palavras_chave: palavrasChave(b.palavras_chave),
   };
+}
+
+export const ASSINATURAS = { isolada: 'Assina sozinho', conjunta: 'Assina em conjunto' };
+// Sócios digitados (lista) ou já gravados (texto JSON). Nome obrigatório; CPF com 11 números quando informado;
+// forma de assinatura só "isolada" ou "conjunta" (vem do contrato social; a Receita não informa).
+function sociosJson(b) {
+  if (!Array.isArray(b.socios)) return b.socios_json ?? null;
+  const ok = [];
+  for (const x of b.socios.slice(0, 30)) {
+    const nome = texto(x?.nome, 150);
+    if (!nome) continue;
+    const cpf = String(x?.cpf ?? '').replace(/\D/g, '');
+    if (cpf && cpf.length !== 11) throw erro400(`CPF do sócio ${nome}: informe os 11 números.`);
+    const email = texto(x?.email, 150);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw erro400(`E-mail do sócio ${nome} inválido.`);
+    ok.push({ nome, cpf: cpf || null, qualificacao: texto(x?.qualificacao, 80), email, telefone: texto(x?.telefone, 30),
+      administrador: !!x?.administrador, assinatura: ASSINATURAS[x?.assinatura] ? x.assinatura : null });
+  }
+  return ok.length ? JSON.stringify(ok) : null;
 }
 
 // CNAEs vindos da consulta à Receita (lista) ou já gravados (texto JSON)

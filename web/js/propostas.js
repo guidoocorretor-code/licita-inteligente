@@ -227,7 +227,7 @@ tfoot td { font-weight: 700; background: #f6f8fb; }
 <tbody>${linhas}</tbody><tfoot><tr><td colspan="6">VALOR GLOBAL DA PROPOSTA</td><td class="n">${brl(total)}</td></tr></tfoot></table>
 <div class="global"><b>Valor global:</b> ${brl(total)} (${esc(reaisPorExtenso(total))}).</div>
 <div class="bloco">${cond}</div>
-<div class="bloco"><h2>Dados bancários</h2><div>Banco ${v(c.banco)} · Agência ${v(c.agencia)} · Conta corrente ${v(c.conta)}</div></div>
+<div class="bloco"><h2>Dados bancários</h2><div>Banco ${v(c.banco)} · Agência ${v(c.agencia)} · Conta corrente ${v(c.conta)}${c.pix ? ` · Pix ${esc(c.pix)}` : ''}</div></div>
 ${p.declaracoes.length ? `<div class="bloco"><h2>Declarações</h2><ul class="decl">${p.declaracoes.map((k) => `<li>${esc(d.declaracoes[k])}</li>`).join('')}</ul></div>` : ''}
 <div class="bloco">${esc([c.municipio, c.uf].filter(Boolean).join('/') || '')}${c.municipio ? ', ' : ''}${esc(dataExtenso())}.</div>
 <div class="assin"><div class="linha"></div><div><b>${v(c.resp_nome)}</b></div><div>${v(c.resp_cargo)} · CPF ${v(c.resp_cpf)}</div><div>${v(c.razao_social)}</div></div>

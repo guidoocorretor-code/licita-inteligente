@@ -30,6 +30,8 @@ export function migrarPropostas(conn) {
   const cols = conn.prepare('PRAGMA table_info(clientes)').all().map((c) => c.name);
   // Dados da empresa que aparecem na proposta
   for (const c of ['endereco', 'cep', 'resp_cpf', 'banco', 'agencia', 'conta']) if (!cols.includes(c)) conn.exec(`ALTER TABLE clientes ADD COLUMN ${c} TEXT`);
+  // Sócios (lista em JSON) e contato do responsável financeiro
+  for (const c of ['socios_json', 'fin_nome', 'fin_cargo', 'fin_email', 'fin_telefone', 'pix']) if (!cols.includes(c)) conn.exec(`ALTER TABLE clientes ADD COLUMN ${c} TEXT`);
   conn.exec(`CREATE TABLE IF NOT EXISTS propostas (
     id INTEGER PRIMARY KEY,
     oportunidade_id INTEGER NOT NULL UNIQUE REFERENCES oportunidades(id) ON DELETE CASCADE,
@@ -67,7 +69,7 @@ export function propostaDaOportunidade(db, empresaId, oportunidadeId) {
   const c = cotacoesDaOportunidade(db, empresaId, oportunidadeId);
   const op = c.oportunidade;
   const cliente = op.cliente_id ? db.prepare(`SELECT id, cnpj, razao_social, nome_fantasia, porte, uf, municipio, email, telefone, resp_nome, resp_cargo, resp_cpf,
-      endereco, cep, banco, agencia, conta FROM clientes WHERE id=? AND empresa_id=?`).get(op.cliente_id, empresaId) : null;
+      endereco, cep, banco, agencia, conta, pix FROM clientes WHERE id=? AND empresa_id=?`).get(op.cliente_id, empresaId) : null;
   const lic = db.prepare('SELECT unidade_codigo, link_origem, sistema_eletronico, plataforma_origem, modalidade_nome, numero_compra, ano, processo, orgao_cnpj, unidade_nome FROM licitacoes WHERE id=?').get(op.licitacao_id);
   const p = db.prepare('SELECT * FROM propostas WHERE oportunidade_id=?').get(op.id);
   const gravados = new Map(p ? db.prepare('SELECT * FROM proposta_itens WHERE proposta_id=?').all(p.id).map((i) => [i.numero_item, i]) : []);
