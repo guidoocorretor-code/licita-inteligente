@@ -331,6 +331,11 @@ async function meusJornais(est) {
     h('p', { class: 'suave pequeno', style: { marginBottom: 0 } }, 'Todo dia a partir das 7h cada jornal ganha a edição com as licitações que entraram no sistema e batem com o perfil. O aviso chega no sino (🔔) e no e-mail de alertas.'));
 }
 
+// Recorte com licitações ainda sem itens: produto que só aparece no item (carne dentro de "gêneros alimentícios") fica de fora até chegar
+const avisoItens = (it) => (it?.sem_itens ? h('div', { class: 'aviso amarelo pequeno', style: { flexBasis: '100%' } },
+  `${it.sem_itens} de ${it.abertas} licitação(ões) abertas no estado/cidades deste jornal ainda estão sem os itens baixados do PNCP. `,
+  'Produto citado só nos itens aparece quando eles chegarem (o sistema baixa primeiro as dos estados dos jornais, e a edição seguinte inclui as que passarem a bater).') : null);
+
 async function cabecalhoPerfil(f, est) {
   let p; let ops;
   try { [p, ops] = await Promise.all([api(`/jornal/perfis/${f.perfil}`), api('/jornal/perfis')]); }
@@ -349,6 +354,7 @@ async function cabecalhoPerfil(f, est) {
         h('button', { class: 'btn', title: 'Cria outro jornal com os mesmos filtros, para ajustar a outro segmento', onclick: () => formPerfil(est, ops, null, p) }, '⧉ Duplicar'),
         h('button', { class: 'btn primario', onclick: () => formPerfil(est, ops, null) }, '+ Novo jornal'))),
     h('div', { class: 'cartao linha', style: { flexWrap: 'wrap' } }, h('strong', {}, 'Mostrar:'), edicao,
+      avisoItens(p.itens),
       h('span', { class: 'suave pequeno' }, atual === 'todas' ? 'Todas as licitações abertas que batem com o jornal, ordenadas pelo encerramento.' : 'Edição do dia: só as que entraram no sistema desde a edição anterior (a primeira traz todas as abertas).')),
   ];
 }
@@ -424,7 +430,8 @@ function formPerfil(est, ops, p, modelo = null) {
         render(previa,
           h('div', {}, h('b', {}, `${x.total} licitação(ões) aberta(s) batem com este perfil agora.`)),
           x.funil?.length ? h('div', { class: 'funil-perfil' }, 'Filtro a filtro: ', x.funil.map((e, i) => h('span', { class: e.total === 0 ? 'texto-alerta' : '' }, `${i ? ' → ' : ''}${e.etapa}: ${e.total}`))) : null,
-          zerou ? h('div', { class: 'texto-alerta' }, `O filtro "${zerou.etapa}" zerou o resultado. Revise esse campo.`) : null);
+          zerou ? h('div', { class: 'texto-alerta' }, `O filtro "${zerou.etapa}" zerou o resultado. Revise esse campo.`) : null,
+          avisoItens(x.itens));
       }
       catch (e) { render(previa, h('span', { class: 'texto-alerta' }, e.message)); }
       return false;

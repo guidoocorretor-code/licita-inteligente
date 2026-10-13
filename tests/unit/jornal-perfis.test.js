@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria } from '../helpers.js';
-import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil, idsQueBatem } from '../../server/services/jornal-perfis.js';
+import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil, idsQueBatem, pendentesDeItens } from '../../server/services/jornal-perfis.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 
 const AGORA = '2026-10-12T08:00:00';
@@ -150,4 +150,19 @@ test('conferência do índice de busca: desalinhado é refeito e volta a achar a
   assert.ok(achar().includes(bloco));
   assert.equal(conferirIndiceBusca(db, { log: () => {} }).refeito, true);
   assert.ok(!achar().includes(bloco));
+});
+
+test('produto só no item: entra na edição seguinte quando os itens chegam, sem repetir', () => {
+  const { db, emp, uid, lic } = cenario();
+  const merenda = lic('m', { objeto: 'Aquisição de gêneros alimentícios', criado: '2026-10-10 10:00:00' });
+  const id = salvarPerfil(db, emp, uid, { nome: 'Grupo B', filtros: { ufs: ['ES'], produtos: 'carnes bovinas; carne suína' } });
+  const p = () => perfilDaEmpresa(db, emp, id);
+  assert.equal(gerarEdicao(db, p(), '2026-10-11T08:00:00').total, 0);
+  assert.deepEqual(pendentesDeItens(db, p().filtros, '2026-10-11T08:00:00'), { abertas: 1, sem_itens: 1 });
+  // Itens chegam do PNCP depois da edição de 11/10
+  db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)').run(merenda, 1, 'CARNE BOVINA tipo acém, congelada');
+  db.prepare("UPDATE licitacoes SET detalhes_sincronizados_em='2026-10-11 15:00:00' WHERE id=?").run(merenda);
+  const ed = gerarEdicao(db, p(), '2026-10-12T08:00:00');
+  assert.deepEqual(JSON.parse(ed.licitacoes), [merenda]);
+  assert.equal(gerarEdicao(db, p(), '2026-10-13T08:00:00').total, 0);
 });
