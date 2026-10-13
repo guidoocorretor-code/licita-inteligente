@@ -380,7 +380,14 @@ export async function buscar(alvo, rota, est) {
 export async function detalhe(alvo, rota, est) {
   render(alvo, carregando());
   const id = rota.args[0];
-  const d = await api(`/licitacoes/${id}`);
+  let d = await api(`/licitacoes/${id}`);
+  // Itens e documentos ainda não baixados (o servidor baixa aos poucos): busca no PNCP agora, uma vez
+  if (!d.licitacao.detalhes_sincronizados_em && d.licitacao.numero_controle_pncp && podeEditar(est) && !rota.buscouDetalhes) {
+    render(alvo, carregando('Buscando os itens e os arquivos do edital no PNCP…'));
+    try { await api(`/licitacoes/${id}/atualizar`, { metodo: 'POST', corpo: {} }); d = await api(`/licitacoes/${id}`); }
+    catch (e) { toast(`PNCP não respondeu agora: ${e.message}`, 6000); }
+    rota.buscouDetalhes = true;
+  }
   const l = d.licitacao;
   const ni = (v) => (v === null || v === undefined || v === '' ? naoInformado() : v);
   const linha = (rot, val) => [h('dt', {}, rot), h('dd', {}, val)];

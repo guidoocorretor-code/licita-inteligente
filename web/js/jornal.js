@@ -194,6 +194,10 @@ export async function jornal(alvo, rota, est) {
           h('span', {}, h('span', { class: 'rot' }, 'Propostas até '), h('strong', {}, dataBr(e.data_encerramento_proposta) || 'Não informado')),
           h('span', {}, h('span', { class: 'rot' }, 'Sistema '), h('strong', {}, s.nome)),
           h('span', { class: `etiqueta participacao-${s.custo}`, title: s.resumo }, `Participação: ${s.participacao}`)),
+        f.perfil ? h('div', { class: 'motivo-jornal pequeno' },
+          h('span', { class: 'suave' }, 'Entrou por: '), e.motivos?.length ? e.motivos.join(' · ') : 'filtros de local, modalidade e valor',
+          h('span', { class: 'suave' }, ' · Itens e edital: '),
+          e.detalhes_sincronizados_em ? `${e.qtd_itens} item(ns), ${e.qtd_documentos} arquivo(s)` : h('span', { title: 'O sistema baixa do PNCP aos poucos; ao abrir a licitação ele busca na hora' }, 'ainda não baixados do PNCP')) : null,
         e.valor_anterior != null ? h('div', { class: 'suave pequeno' }, `De: ${e.valor_anterior} → Para: ${e.valor_novo}`) : null));
   }),
   paginacao(r.pagina, r.paginas, ir));
