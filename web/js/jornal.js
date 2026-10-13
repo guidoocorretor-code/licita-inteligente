@@ -319,9 +319,11 @@ async function meusJornais(est) {
       h('div', { class: 'linha' },
         h('a', { class: 'btn pequeno primario', href: `#/jornal?perfil=${p.id}` }, 'Abrir'),
         h('button', { class: 'btn pequeno', onclick: () => formPerfil(est, r, p) }, 'Editar'),
+        h('button', { class: 'btn pequeno', title: 'Cria outro jornal com os mesmos filtros, para ajustar a outro segmento', onclick: () => formPerfil(est, r, null, p) }, '⧉ Duplicar'),
         h('button', { class: 'btn pequeno perigo', onclick: () => modal('Excluir jornal', h('p', {}, `Excluir o jornal "${p.nome}" e as edições dele? Os jornais já enviados aos clientes continuam valendo.`),
           [{ texto: 'Excluir', classe: 'perigo', acao: async () => { try { await api(`/jornal/perfis/${p.id}`, { metodo: 'DELETE' }); toast('Jornal excluído.'); window.dispatchEvent(new HashChangeEvent('hashchange')); return true; } catch (e) { toast(e.message, 6000); return false; } } }]) }, 'Excluir')))))
       : vazio('Nenhum jornal salvo. Crie um com o perfil do cliente (estado, cidades, nicho, produtos…) e ele traz as oportunidades novas todo dia às 7h.'),
+    h('p', { class: 'suave pequeno' }, 'Cada empresa pode ter quantos jornais quiser, um por segmento (ex.: "UNIBOX · alimentos", "UNIBOX · limpeza"). Use ⧉ Duplicar para aproveitar os filtros de um jornal pronto.'),
     h('p', { class: 'suave pequeno', style: { marginBottom: 0 } }, 'Todo dia a partir das 7h cada jornal ganha a edição com as licitações que entraram no sistema e batem com o perfil. O aviso chega no sino (🔔) e no e-mail de alertas.'));
 }
 
@@ -336,7 +338,12 @@ async function cabecalhoPerfil(f, est) {
   return [
     h('div', { class: 'cabecalho-pagina' },
       h('div', {}, h('a', { href: '#/jornal', class: 'pequeno' }, '← Jornal de licitações'), h('h1', {}, `📰 ${p.nome}`), h('div', { class: 'suave' }, p.resumo)),
-      h('div', { class: 'linha' }, h('button', { class: 'btn', onclick: () => formPerfil(est, ops, p) }, 'Editar jornal'))),
+      h('div', { class: 'linha' },
+        ops.perfis.length > 1 ? h('select', { 'aria-label': 'Trocar de jornal', style: { width: 'auto' }, onchange: (e) => { location.hash = `#/jornal${qs({ perfil: e.target.value })}`; } },
+          ops.perfis.map((x) => h('option', { value: x.id, selected: x.id === p.id }, `${x.nome}${x.cliente_nome ? ` · ${x.cliente_nome}` : ''}`))) : null,
+        h('button', { class: 'btn', onclick: () => formPerfil(est, ops, p) }, 'Editar jornal'),
+        h('button', { class: 'btn', title: 'Cria outro jornal com os mesmos filtros, para ajustar a outro segmento', onclick: () => formPerfil(est, ops, null, p) }, '⧉ Duplicar'),
+        h('button', { class: 'btn primario', onclick: () => formPerfil(est, ops, null) }, '+ Novo jornal'))),
     h('div', { class: 'cartao linha', style: { flexWrap: 'wrap' } }, h('strong', {}, 'Mostrar:'), edicao,
       h('span', { class: 'suave pequeno' }, atual === 'todas' ? 'Todas as licitações abertas que batem com o jornal, ordenadas pelo encerramento.' : 'Edição do dia: só as que entraram no sistema desde a edição anterior (a primeira traz todas as abertas).')),
   ];
@@ -344,13 +351,15 @@ async function cabecalhoPerfil(f, est) {
 
 const UFS_BR = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
 
-function formPerfil(est, ops, p) {
-  const fx = p?.filtros || { ufs: [], cidades: [], segmentos: [], produtos: '', itens: '', modalidades: [], sistemas: [], fases: Object.keys(ops.fases), encerramento: { modo: 'qualquer' } };
+// p = jornal sendo editado; modelo = jornal copiado ao duplicar (cria um novo com os mesmos filtros)
+function formPerfil(est, ops, p, modelo = null) {
+  const base = p || modelo;
+  const fx = base?.filtros || { ufs: [], cidades: [], segmentos: [], produtos: '', itens: '', modalidades: [], sistemas: [], fases: Object.keys(ops.fases), encerramento: { modo: 'qualquer' } };
   const caixa = (nome, valor, rotulo, marcado) => h('label', { class: 'opcao-check' }, h('input', { type: 'checkbox', name: nome, value: valor, checked: !!marcado }), rotulo);
   const marcados = (form, nome) => [...form.querySelectorAll(`input[name="${nome}"]:checked`)].map((x) => x.value);
   const campo = (rot, el, ajuda) => h('div', { class: 'campo' }, h('label', {}, rot), el, ajuda ? h('div', { class: 'suave pequeno' }, ajuda) : null);
-  const nome = h('input', { value: p?.nome || '', placeholder: 'Ex.: INFOPEL · papelaria e informática ES' });
-  const cliente = h('select', {}, h('option', { value: '' }, 'Nenhuma (jornal geral)'), est.clientes.map((c) => h('option', { value: c.id, selected: p?.cliente_id === c.id }, c.nome_fantasia || c.razao_social)));
+  const nome = h('input', { value: p?.nome || (modelo ? `${modelo.nome} (cópia)` : ''), placeholder: 'Ex.: INFOPEL · papelaria e informática ES' });
+  const cliente = h('select', {}, h('option', { value: '' }, 'Nenhuma (jornal geral)'), est.clientes.map((c) => h('option', { value: c.id, selected: (base ? base.cliente_id : Number(clienteSelecionado()) || null) === c.id }, c.nome_fantasia || c.razao_social)));
   const listaCid = h('datalist', { id: 'perfil-cidades' });
   const cidades = h('input', { value: fx.cidades.join('; '), list: 'perfil-cidades', placeholder: 'Ex.: Vila Velha; Serra; Cariacica' });
   const produtos = h('textarea', { rows: 2, placeholder: 'Ex.: papel A4; toner; material de escritório' }, fx.produtos || '');
@@ -403,7 +412,7 @@ function formPerfil(est, ops, p) {
   });
   carregarCidades(fx.ufs);
   avisoObras();
-  modal(p ? `Editar jornal · ${p.nome}` : 'Criar jornal', form, [
+  modal(p ? `Editar jornal · ${p.nome}` : modelo ? `Duplicar jornal · ${modelo.nome}` : 'Criar jornal', form, [
     { texto: 'Ver quantas batem', acao: async () => {
       try {
         const x = await api('/jornal/perfis/previa', { metodo: 'POST', corpo: corpo() });
