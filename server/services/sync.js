@@ -173,7 +173,8 @@ export async function sincronizarDetalhesDe(db, licId, opts = {}) {
   return { ok: true, itens: d.itens.length, documentos: d.documentos.length };
 }
 
-// Baixa aos poucos os itens (e documentos) das licitações abertas que ainda não têm, prazo mais próximo primeiro.
+// Baixa aos poucos os itens (e documentos) das licitações abertas que ainda não têm: primeiro as do Kanban e dos
+// jornais dos últimos dias (o usuário está olhando para elas), depois prazo mais próximo primeiro.
 // Sem isso, a busca por "mouse" não acha o pregão de "materiais de informática" que tem mouse entre os itens.
 // Roda em segundo plano, fora da sincronização, respeitando o limite de 1 requisição/s por host (lib/http.js).
 const falhasRecentes = new Map(); // id -> momento da falha: não insiste na mesma licitação por 6 h
@@ -187,7 +188,10 @@ export async function completarItensAbertas(db, { limite = 40, fetchImpl, agora 
   try {
     for (const [id, t] of falhasRecentes) if (agora - t > 6 * 3600_000) falhasRecentes.delete(id);
     const candidatas = db.prepare(`SELECT * FROM licitacoes WHERE fonte_principal='pncp' AND status_calculado IN ('aguardando_propostas','aberta')
-      AND detalhes_sincronizados_em IS NULL ORDER BY data_encerramento_proposta LIMIT ?`).all(limite + falhasRecentes.size);
+      AND detalhes_sincronizados_em IS NULL
+      ORDER BY (id IN (SELECT licitacao_id FROM oportunidades)
+        OR id IN (SELECT j.value FROM jornal_edicoes e, json_each(e.licitacoes) j WHERE e.data >= date('now', '-3 day'))) DESC,
+        data_encerramento_proposta LIMIT ?`).all(limite + falhasRecentes.size);
     for (const lic of candidatas) {
       if (r.baixadas + r.falhas >= limite) break;
       if (falhasRecentes.has(lic.id)) continue;

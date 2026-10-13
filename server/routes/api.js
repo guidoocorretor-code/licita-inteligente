@@ -28,7 +28,7 @@ import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
 import { precisaSenhaAdmin, conferirSenhaAdmin, justificativaDescarte } from '../services/kanban-regras.js';
 import { painelEmpresas } from '../services/painel-empresas.js';
 import { salvarPerfil, excluirPerfil, perfilDaEmpresa, listarPerfis, edicoesDoPerfil, idsDoPerfil, gerarEdicao, filtroDoPerfil, normalizarFiltros,
-  resumoFiltros, funilDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
+  resumoFiltros, funilDoPerfil, motivosDoPerfil, MODALIDADES_JORNAL, FASES_JORNAL } from '../services/jornal-perfis.js';
 import { salvarContrato, resumoHonorarios, criarCobrancaAvulsa, atualizarCobranca, cancelarCobranca, desfazerPagamento, excluirCobranca, cobrancaDaEmpresa,
   custosDaOportunidade, lancarCusto, excluirCusto, lucroPorContrato, CATEGORIAS_CUSTO, FORMAS_RECEBIMENTO, TIPOS_COBRANCA } from '../services/financeiro.js';
 import { atualizarCapag, pagometroDaLicitacao, FONTES_CAPAG } from '../services/capag.js';
@@ -207,7 +207,9 @@ function filtroJornal(req) {
 }
 // Jornal salvo (perfil): as licitações da edição do dia (ou todas as abertas que batem), no formato do feed
 const COLS_LIC_JORNAL = `l.id licitacao_id, l.criado_em detectado_em, l.objeto, l.orgao_nome, l.uf, l.municipio, l.modalidade_nome, l.segmento, l.status_calculado,
-  l.valor_estimado, l.valor_estimado_situacao, l.data_encerramento_proposta, l.sistema_eletronico, l.plataforma_origem, l.link_origem, l.link_pncp, l.numero_compra, l.ano`;
+  l.valor_estimado, l.valor_estimado_situacao, l.data_encerramento_proposta, l.sistema_eletronico, l.plataforma_origem, l.link_origem, l.link_pncp, l.numero_compra, l.ano,
+  l.detalhes_sincronizados_em, (SELECT COUNT(*) FROM licitacao_itens i WHERE i.licitacao_id=l.id) qtd_itens,
+  (SELECT COUNT(*) FROM licitacao_documentos d WHERE d.licitacao_id=l.id) qtd_documentos`;
 function licitacoesDoPerfil(req) {
   const perfil = perfilDaEmpresa(db(), req.usuario.empresa_id, inteiro(req.query.perfil));
   const edicao = req.query.edicao === 'todas' ? 'todas' : dataOk(req.query.edicao) || edicoesDoPerfil(db(), perfil.id)[0]?.data || 'todas';
@@ -216,12 +218,13 @@ function licitacoesDoPerfil(req) {
 r.get('/jornal', (req, res) => {
   if (req.query.perfil) {
     try {
-      const { edicao, ids, total } = licitacoesDoPerfil(req);
+      const { perfil, edicao, ids, total } = licitacoesDoPerfil(req);
       const pagina = Math.max(1, inteiro(req.query.pagina) || 1);
       const fatia = ids.slice((pagina - 1) * 30, pagina * 30);
       const porId = new Map(fatia.length ? db().prepare(`SELECT ${COLS_LIC_JORNAL} FROM licitacoes l WHERE l.id IN (${fatia.map(() => '?').join(',')})`).all(...fatia).map((x) => [x.licitacao_id, x]) : []);
+      const motivos = motivosDoPerfil(db(), perfil.filtros, fatia);
       const dados = fatia.map((id) => porId.get(id)).filter(Boolean)
-        .map((x) => ({ ...x, tipo: edicao === 'todas' ? 'aberta' : 'nova', descricao: x.modalidade_nome || 'Modalidade não informada', sistema: sistemaDaLicitacao(x) }));
+        .map((x) => ({ ...x, motivos: motivos.get(x.licitacao_id) || [], tipo: edicao === 'todas' ? 'aberta' : 'nova', descricao: x.modalidade_nome || 'Modalidade não informada', sistema: sistemaDaLicitacao(x) }));
       return res.json({ total: ids.length, total_bateram: total, pagina, paginas: Math.ceil(ids.length / 30), dados, edicao });
     } catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro ao abrir o jornal.'); }
   }

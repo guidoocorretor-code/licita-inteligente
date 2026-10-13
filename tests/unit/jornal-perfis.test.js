@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria } from '../helpers.js';
-import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros } from '../../server/services/jornal-perfis.js';
+import { normalizarFiltros, filtroDoPerfil, funilDoPerfil, salvarPerfil, perfilDaEmpresa, gerarEdicao, gerarEdicoesDoDia, idsDoPerfil, resumoFiltros, motivosDoPerfil } from '../../server/services/jornal-perfis.js';
 import { criarUsuario } from '../../server/lib/auth.js';
 
 const AGORA = '2026-10-12T08:00:00';
@@ -103,4 +103,24 @@ test('jornal de obras (caso real do Guido): cidade sem acento, "o que" soma, fun
   assert.equal(gerarEdicao(db, perfilDaEmpresa(db, emp, id), AGORA).total, 0);
   lic('e', { objeto: 'Pavimentação', mun: 'Serra' });
   assert.equal(gerarEdicao(db, perfilDaEmpresa(db, emp, id), AGORA).total, 1);
+});
+
+test('excluir olha só o objeto; motivos dizem o que puxou cada licitação', () => {
+  const { db, lic } = cenario();
+  const ins = db.prepare('UPDATE licitacoes SET informacao_complementar=?, orgao_nome=? WHERE id=?');
+  const refeicao = lic('r', { objeto: 'Fornecimento de alimentação (refeições almoço e janta)' });
+  ins.run('Não se aplica a obras nem a seguro garantia.', 'Secretaria de Obras', refeicao);
+  const bloco = lic('b', { objeto: 'Insumos para produção de blocos estruturais' });
+  const it = db.prepare('INSERT INTO licitacao_itens (licitacao_id, numero_item, descricao) VALUES (?,?,?)');
+  it.run(bloco, 1, 'Óleo desmoldante para formas');
+  const obra = lic('o', { objeto: 'Contratação de obra civil na escola' });
+  const f = normalizarFiltros({ ufs: ['ES'], produtos: 'alimentação; refeição; óleo' });
+  const ids = (x) => { const { where, params } = filtroDoPerfil(normalizarFiltros(x), { agora: AGORA }); return db.prepare(`SELECT l.id FROM licitacoes l ${where} ORDER BY l.id`).all(...params).map((y) => y.id); };
+  assert.deepEqual(ids(f), [refeicao, bloco]);
+  // "obra" e "seguro" no órgão / informação complementar não tiram a de refeições
+  assert.deepEqual(ids({ ...f, excluir: 'obra, obra civil, seguro, mobiliario, blocos' }), [refeicao]);
+  assert.deepEqual(ids({ ufs: ['ES'], produtos: 'obra', excluir: 'obra civil' }), []);
+  const m = motivosDoPerfil(db, f, [refeicao, bloco, obra]);
+  assert.match(m.get(refeicao).join(), /produto "alimentação" no objeto/);
+  assert.match(m.get(bloco).join(), /produto "óleo" no item "Óleo desmoldante/);
 });

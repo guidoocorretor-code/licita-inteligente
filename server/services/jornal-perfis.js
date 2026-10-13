@@ -84,18 +84,60 @@ export function normalizarFiltros(b = {}) {
  * "O que" (nicho, produtos, itens): basta bater UM deles. Somar campos de "o que" amplia o jornal, não estreita
  * (antes era tudo junto e um jornal de obras com nicho + produtos + itens zerava).
  */
+const exprObjeto = (ws) => (ws.length > 1 ? `NEAR(${ws.map(fts).join(' ')}, 3)` : fts(ws[0]));
+const casa = (db, sql, ...p) => { try { return db.prepare(sql).get(...p); } catch { return null; } };
+
+/**
+ * Por que cada licitação entrou no jornal: o nicho, o produto (no objeto ou no item) ou o item que bateu.
+ * Mostrado na lista para o usuário ver na hora qual palavra puxou uma licitação fora do segmento.
+ */
+export function motivosDoPerfil(db, f, ids) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const lics = db.prepare(`SELECT id, segmento FROM licitacoes WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const produtos = expressoesRamo(f.produtos);
+  const itens = String(f.itens || '').split(/[;\n]+/).map((x) => termos(x)).filter((x) => x.length).slice(0, 30);
+  const noObjeto = 'SELECT 1 FROM licitacoes_fts WHERE licitacoes_fts MATCH ? AND rowid = ?';
+  const noItem = `SELECT i.descricao FROM licitacao_itens i WHERE i.licitacao_id = ?
+    AND i.id IN (SELECT rowid FROM itens_fts WHERE itens_fts MATCH ?) LIMIT 1`;
+  for (const l of lics) {
+    const m = [];
+    if (f.segmentos.includes(l.segmento)) m.push(`nicho ${l.segmento}`);
+    for (const ws of produtos) {
+      if (m.length >= 3) break;
+      if (casa(db, noObjeto, `objeto : (${exprObjeto(ws)})`, l.id)) { m.push(`produto "${ws.join(' ')}" no objeto`); continue; }
+      const it = casa(db, noItem, l.id, `(^${ws.map(fts).join(' AND ')})`);
+      if (it) m.push(`produto "${ws.join(' ')}" no item "${String(it.descricao).slice(0, 70)}"`);
+    }
+    for (const ws of itens) {
+      if (m.length >= 3) break;
+      const it = casa(db, noItem, l.id, `(^${ws.map(fts).join(' AND ')})`);
+      if (it) m.push(`item "${ws.join(' ')}": "${String(it.descricao).slice(0, 70)}"`);
+    }
+    out.set(l.id, m);
+  }
+  return out;
+}
+
 export function filtroDoPerfil(f, { agora, desde = null } = {}) {
   const base = {
     uf: f.ufs, status: f.fases,
     modalidade: f.modalidades.flatMap((m) => MODALIDADES_JORNAL[m].ids),
     sistema: f.sistemas, valor_min: f.valor_min ?? undefined, valor_max: f.valor_max ?? undefined,
     criado_apos: desde || undefined,
-    excluir: f.excluir || undefined, // palavras no objeto que tiram a licitação do jornal
   };
   const { where, params } = montarFiltro(base, agora);
   const w = []; const p = [...params];
   // Cidade: sem acento e sem maiúsculas ("vitoria" acha "Vitória")
   if (f.cidades.length) { w.push(`(${f.cidades.map(() => 'sem_acento(l.municipio) LIKE ?').join(' OR ')})`); p.push(...f.cidades.map((c) => `%${semAcento(c)}%`)); }
+  // Excluir: só no OBJETO (como a tela promete). Antes valia também para órgão, município e informação
+  // complementar, e um texto padrão do órgão ("não se aplica a obras…") tirava licitação de alimentos do jornal.
+  // Separado por ; ou vírgula; expressão de várias palavras ("obra civil") exige as palavras próximas.
+  const excl = expressoesRamo(f.excluir);
+  if (excl.length) {
+    w.push('l.id NOT IN (SELECT rowid FROM licitacoes_fts WHERE licitacoes_fts MATCH ?)');
+    p.push(`objeto : (${excl.map(exprObjeto).join(' OR ')})`);
+  }
   const oque = []; const po = [];
   if (f.segmentos.length) { oque.push(`l.segmento IN (${f.segmentos.map(() => '?').join(',')})`); po.push(...f.segmentos); }
   if (f.produtos) {
