@@ -85,6 +85,9 @@ export async function dashboard(alvo, rota, est) {
 
 // ============================ BUSCA ============================
 const FILTROS_PADRAO = { visao: 'abertas', ordenar: 'encerramento_asc' };
+// Modalidades no filtro da busca (pedido do Guido): só as três em que as empresas participam.
+// Cada uma junta os códigos do PNCP da família: eletrônico, presencial e internacional.
+const MODALIDADES_BUSCA = [['6,7,18,19', 'Pregão'], ['8', 'Dispensa'], ['4,5,16,17', 'Concorrência']];
 
 // Sistema eletrônico de disputa: nome, custo para o fornecedor e link de cadastro (catálogo em server/services/sistemas.js)
 const sistemaInfo = (l, meta) => (l.sistema_eletronico && meta.sistemas ? meta.sistemas[l.sistema_eletronico] : null);
@@ -273,10 +276,16 @@ export async function buscar(alvo, rota, est) {
   const sel = (nome, opcoes, vazioTxt = 'Todos') => (campos[nome] = h('select', { id: `f-${nome}` }, h('option', { value: '' }, vazioTxt),
     opcoes.map(([v, t]) => h('option', { value: v, selected: String(filtros[nome] ?? '') === String(v) }, t))));
   // Várias opções de uma vez: caixa que abre uma lista de caixinhas; o valor vai na URL separado por vírgula
-  const multi = (nome, opcoes, vazioTxt) => {
+  const multi = (nome, opcoes, vazioTxt, rotulosExtra) => {
     const marcados = new Set(String(filtros[nome] ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     const resumo = h('summary', { id: `f-${nome}` });
-    const caixas = opcoes.map(([v, t]) => h('input', { type: 'checkbox', value: String(v), checked: marcados.has(String(v)) }));
+    // Uma opção pode valer vários códigos ("6,7,18,19" = Pregão); fica marcada se todos estiverem no filtro
+    const codigos = (v) => String(v).split(',');
+    const cobertos = new Set(opcoes.filter(([v]) => codigos(v).every((c) => marcados.has(c))).flatMap(([v]) => codigos(v)));
+    // Código vindo de link antigo (ex.: Dashboard › Pregão - Eletrônico ou Inexigibilidade) que nenhuma opção marcada cobre: aparece marcado, para nada ficar escondido
+    const extras = [...marcados].filter((c) => !cobertos.has(c)).map((c) => [c, (rotulosExtra || {})[c] || c]);
+    opcoes = [...opcoes, ...extras];
+    const caixas = opcoes.map(([v, t]) => h('input', { type: 'checkbox', value: String(v), checked: codigos(v).every((c) => marcados.has(c)) }));
     const atualizar = () => {
       const sel = caixas.filter((c) => c.checked);
       resumo.textContent = !sel.length ? vazioTxt : sel.length === 1 ? opcoes.find(([v]) => String(v) === sel[0].value)[1] : `${sel.length} selecionadas`;
@@ -307,7 +316,7 @@ export async function buscar(alvo, rota, est) {
       campo('Município', inp('municipio', { placeholder: 'ex.: Vila Velha ou Grande Vitória', list: 'municipios-atalho' })),
       campo('Órgão (nome ou CNPJ)', inp('orgao')),
       campo('Esfera', sel('esfera', Object.entries(ESF))),
-      campo('Modalidades', multi('modalidade', Object.entries(meta.modalidades), 'Todas')),
+      campo('Modalidades', multi('modalidade', MODALIDADES_BUSCA, 'Todas', meta.modalidades)),
       campo('Tipo de disputa', multi('modo_disputa', [['Aberto', 'Aberto'], ['Aberto-Fechado', 'Aberto e fechado'], ['Fechado-Aberto', 'Fechado e aberto'], ['Dispensa Com Disputa', 'Dispensa com disputa']], 'Todos')),
       campo('Credenciamentos', sel('credenciamento', [['ocultar', 'Esconder'], ['so', 'Só credenciamentos']], 'Mostrar'))),
     // Filtros menos usados ficam na "Busca avançada"; abre sozinha se algum deles estiver em uso, para nada ficar escondido
