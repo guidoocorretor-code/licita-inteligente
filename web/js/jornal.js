@@ -359,6 +359,55 @@ async function cabecalhoPerfil(f, est) {
   ];
 }
 
+// Atalhos de região (cidades com o nome oficial do IBGE). Grande Vitória como o Guido usa no dia a dia;
+// a Região Metropolitana oficial também inclui Viana e Fundão, que ficam a um clique.
+const REGIOES = {
+  ES: [{ nome: 'Grande Vitória', cidades: ['Vila Velha', 'Vitória', 'Cariacica', 'Serra', 'Guarapari'] }],
+};
+const semAcentoJ = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+// Escolha de cidades: lista oficial dos estados marcados, com busca, marcar várias, atalhos de região e "todas".
+function seletorCidades(iniciais) {
+  const marcadas = new Map(iniciais.map((c) => [semAcentoJ(c), c])); // chave sem acento -> nome exibido
+  let porUf = {};
+  const busca = h('input', { type: 'search', placeholder: 'Procurar cidade…', style: { maxWidth: '260px' } });
+  const contador = h('strong', { class: 'pequeno' });
+  const atalhos = h('div', { class: 'linha', style: { flexWrap: 'wrap', gap: '6px' } });
+  const lista = h('div', { class: 'lista-cidades' });
+  const fora = h('div', { class: 'pequeno suave' });
+  const atualizarContador = () => {
+    contador.textContent = marcadas.size ? `${marcadas.size} cidade(s) marcada(s)` : 'Nenhuma marcada = todas as cidades dos estados marcados';
+    const oficiais = new Set(Object.values(porUf).flat().map(semAcentoJ));
+    const extras = [...marcadas.entries()].filter(([k]) => !oficiais.has(k)).map(([, v]) => v);
+    fora.textContent = extras.length ? `Também marcadas (fora dos estados acima ou digitadas antes): ${extras.join(', ')}` : '';
+  };
+  const desenhar = () => {
+    const q = semAcentoJ(busca.value);
+    const ufs = Object.keys(porUf);
+    render(lista, ...(ufs.length ? ufs.map((uf) => {
+      const nomes = porUf[uf].filter((c) => !q || semAcentoJ(c).includes(q));
+      return h('div', { class: 'grupo-cidades' }, ufs.length > 1 ? h('div', { class: 'pequeno', style: { fontWeight: 600, margin: '4px 0' } }, uf) : null,
+        h('div', { class: 'grade-cidades' }, nomes.map((c) => h('label', { class: 'opcao-check' },
+          h('input', { type: 'checkbox', checked: marcadas.has(semAcentoJ(c)), onchange: (e) => { if (e.target.checked) marcadas.set(semAcentoJ(c), c); else marcadas.delete(semAcentoJ(c)); atualizarContador(); } }), c))),
+        nomes.length ? null : h('div', { class: 'pequeno suave' }, 'Nenhuma cidade com esse nome.'));
+    }) : [h('div', { class: 'pequeno suave' }, 'Marque o estado acima para escolher as cidades.')]));
+    atualizarContador();
+  };
+  const marcarVarias = (nomes, sim = true) => { for (const c of nomes) { if (sim) marcadas.set(semAcentoJ(c), c); else marcadas.delete(semAcentoJ(c)); } desenhar(); };
+  busca.addEventListener('input', desenhar);
+  const carregar = async (ufs) => {
+    try { porUf = ufs.length ? (await api(`/jornal/municipios${qs({ uf: ufs.join(',') })}`)).por_uf : {}; } catch { porUf = {}; }
+    render(atalhos,
+      ...ufs.flatMap((uf) => (REGIOES[uf] || []).map((r) => h('button', { class: 'btn pequeno', type: 'button', title: r.cidades.join(', '), onclick: () => marcarVarias(r.cidades) }, `+ ${r.nome}`))),
+      ufs.includes('ES') ? h('button', { class: 'btn pequeno', type: 'button', title: 'Completa a Região Metropolitana oficial', onclick: () => marcarVarias(['Viana', 'Fundão']) }, '+ Viana e Fundão') : null,
+      ufs.length ? h('button', { class: 'btn pequeno', type: 'button', onclick: () => { const q = semAcentoJ(busca.value); marcarVarias(Object.values(porUf).flat().filter((c) => !q || semAcentoJ(c).includes(q))); } }, '☑ Marcar todas da lista') : null,
+      h('button', { class: 'btn pequeno', type: 'button', onclick: () => { marcadas.clear(); desenhar(); } }, 'Limpar'));
+    desenhar();
+  };
+  const el = h('div', { class: 'seletor-cidades' }, h('div', { class: 'linha', style: { flexWrap: 'wrap', gap: '8px' } }, busca, contador), atalhos, lista, fora);
+  return { el, carregar, valores: () => [...marcadas.values()] };
+}
+
 const UFS_BR = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
 
 // p = jornal sendo editado; modelo = jornal copiado ao duplicar (cria um novo com os mesmos filtros)
@@ -370,8 +419,7 @@ function formPerfil(est, ops, p, modelo = null) {
   const campo = (rot, el, ajuda) => h('div', { class: 'campo' }, h('label', {}, rot), el, ajuda ? h('div', { class: 'suave pequeno' }, ajuda) : null);
   const nome = h('input', { value: p?.nome || (modelo ? `${modelo.nome} (cópia)` : ''), placeholder: 'Ex.: INFOPEL · papelaria e informática ES' });
   const cliente = h('select', {}, h('option', { value: '' }, 'Nenhuma (jornal geral)'), est.clientes.map((c) => h('option', { value: c.id, selected: (base ? base.cliente_id : Number(clienteSelecionado()) || null) === c.id }, c.nome_fantasia || c.razao_social)));
-  const listaCid = h('datalist', { id: 'perfil-cidades' });
-  const cidades = h('input', { value: fx.cidades.join('; '), list: 'perfil-cidades', placeholder: 'Ex.: Vila Velha; Serra; Cariacica' });
+  const cidades = seletorCidades(fx.cidades);
   const produtos = h('textarea', { rows: 2, placeholder: 'Ex.: papel A4; toner; material de escritório' }, fx.produtos || '');
   const itens = h('textarea', { rows: 2, placeholder: 'Ex.: notebook; cartucho hp 664' }, fx.itens || '');
   const excluir = h('input', { value: fx.excluir || '', placeholder: 'Ex.: software; mobiliário; seguro' });
@@ -389,18 +437,15 @@ function formPerfil(est, ops, p, modelo = null) {
     const segs = marcados(form, 'seg'); const mods = marcados(form, 'mod');
     dicaObras.hidden = !(segs.some((x) => /obra|engenharia/i.test(x)) && mods.length && !mods.includes('concorrencia'));
   };
-  const carregarCidades = async (ufs) => {
-    try { const r = await api(`/jornal/municipios${qs({ uf: ufs.length === 1 ? ufs[0] : '' })}`); render(listaCid, ...r.municipios.slice(0, 1500).map((m) => h('option', { value: m }))); } catch { /* opcional */ }
-  };
   const form = h('form', { class: 'form-perfil', onsubmit: (e) => e.preventDefault() },
     h('div', { class: 'grade duas' }, campo('Nome do jornal', nome), campo('Para qual empresa', cliente, 'Opcional. Sai com o cabeçalho dela ao enviar.')),
-    campo('Estado(s)', h('div', { class: 'grade-ufs', onchange: () => carregarCidades(marcados(form, 'uf')) }, UFS_BR.map((u) => caixa('uf', u, u, fx.ufs.includes(u))))),
-    campo('Cidade(s)', h('div', {}, cidades, listaCid), 'Separe por ponto e vírgula. Vazio = todas as cidades dos estados marcados.'),
+    campo('Estado(s)', h('div', { class: 'grade-ufs', onchange: () => cidades.carregar(marcados(form, 'uf')) }, UFS_BR.map((u) => caixa('uf', u, u, fx.ufs.includes(u))))),
+    campo('Cidade(s)', cidades.el, 'Lista oficial do IBGE dos estados marcados. Marque quantas quiser; nenhuma = o estado inteiro.'),
     h('div', { class: 'aviso pequeno' }, h('b', {}, 'O que procurar: '), 'nicho, produtos e itens se somam. Basta a licitação bater com UM deles para entrar no jornal.'),
     campo('Nicho', h('div', { class: 'grade-checks', onchange: () => avisoObras() }, est.meta.segmentos.map((sg) => caixa('seg', sg, sg, fx.segmentos.includes(sg)))), 'Segmento estimado pelo objeto. Marque nenhum para não filtrar.'),
     h('div', { class: 'grade duas' },
-      campo('Produto(s) / palavras do objeto', produtos, 'Qualquer um da lista (separe por ;). Busca no objeto e no início da descrição dos itens.'),
-      campo('Itens', itens, 'O item precisa COMEÇAR pelo termo (é onde fica o produto) e ter todas as palavras dele (separe termos por ;).')),
+      campo('Produto(s) / palavras do objeto', produtos, 'Qualquer um da lista (separe por ;). Busca no objeto e nos itens. Plural e masculino/feminino não importam.'),
+      campo('Itens', itens, 'Palavra sozinha precisa abrir a descrição do item; expressão de várias palavras vale em qualquer ponto do item (separe por ;).')),
     campo('Excluir palavras', excluir, 'Licitação com qualquer destas palavras no objeto fica fora do jornal (separe por ;).'),
     campo('Modalidade', h('div', {}, h('div', { class: 'linha', onchange: () => avisoObras() }, Object.entries(ops.modalidades).map(([k, v]) => caixa('mod', k, v, fx.modalidades.includes(k)))), dicaObras), 'Nenhuma marcada = todas.'),
     campo('Valor do edital', h('div', { class: 'linha' }, vmin, vmax), 'Licitação sem valor informado ou sigilosa fica de fora quando há limite de valor.'),
@@ -410,17 +455,17 @@ function formPerfil(est, ops, p, modelo = null) {
       h('div', { class: 'linha' }, radio('qualquer', 'Qualquer data'), radio('ate', 'Até a data'), radio('dia', 'Só no dia')),
       h('div', { class: 'linha' }, encData, h('span', { class: 'suave pequeno' }, 'até às'), encHora)),
     'Ex.: "Só no dia" 20/10 até 10:00 traz as que encerram em 20/10 até as 10h. Hora vazia = o dia inteiro.'),
-    previa, listaCid);
+    previa);
   const corpo = () => ({
     nome: nome.value, cliente_id: cliente.value || null,
     filtros: {
-      ufs: marcados(form, 'uf'), cidades: cidades.value.split(';').map((x) => x.trim()).filter(Boolean), segmentos: marcados(form, 'seg'),
+      ufs: marcados(form, 'uf'), cidades: cidades.valores(), segmentos: marcados(form, 'seg'),
       produtos: produtos.value, itens: itens.value, excluir: excluir.value, modalidades: marcados(form, 'mod'), valor_min: vmin.value, valor_max: vmax.value,
       sistemas: marcados(form, 'sis'), fases: marcados(form, 'fase'),
       encerramento: { modo: form.querySelector('input[name="enc"]:checked')?.value || 'qualquer', data: encData.value, hora: encHora.value },
     },
   });
-  carregarCidades(fx.ufs);
+  cidades.carregar(fx.ufs);
   avisoObras();
   modal(p ? `Editar jornal · ${p.nome}` : modelo ? `Duplicar jornal · ${modelo.nome}` : 'Criar jornal', form, [
     { texto: 'Ver quantas batem', acao: async () => {

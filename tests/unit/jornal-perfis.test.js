@@ -182,3 +182,16 @@ test('carnes: plural e gênero não importam; expressão de várias palavras val
   // Palavra única continua tendo de abrir o item
   assert.deepEqual(ids({ ufs: ['ES'], itens: 'pintura' }), []);
 });
+
+test('cidades: nome oficial é exato (Serra não pega Serra do Salitre); lista do IBGE tem os 78 do ES', async () => {
+  const { MUNICIPIOS_IBGE } = await import('../../server/services/municipios.js');
+  assert.equal(MUNICIPIOS_IBGE.ES.length, 78);
+  for (const c of ['Vila Velha', 'Vitória', 'Cariacica', 'Serra', 'Guarapari', 'Viana', 'Fundão']) assert.ok(MUNICIPIOS_IBGE.ES.includes(c), c);
+  const { db, lic } = cenario();
+  const serra = lic('s', { objeto: 'Papel A4', mun: 'Serra' });
+  lic('x', { objeto: 'Papel A4', uf: 'MG', mun: 'Serra do Salitre' });
+  const gv = lic('g', { objeto: 'Papel A4', mun: 'Guarapari' });
+  const ids = (x) => idsQueBatem(db, normalizarFiltros(x), { agora: AGORA }).ids.sort((a, b) => a - b);
+  assert.deepEqual(ids({ ufs: [], cidades: ['Serra'] }), [serra]);
+  assert.deepEqual(ids({ ufs: ['ES'], cidades: ['serra', 'GUARAPARI'] }), [serra, gv]);
+});
