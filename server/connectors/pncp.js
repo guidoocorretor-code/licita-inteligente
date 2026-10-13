@@ -71,12 +71,18 @@ export const conectorPncp = {
     const maxPaginas = cfg.maxPaginasPorConsulta || 2000;
 
     if (modo === 'abertas') {
-      const dataFinal = yyyymmdd(new Date(agora.getTime() + 90 * 86400000));
+      // O PNCP só devolve as que encerram propostas até "dataFinal": com 90 dias, editais de prazo longo
+      // (registro de preços, credenciamentos, ex.: propostas até 2027) nunca entravam. Agora, 3 anos.
+      const dataFinal = yyyymmdd(new Date(agora.getTime() + 3 * 365 * 86400000));
+      let completa = true;
       for (const uf of ufs) for (const mod of modalidades) {
         for await (const p of paginarContratacoes('proposta', { dataFinal, codigoModalidadeContratacao: mod, uf }, { maxPaginas, fetchImpl })) {
-          if (!p.truncado) yield { ...p, itens: p.registros.map((r) => ({ bruto: r, canonico: normalizarPncp(r) })) };
+          if (p.truncado) { completa = false; continue; }
+          yield { ...p, itens: p.registros.map((r) => ({ bruto: r, canonico: normalizarPncp(r) })) };
         }
       }
+      // Marca a data da varredura completa das abertas (o agendador repete toda semana)
+      if (completa) yield { cursor: { varredura_abertas: yyyymmdd(agora) } };
       return;
     }
 

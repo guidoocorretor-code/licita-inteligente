@@ -58,14 +58,16 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
       .catch((e) => console.error('[itens]', e.message));
     try {
       recalcularStatusTemporais(db);
-      const fontes = db.prepare(`SELECT codigo, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok FROM fontes
+      const fontes = db.prepare(`SELECT codigo, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok, cursor_json FROM fontes
         WHERE habilitada=1 AND frequencia_minutos > 0`).all();
       for (const f of fontes) {
         if (!CONECTORES[f.codigo]) continue;
         const ultima = f.ultima_sincronizacao ? Date.parse(f.ultima_sincronizacao.replace(' ', 'T') + 'Z') : 0;
         if (Date.now() - ultima >= f.frequencia_minutos * 60_000) {
           // Primeira carga: traz todas as contratações com propostas abertas; depois, só o incremental.
-          const modo = f.ultima_sincronizacao_ok ? 'incremental' : 'abertas';
+          // No PNCP, uma vez por semana refaz a varredura das abertas: o incremental só vê o que foi publicado ou
+          // alterado desde o cursor, e um edital antigo ainda aberto que ficou de fora nunca apareceria.
+          const modo = !f.ultima_sincronizacao_ok || (f.codigo === 'pncp' && varreduraVencida(f.cursor_json)) ? 'abertas' : 'incremental';
           const r = await sincronizarFonte(db, f.codigo, { modo });
           console.log(`[agendador] ${f.codigo}: ${r.status ?? ''} ${r.mensagem ?? ''}`);
         }
@@ -75,4 +77,14 @@ export function iniciarAgendador(db, { intervaloMs = 60_000 } = {}) {
   const h = setInterval(tick, intervaloMs);
   setTimeout(tick, 5_000);
   return () => clearInterval(h);
+}
+
+// Varredura semanal das abertas do PNCP: vencida se nunca rodou ou se a última foi há 7 dias ou mais
+export function varreduraVencida(cursorJson, agora = new Date()) {
+  let c = {};
+  try { c = JSON.parse(cursorJson || '{}'); } catch { /* cursor inválido: refaz */ }
+  const v = String(c.varredura_abertas || '');
+  if (!/^\d{8}$/.test(v)) return true;
+  const data = Date.UTC(+v.slice(0, 4), +v.slice(4, 6) - 1, +v.slice(6, 8));
+  return agora.getTime() - data >= 7 * 86400000;
 }
