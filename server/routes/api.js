@@ -40,7 +40,7 @@ import { linkDoFornecedor, revogarLink } from '../services/cotacao-link.js';
 import { propostaDaOportunidade, salvarProposta, mudarStatusProposta, listarPropostas } from '../services/propostas.js';
 import { relatorioMercado, paraLead } from '../services/relatorio-mercado.js';
 import { pdfRelatorio } from '../services/relatorio-mercado-pdf.js';
-import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, excluirEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO } from '../services/jornal-cliente.js';
+import { cartoes, criarEnvio, dadosEnvio, pdfJornal, enviarJornal, listarEnvios, excluirEnvios, sistemaDaLicitacao, MAX_ITENS_ENVIO, dadosAssessoria, salvarDadosAssessoria } from '../services/jornal-cliente.js';
 import { buscarCatalogo, statusCatalogo, sincronizarCatalogo, validarConsulta, consultarPrecos, analisarPrecos } from '../services/precos.js';
 
 export { ETAPAS_PADRAO };
@@ -789,6 +789,12 @@ r.patch('/preferencias', (req, res) => {
   res.json({ ok: true });
 });
 r.get('/email/status', exigirPapel('admin'), (req, res) => res.json(statusEmail()));
+// Nome e e-mail de contato da assessoria (jornal do cliente)
+r.get('/empresa/dados', (req, res) => res.json(dadosAssessoria(db(), req.usuario.empresa_id)));
+r.patch('/empresa/dados', exigirPapel('admin'), (req, res) => {
+  try { const d = salvarDadosAssessoria(db(), req.usuario.empresa_id, req.body || {}); auditar(req, 'empresa_dados', 'empresa', req.usuario.empresa_id, d); res.json(d); }
+  catch (e) { erro(res, e.status || 500, e.status ? e.message : 'Erro ao salvar.'); }
+});
 // Espaço do volume (Railway) para Configurações
 r.get('/sistema/disco', exigirPapel('gestor'), (req, res) => res.json({ disco: usoDoDisco() }));
 r.post('/email/teste', async (req, res) => {

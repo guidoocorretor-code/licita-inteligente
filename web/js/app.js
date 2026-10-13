@@ -73,7 +73,7 @@ export async function recarregarEmpresas() {
 function montarLayout() {
   const app = document.getElementById('app');
   const lateral = h('nav', { class: 'lateral', 'aria-label': 'Menu principal' },
-    h('div', { class: 'marca' }, h('img', { src: '/icons/icon.svg', alt: '' }), estado.meta?.appName || 'Licita Inteligente'),
+    h('div', { class: 'marca' }, h('img', { src: '/icons/icon.svg', alt: '' }), estado.meta?.appName || 'LicitPro'),
     h('div', { class: 'menu' }, MENU.map(([id, rot, fase, sub]) => {
       if (!rot) return h('div', { class: 'secao', role: 'heading', 'aria-level': '2' }, id);
       return h('a', { href: `#/${id}`, 'data-rota': id, class: [fase ? 'futuro' : '', sub ? 'sub' : ''].filter(Boolean).join(' ') }, rot, fase ? h('span', { class: 'fase', title: `Previsto para a Fase ${fase}` }, `Fase ${fase}`) : null);
@@ -129,7 +129,7 @@ function telaLogin(msg) {
       finally { botao.disabled = false; }
     },
   },
-  h('div', { class: 'marca', style: { color: 'var(--cor-primaria)', padding: '0 0 12px' } }, h('img', { src: '/icons/icon.svg', alt: '' }), 'Licita Inteligente'),
+  h('div', { class: 'marca', style: { color: 'var(--cor-primaria)', padding: '0 0 12px' } }, h('img', { src: '/icons/icon.svg', alt: '' }), 'LicitPro'),
   h('p', { class: 'suave' }, 'Inteligência e gestão de licitações públicas.'),
   erro,
   h('div', { class: 'campo' }, h('label', { for: 'email' }, 'E-mail'), email),

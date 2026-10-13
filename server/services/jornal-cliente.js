@@ -54,6 +54,9 @@ export function migrarJornalEnvios(conn) {
   // Jornal salvo de onde saiu a seleção: o PDF lista os itens que batem com os produtos/itens dele
   const cols = conn.prepare('PRAGMA table_info(jornal_envios)').all().map((c) => c.name);
   if (!cols.includes('perfil_id')) conn.exec('ALTER TABLE jornal_envios ADD COLUMN perfil_id INTEGER');
+  // E-mail de contato da assessoria (rodapé do jornal); vazio = e-mail de quem montou o jornal
+  const colsEmp = conn.prepare('PRAGMA table_info(empresas)').all().map((c) => c.name);
+  if (!colsEmp.includes('email_contato')) conn.exec('ALTER TABLE empresas ADD COLUMN email_contato TEXT');
 }
 
 /** Participação no sistema da disputa: gratuita / paga / não verificada (só marcamos com fonte, ver sistemas.js). */
@@ -159,13 +162,13 @@ export function criarEnvio(db, { empresaId, clienteId = null, usuarioId, ids, pe
 export function dadosEnvio(db, envioId) {
   const e = db.prepare('SELECT * FROM jornal_envios WHERE id=?').get(envioId);
   if (!e) return null;
-  const emp = db.prepare('SELECT nome, cnpj FROM empresas WHERE id=?').get(e.empresa_id);
+  const emp = db.prepare('SELECT nome, cnpj, email_contato FROM empresas WHERE id=?').get(e.empresa_id);
   const u = e.criado_por ? db.prepare('SELECT nome, email FROM usuarios WHERE id=?').get(e.criado_por) : null;
   const cli = e.cliente_id ? db.prepare(`SELECT razao_social, nome_fantasia, cnpj, municipio, uf, endereco, cep, email, telefone, resp_nome, resp_cargo, resp_email
     FROM clientes WHERE id=?`).get(e.cliente_id) : null;
   return {
     envio: e, token: tokenDe(e.nonce),
-    assessoria: { nome: emp?.nome || null, cnpj: emp?.cnpj || null, responsavel: u?.nome || null, email: u?.email || null },
+    assessoria: { nome: emp?.nome || null, cnpj: emp?.cnpj || null, responsavel: u?.nome || null, email: emp?.email_contato || u?.email || null },
     cliente: cli, itens: comItens(db, ordenarPorCidade(ordenarPorPrazo(cartoes(db, JSON.parse(e.licitacoes))), cidadesDoPerfil(db, e.perfil_id)), e.perfil_id),
   };
 }
@@ -310,6 +313,20 @@ export async function avisarInteresse(db, envioId, notificacoes = [], { urlBase 
   return { enviado: true, para: u.email };
 }
 
+/** Nome e e-mail de contato da assessoria (aparecem no jornal do cliente: capa, rodapé e e-mail). */
+export function dadosAssessoria(db, empresaId) {
+  const e = db.prepare('SELECT nome, email_contato FROM empresas WHERE id=?').get(empresaId);
+  return { nome: e?.nome || '', email_contato: e?.email_contato || '' };
+}
+export function salvarDadosAssessoria(db, empresaId, b = {}) {
+  const nome = String(b.nome ?? '').trim().slice(0, 120);
+  if (nome.length < 2) throw erro(400, 'Informe o nome da assessoria (aparece no jornal).');
+  const email = String(b.email_contato ?? '').trim().slice(0, 160);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw erro(400, 'E-mail de contato inválido.');
+  db.prepare('UPDATE empresas SET nome=?, email_contato=? WHERE id=?').run(nome, email || null, empresaId);
+  return dadosAssessoria(db, empresaId);
+}
+
 /** Envios recentes (para a tela mostrar quem respondeu). */
 export function listarEnvios(db, empresaId, clienteId = null) {
   return db.prepare(`SELECT e.id, e.cliente_id, COALESCE(c.nome_fantasia, c.razao_social) cliente, e.criado_em, e.email_para, e.email_status, e.email_erro,
@@ -331,7 +348,8 @@ const AZUL = [0.06, 0.24, 0.43]; const CINZA = [0.38, 0.4, 0.44];
 
 /** PDF do jornal: cabeçalho com os dados da empresa; cada licitação leva link para o resumo e para o PNCP. */
 export function pdfJornal(d, { urlBase = '' } = {}) {
-  const pdf = criarPdf();
+  // Margem estreita (24 pt ≈ 8,5 mm): o empresário imprime gastando menos papel
+  const pdf = criarPdf({ margem: 24 });
   const pagina = urlBase ? `${urlBase.replace(/\/$/, '')}/j/${d.token}` : null;
   const c = d.cliente; const a = d.assessoria;
   const nomeCli = c ? (c.nome_fantasia || c.razao_social) : null;
@@ -394,7 +412,8 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
   const PALAVRA_CAPAG = { A: 'boa', B: 'razoável', C: 'fraca', D: 'muito fraca' };
   const textoCapag = (l) => (l.esfera === 'F' ? 'Federal: CAPAG não se aplica' : l.capag ? `CAPAG ${l.capag} (${PALAVRA_CAPAG[l.capag[0]] || 'ver nota'})` : 'Sem nota CAPAG publicada');
   // Tabela de itens igual à do PNCP: Número, Descrição, Quantidade, Valor unitário estimado, Valor total estimado
-  const COLS_ITENS = [['Número', 34, ''], ['Descrição', 203, ''], ['Quantidade', 62, 'r'], ['Valor unitário estimado', 76, 'r'], ['Valor total estimado', 84, 'r']];
+  // A descrição fica com a sobra da largura da página
+  const COLS_ITENS = [['Número', 34, ''], ['Descrição', pdf.largura - 36 - 34 - 62 - 76 - 84, ''], ['Quantidade', 62, 'r'], ['Valor unitário estimado', 76, 'r'], ['Valor total estimado', 84, 'r']];
   const celulas = (i) => [String(i.numero_item ?? ''), i.descricao || '(sem descrição)', i.quantidade != null ? QTD.format(i.quantidade) : 'Não informado',
     i.valor_unitario_estimado != null ? BRL.format(i.valor_unitario_estimado) : 'Não informado', i.valor_total_estimado != null ? BRL.format(i.valor_total_estimado) : 'Não informado'];
   const MAX_LINHAS_DESC = 2; // enxuto: detalhes no "Ver resumo do edital" ou no PNCP
@@ -407,7 +426,7 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
     const cidade = [l.municipio, l.uf].filter(Boolean).join('/') || 'Local não informado';
     const f = l.faltam; const urg = f?.urgencia || 'sem'; const cor = COR_URG[urg];
     const link = pagina ? `${pagina}#lic-${l.id}` : null;
-    const L = 495; const wDir = 120; const wEsq = L - wDir - 34;
+    const L = pdf.largura; const wDir = 120; const wEsq = L - wDir - 34;
     const tags = [l.sistema.custo === 'gratuito' ? ['Participação gratuita', [0.07, 0.47, 0.36], [0.93, 0.97, 0.95]]
       : l.sistema.custo === 'pago' ? ['Sistema cobra taxa', [0.6, 0.36, 0], [0.99, 0.96, 0.92]] : ['Taxa do sistema: verificar', CINZA, [0.96, 0.97, 0.98]],
     l.me_epp_exclusivo ? ['Exclusiva ME/EPP', [0.36, 0.24, 0.66], [0.96, 0.94, 0.99]] : null].filter(Boolean);
@@ -417,7 +436,7 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
     const maisItens = c.tipo === 'filtro' && c.total > c.itens.length;
     const altCaixaItens = 6 + 9 + altItens + (maisItens ? 9 : 0) + 3;
     const topo = Math.max(20 + altObj + 12, 20 + 50);
-    const alt = topo + 4 + 30 + 5 + altCaixaItens + 5 + 13 + 4 + 16 + 8;
+    const alt = topo + 4 + 30 + 5 + altCaixaItens + 5 + 16 + 8;
     if (cidade !== cidadeAtual) {
       cidadeAtual = cidade;
       // Título da cidade nunca fica sozinho no pé da página: vai junto com o primeiro card
@@ -477,14 +496,16 @@ export function pdfJornal(d, { urlBase = '' } = {}) {
       }
       if (maisItens) t.txt(`e mais ${c.total - c.itens.length} item(ns) com as palavras do jornal: veja no resumo do edital.`, x + 18, iy, { tam: 6.5, cor: CINZA, maxW: t.largura - 36, max: 1 });
       dy += altCaixaItens + 5;
-      let tx = x + 12;
-      for (const [rot, ct, fundo] of tags) {
-        const w = t.larguraDe(rot, 6.8, true) + 10;
-        t.ret(tx, dy, w, 12, { cor: fundo, borda: ct, raio: 6, espessura: 0.5 });
-        t.txt(rot, tx, dy + 2.8, { tam: 6.8, negrito: true, cor: ct, maxW: w, alinhar: 'c', max: 1 });
+      const ya = dy;
+      // Etiquetas (Participação gratuita, ME/EPP) no canto direito, na linha dos botões
+      const larg = tags.map(([rot]) => t.larguraDe(rot, 6.8, true) + 10);
+      let tx = x + t.largura - 12 - larg.reduce((s2, w) => s2 + w + 5, 0) + 5;
+      tags.forEach(([rot, ct, fundo], k) => {
+        const w = larg[k];
+        t.ret(tx, ya + 2, w, 12, { cor: fundo, borda: ct, raio: 6, espessura: 0.5 });
+        t.txt(rot, tx, ya + 4.8, { tam: 6.8, negrito: true, cor: ct, maxW: w, alinhar: 'c', max: 1 });
         tx += w + 5;
-      }
-      const ya = dy + 13 + 4;
+      });
       if (link) {
         t.ret(x + 12, ya, 96, 16, { cor: AZUL, raio: 8 });
         t.txt('Tenho interesse', x + 12, ya + 4, { tam: 8, negrito: true, cor: BRANCO, maxW: 96, alinhar: 'c' });

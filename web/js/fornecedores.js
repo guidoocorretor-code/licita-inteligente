@@ -571,7 +571,7 @@ ${comparativo ? `<h2>Comparativo de cotações por item</h2>${comparativo}` : ''
 ${fornecedores ? `<h2>Condições dos fornecedores cotados</h2><div class="fornecedores">${fornecedores}</div>` : ''}
 ${aguardando.length ? `<h2>Aguardando retorno do fornecedor</h2><ul>${aguardando.map((p) => `<li><b>${esc(p.fornecedor_nome)}</b> · itens ${esc(p.itens.join(', '))} · pedido por ${esc(CANAIS[p.canal] || p.canal)} em ${esc(dataUtc(p.enviado_em))}</li>`).join('')}</ul>` : ''}
 
-<div class="rodape">Valores digitados pela equipe a partir das respostas dos fornecedores; confira antes de usar na proposta. "Não informado" = o fornecedor ou o edital não trouxe o dado. Licita Inteligente.</div>
+<div class="rodape">Valores digitados pela equipe a partir das respostas dos fornecedores; confira antes de usar na proposta. "Não informado" = o fornecedor ou o edital não trouxe o dado. LicitPro.</div>
 </body></html>`;
   janela.document.open(); janela.document.write(html); janela.document.close();
   // A política de segurança do site bloqueia script dentro da página impressa: o botão e a impressão são ligados daqui

@@ -24,7 +24,7 @@ if (!jwtSecret) {
 export const config = {
   raiz,
   producao,
-  appName: process.env.APP_NAME || 'Licita Inteligente',
+  appName: process.env.APP_NAME || 'LicitPro',
   port: Number(process.env.PORT || 3000),
   dbPath: process.env.DB_PATH || path.join(raiz, 'storage', 'licita.db'),
   storageDir: process.env.STORAGE_DIR || path.join(raiz, 'storage'),

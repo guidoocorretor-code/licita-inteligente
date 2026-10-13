@@ -1242,6 +1242,18 @@ export async function configuracoes(alvo, _r, est) {
         finally { b.disabled = false; b.textContent = 'Enviar e-mail de teste'; }
       } }, 'Enviar e-mail de teste'))));
   if (ehAdmin(est)) {
+    // Nome e e-mail que aparecem no jornal do cliente (capa, rodapé e e-mail)
+    const da = await api('/empresa/dados');
+    const nomeAss = h('input', { type: 'text', value: da.nome, maxlength: 120 });
+    const emailAss = h('input', { type: 'email', value: da.email_contato, placeholder: est.usuario.email });
+    blocos.push(h('div', { class: 'cartao', style: { marginTop: '14px' } }, h('h2', {}, 'Dados da assessoria no jornal'),
+      h('p', { class: 'suave pequeno' }, 'Aparecem na capa e no rodapé do jornal de licitações (PDF, impressão e e-mail) que vai para o empresário.'),
+      h('div', { class: 'campo' }, h('label', {}, 'Nome da assessoria'), nomeAss),
+      h('div', { class: 'campo' }, h('label', {}, 'E-mail de contato (vazio = e-mail de quem montou o jornal)'), emailAss),
+      h('button', { class: 'btn primario', onclick: async () => {
+        try { await api('/empresa/dados', { metodo: 'PATCH', corpo: { nome: nomeAss.value, email_contato: emailAss.value } }); toast('Dados da assessoria salvos.'); }
+        catch (e) { toast(e.message); }
+      } }, 'Salvar')));
     const [us, aud] = await Promise.all([api('/usuarios'), api('/auditoria')]);
     const nome = h('input', { type: 'text' }); const email = h('input', { type: 'email' }); const senha = h('input', { type: 'password', autocomplete: 'new-password' });
     const papel = h('select', {}, ['leitor', 'analista', 'gestor', 'admin'].map((p) => h('option', { value: p }, p)));

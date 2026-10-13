@@ -70,9 +70,9 @@ const paraUtc = (local) => new Date(Date.parse(`${local.slice(0, 19)}Z`) + 3 * 3
 const soData = (d) => d.slice(0, 10).replace(/-/g, '');
 const diaSeguinte = (d) => new Date(Date.parse(`${d.slice(0, 10)}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
 
-export function gerarIcs(eventos, { nome = 'Licita Inteligente', urlBase = '', agora = new Date() } = {}) {
+export function gerarIcs(eventos, { nome = 'LicitPro', urlBase = '', agora = new Date() } = {}) {
   const carimbo = agora.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const linhas = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Licita Inteligente//Prazos//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+  const linhas = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//LicitPro//Prazos//PT-BR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     `X-WR-CALNAME:${escapar(nome)}`, 'X-WR-TIMEZONE:America/Sao_Paulo', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H'];
   for (const e of eventos) {
     const local = [e.municipio, e.uf].filter(Boolean).join('/');

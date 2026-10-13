@@ -84,7 +84,7 @@ export function _reiniciarEmail(t = null) { transporte = t; estado.ultimoEnvio =
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function montarEmail(usuario, notificacoes, { urlBase = '', appName = 'Licita Inteligente' } = {}) {
+export function montarEmail(usuario, notificacoes, { urlBase = '', appName = 'LicitPro' } = {}) {
   const max = 30;
   const lista = notificacoes.slice(0, max);
   const resto = notificacoes.length - lista.length;
@@ -134,7 +134,7 @@ export async function enviarEmailTeste(usuario) {
   const t = obterTransporte();
   if (!t) throw new Error('E-mail não configurado: defina BREVO_API_KEY e EMAIL_REMETENTE (ou SMTP_URL) nas variáveis do servidor.');
   try {
-    await t.sendMail({ from: remetente(), to: usuario.email, subject: '[Licita Inteligente] E-mail de teste',
+    await t.sendMail({ from: remetente(), to: usuario.email, subject: '[LicitPro] E-mail de teste',
       text: `Olá, ${usuario.nome}. Se você recebeu esta mensagem, os alertas por e-mail estão funcionando.` });
     estado.ultimoEnvio = new Date().toISOString(); estado.ultimoErro = null;
   } catch (e) {
