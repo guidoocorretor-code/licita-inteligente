@@ -184,34 +184,21 @@ export async function jornal(alvo, rota, est) {
   render(lista, ...r.dados.map((e) => {
     const cx = h('input', { type: 'checkbox', class: 'marca-jornal', 'aria-label': 'Incluir no jornal', onchange: () => { if (cx.checked) sel.add(e.licitacao_id); else sel.delete(e.licitacao_id); atualizar(); } });
     cx.dataset.id = e.licitacao_id; caixas.push(cx);
-    if (f.perfil) {
-      // Mesmo cartão de "Buscar licitações", com a marcação para o jornal em cima e o "Entrou por" antes do rodapé
-      const motivo = h('div', { class: 'motivo-jornal motivo-cartao pequeno' },
+    // Mesmo cartão de "Buscar licitações", com a marcação para o jornal em cima e, antes do rodapé, o "Entrou por"
+    // (jornal salvo) ou o que mudou (jornal geral)
+    const extra = f.perfil
+      ? h('div', { class: 'motivo-jornal motivo-cartao pequeno' },
         h('b', {}, 'Entrou por: '), e.motivos?.length ? e.motivos.join(' · ') : 'filtros de local, modalidade e valor',
         h('span', { class: 'suave' }, ' · Itens e edital: '),
-        e.detalhes_sincronizados_em ? `${e.qtd_itens} item(ns), ${e.qtd_documentos} arquivo(s)` : h('span', { title: 'O sistema baixa do PNCP aos poucos; ao abrir a licitação ele busca na hora' }, 'ainda não baixados do PNCP'));
-      return h('div', { class: 'jornal-cartao' },
-        h('label', { class: 'marca-cartao pequeno' }, cx, ' Incluir no jornal',
-          h('span', { class: 'etiqueta azul' }, TIPOS_EVENTO[e.tipo] || e.tipo),
-          h('span', { class: 'suave', title: 'Quando entrou no sistema' }, `Entrou no sistema em ${dataUtc(e.detectado_em)}`)),
-        linhaLicitacao(e, est, { aoKanban: est.usuario.papel !== 'leitor' ? (x) => enviarAoKanban(x, est) : null, rotuloItens: 'Itens com as palavras do jornal', extra: motivo }));
-    }
-    const s = e.sistema;
-    return h('div', { class: 'evento evento-jornal' },
-      h('div', { class: 'quando' }, cx, h('div', {}, f.perfil ? h('span', { title: 'Quando entrou no sistema' }, dataUtc(e.detectado_em)) : dataUtc(e.detectado_em))),
-      h('div', {}, h('span', { class: 'etiqueta azul' }, TIPOS_EVENTO[e.tipo] || e.tipo), ' ',
-        h('a', { href: `#/licitacao/${e.licitacao_id}` }, (e.objeto || '').slice(0, 180)),
-        h('div', { class: 'suave pequeno' }, `${e.descricao} · ${e.orgao_nome || ''} · ${[e.municipio, e.uf].filter(Boolean).join('/')}`),
-        h('div', { class: 'dados-jornal' },
-          h('span', {}, h('span', { class: 'rot' }, 'Valor do edital '), h('strong', {}, valorTexto(e))),
-          h('span', {}, h('span', { class: 'rot' }, 'Propostas até '), h('strong', {}, dataBr(e.data_encerramento_proposta) || 'Não informado')),
-          h('span', {}, h('span', { class: 'rot' }, 'Sistema '), h('strong', {}, s.nome)),
-          h('span', { class: `etiqueta participacao-${s.custo}`, title: s.resumo }, `Participação: ${s.participacao}`)),
-        f.perfil ? h('div', { class: 'motivo-jornal pequeno' },
-          h('span', { class: 'suave' }, 'Entrou por: '), e.motivos?.length ? e.motivos.join(' · ') : 'filtros de local, modalidade e valor',
-          h('span', { class: 'suave' }, ' · Itens e edital: '),
-          e.detalhes_sincronizados_em ? `${e.qtd_itens} item(ns), ${e.qtd_documentos} arquivo(s)` : h('span', { title: 'O sistema baixa do PNCP aos poucos; ao abrir a licitação ele busca na hora' }, 'ainda não baixados do PNCP')) : null,
-        e.valor_anterior != null ? h('div', { class: 'suave pequeno' }, `De: ${e.valor_anterior} → Para: ${e.valor_novo}`) : null));
+        e.detalhes_sincronizados_em ? `${e.qtd_itens} item(ns), ${e.qtd_documentos} arquivo(s)` : h('span', { title: 'O sistema baixa do PNCP aos poucos; ao abrir a licitação ele busca na hora' }, 'ainda não baixados do PNCP'))
+      : h('div', { class: 'motivo-jornal motivo-cartao pequeno' },
+        h('b', {}, `${TIPOS_EVENTO[e.tipo] || e.tipo}: `), e.descricao || 'sem descrição',
+        e.valor_anterior != null && !String(e.descricao || '').includes(String(e.valor_novo)) ? h('span', {}, ` · De: ${e.valor_anterior} → Para: ${e.valor_novo}`) : null);
+    return h('div', { class: 'jornal-cartao' },
+      h('label', { class: 'marca-cartao pequeno' }, cx, ' Incluir no jornal',
+        h('span', { class: 'etiqueta azul' }, TIPOS_EVENTO[e.tipo] || e.tipo),
+        h('span', { class: 'suave', title: f.perfil ? 'Quando entrou no sistema' : 'Quando o sistema registrou o evento' }, `${f.perfil ? 'Entrou no sistema' : 'Registrado'} em ${dataUtc(e.detectado_em)}`)),
+      linhaLicitacao(e, est, { aoKanban: est.usuario.papel !== 'leitor' ? (x) => enviarAoKanban(x, est) : null, rotuloItens: 'Itens com as palavras do jornal', extra }));
   }),
   paginacao(r.pagina, r.paginas, ir));
   atualizar();
