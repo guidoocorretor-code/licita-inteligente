@@ -135,7 +135,20 @@ export async function sincronizarFonte(db, codigo, opts = {}) {
   return { execucaoId: execId, status, ...cont, mensagem: msg };
 }
 
+/**
+ * Falhas que já se resolveram sozinhas: os itens da licitação foram baixados depois (pelo download contínuo
+ * ou por outra sincronização), ou a licitação que falhou ao gravar já está na base. Saem da contagem de pendências.
+ */
+export function baixarFalhasJaResolvidas(db) {
+  const a = db.prepare(`UPDATE sync_falhas SET resolvida=1 WHERE resolvida=0 AND etapa='detalhes' AND EXISTS (
+    SELECT 1 FROM licitacoes l WHERE l.id = json_extract(sync_falhas.payload_json, '$.licitacao_id') AND l.detalhes_sincronizados_em IS NOT NULL)`).run().changes;
+  const b = db.prepare(`UPDATE sync_falhas SET resolvida=1 WHERE resolvida=0 AND etapa='persistencia' AND id_externo IS NOT NULL AND EXISTS (
+    SELECT 1 FROM licitacoes l WHERE l.numero_controle_pncp = sync_falhas.id_externo)`).run().changes;
+  return a + b;
+}
+
 export async function reprocessarFalhas(db, codigo, opts = {}) {
+  baixarFalhasJaResolvidas(db);
   const fonte = carregarFonte(db, codigo);
   const conector = CONECTORES[codigo];
   const falhas = db.prepare('SELECT * FROM sync_falhas WHERE fonte_id=? AND resolvida=0 ORDER BY id LIMIT 500').all(fonte.id);

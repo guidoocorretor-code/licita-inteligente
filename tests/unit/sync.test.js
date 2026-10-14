@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoMemoria, fixture, clonar, fetchFalso } from '../helpers.js';
-import { sincronizarFonte, reprocessarFalhas, testarFonte } from '../../server/services/sync.js';
+import { sincronizarFonte, reprocessarFalhas, testarFonte, sincronizarDetalhesDe, baixarFalhasJaResolvidas } from '../../server/services/sync.js';
 import { _reiniciarLimitador, getJson } from '../../server/lib/http.js';
 
 process.env.HTTP_MIN_INTERVAL_MS = '0';
@@ -73,6 +73,23 @@ test('falhas em detalhes ficam registradas e podem ser reprocessadas', async () 
   const rp = await reprocessarFalhas(db, 'pncp', { fetchImpl: simuladorPncp() });
   assert.equal(rp.reprocessadas, 3);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM sync_falhas WHERE resolvida=0').get().n, 0);
+});
+
+test('falha de itens some da contagem quando os itens chegam depois por outro caminho', async () => {
+  const db = bancoMemoria();
+  db.prepare("UPDATE fontes SET config_json=? WHERE codigo='pncp'").run(JSON.stringify({ modalidades: [6], sincronizarDetalhes: true }));
+  await sincronizarFonte(db, 'pncp', { fetchImpl: simuladorPncp({ falharDetalhe: true }), limiteDetalhes: 3 });
+  const pend = () => db.prepare('SELECT COUNT(*) n FROM sync_falhas WHERE resolvida=0').get().n;
+  assert.equal(pend(), 3);
+  // Download contínuo/manual traz os itens de uma delas: a falha correspondente deixa de ser pendência
+  const id = JSON.parse(db.prepare('SELECT payload_json FROM sync_falhas LIMIT 1').get().payload_json).licitacao_id;
+  await sincronizarDetalhesDe(db, id, { fetchImpl: simuladorPncp() });
+  assert.equal(pend(), 2);
+  // Falhas antigas (antes desta correção) cujos itens já estão na base são baixadas de uma vez
+  const outro = JSON.parse(db.prepare('SELECT payload_json FROM sync_falhas WHERE resolvida=0 LIMIT 1').get().payload_json).licitacao_id;
+  db.prepare("UPDATE licitacoes SET detalhes_sincronizados_em=datetime('now') WHERE id=?").run(outro);
+  assert.equal(baixarFalhasJaResolvidas(db), 1);
+  assert.equal(pend(), 1);
 });
 
 test('cliente HTTP: repete em 5xx/429 com espera e não repete em 4xx', async () => {

@@ -1277,7 +1277,12 @@ export async function fontes(alvo, _r, est) {
           h('td', {}, h('span', { class: `etiqueta ${ci}` }, ri)),
           h('td', {}, h('span', { class: `etiqueta ${cc}` }, rc)),
           h('td', {}, f.ultima_sincronizacao ? dataUtc(f.ultima_sincronizacao) : '—', f.ultima_sincronizacao_ok ? h('div', { class: 'suave pequeno' }, `ok: ${dataUtc(f.ultima_sincronizacao_ok)}`) : null),
-          h('td', {}, numero(f.registros_importados)),
+          h('td', {}, numero(f.registros_importados),
+            f.itens_abertas ? h('div', { class: 'suave pequeno', style: { marginTop: '4px', whiteSpace: 'nowrap' }, title: 'Licitações com propostas abertas cujos itens já foram baixados do PNCP. A busca só acha um produto citado apenas nos itens depois deste download.' },
+              `Itens das abertas: ${numero(f.itens_abertas.baixadas)} de ${numero(f.itens_abertas.total)}`,
+              f.itens_abertas.total ? ` (${Math.floor((f.itens_abertas.baixadas / f.itens_abertas.total) * 100)}%)` : '') : null,
+            f.falhas_pendentes ? h('div', { class: 'suave pequeno', style: { marginTop: '4px' } },
+              `Falhas: ${Object.entries(f.falhas_por_etapa || {}).map(([k, n]) => `${numero(n)} ${{ detalhes: 'de itens', persistencia: 'ao gravar' }[k] || k}`).join(', ')}`) : null),
           h('td', {}, f.frequencia_minutos ? `${f.frequencia_minutos} min` : '—'),
           h('td', {}, f.requer_credenciais ? 'Sim' : 'Não'));
 
