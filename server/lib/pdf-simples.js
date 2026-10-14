@@ -127,21 +127,20 @@ export function criarPdf({ margem = 50 } = {}) {
      * (expressão regular com /g) saem em Helvetica-Bold, o resto em Helvetica.
      */
     textoDestacado(t, destaque, { tam = 10, x = M, maxW = W - 2 * M - (x - M), espaco = 1.35, depois = 2, marcador = null } = {}) {
-      // Cada palavra vira uma lista de trechos [texto, negrito]
-      const partes = (palavra) => {
-        const out = []; let i = 0;
-        for (const m of palavra.matchAll(destaque)) {
-          if (m.index > i) out.push([palavra.slice(i, m.index), false]);
-          out.push([m[0], true]); i = m.index + m[0].length;
-        }
-        if (i < palavra.length) out.push([palavra.slice(i), false]);
-        return out.map(([s, n]) => ({ s, n, w: larguraExata(s, tam, n) }));
-      };
       const esp = largura(' ', tam, false);
       for (const par of limpar(t).split('\n')) {
+        // Marca, letra a letra, o que fica em negrito (o destaque pode ter várias palavras, ex.: um nome)
+        const neg = new Uint8Array(par.length);
+        for (const m of par.matchAll(destaque)) neg.fill(1, m.index, m.index + m[0].length);
         const linhas = []; let atual = []; let wa = 0;
-        for (const palavra of par.split(/ +/).filter(Boolean)) {
-          const ps = partes(palavra); const wp = ps.reduce((a, p) => a + p.w, 0);
+        for (const m of par.matchAll(/\S+/g)) {
+          const ps = [];
+          for (let k = 0; k < m[0].length; k++) {
+            const n = !!neg[m.index + k];
+            if (ps.length && ps.at(-1).n === n) ps.at(-1).s += m[0][k]; else ps.push({ s: m[0][k], n });
+          }
+          ps.forEach((p) => { p.w = larguraExata(p.s, tam, p.n); });
+          const wp = ps.reduce((a, p) => a + p.w, 0);
           if (atual.length && wa + esp + wp > maxW) { linhas.push(atual); atual = []; wa = 0; }
           wa += (atual.length ? esp : 0) + wp; atual.push(ps);
         }

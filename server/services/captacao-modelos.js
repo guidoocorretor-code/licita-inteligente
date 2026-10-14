@@ -70,10 +70,25 @@ const CAMPOS_SERVICO = [
     ajuda: 'Ex. do seu modelo: registro de preços pago à medida que o cliente executa e recebe.' },
   { id: 'incluir_banco', rotulo: 'Incluir os dados bancários da Minha Empresa', tipo: 'bool', padrao: false, copiar: false },
 ];
+// Atraso, suspensão e encerramento: valem para a proposta e para o contrato
+const CAMPOS_CONDICOES = [
+  { id: 'multa_atraso_pct', rotulo: 'Multa por atraso de pagamento (%)', tipo: 'pct', padrao: 2,
+    ajuda: '2% é o usual. Entre empresas a lei não fixa teto, mas o juiz pode reduzir multa excessiva (Código Civil, art. 413).' },
+  { id: 'juros_mes_pct', rotulo: 'Juros por atraso (% ao mês)', tipo: 'pct', padrao: 1 },
+  { id: 'suspensao_dias', rotulo: 'Suspender os serviços após quantos dias de atraso (opcional)', tipo: 'numero',
+    ajuda: 'Se preencher, o documento diz que os serviços podem ser suspensos, com aviso, até o pagamento.' },
+  { id: 'aviso_previo_dias', rotulo: 'Aviso prévio para encerrar (dias)', tipo: 'numero', padrao: 30, obrig: true },
+  { id: 'revisao_meses', rotulo: 'Revisão com saída sem multa ao fim de (meses)', tipo: 'texto', padrao: '3 e 6',
+    ajuda: 'Do seu modelo de proposta: revisão ao fim de 3 e 6 meses, com saída sem multa só nesses momentos. Deixe vazio para não oferecer.' },
+  { id: 'multa_rescisoria_pct', rotulo: 'Multa por encerrar antes do prazo mínimo (% das mensalidades que faltam)', tipo: 'pct',
+    ajuda: 'Opcional. Ex.: 50% das mensalidades que faltariam até o fim do prazo mínimo. Proporcional é mais difícil de ser reduzida na Justiça.' },
+];
+
 export const CAMPOS = {
   proposta: [
     ...CAMPOS_COMUNS, ...CAMPOS_SERVICO,
     { id: 'contratacao_minima_meses', rotulo: 'Contratação mínima (meses)', tipo: 'numero', copiar: false },
+    ...CAMPOS_CONDICOES,
     { id: 'validade_dias', rotulo: 'Validade da proposta (dias)', tipo: 'numero', padrao: 15, obrig: true },
     { id: 'observacoes', rotulo: 'Observações', tipo: 'area', copiar: false },
   ],
@@ -82,9 +97,7 @@ export const CAMPOS = {
     { id: 'vigencia_meses', rotulo: 'Vigência (meses)', tipo: 'numero', obrig: true, copiar: false,
       ajuda: 'Seu modelo de contrato fala em 6 meses; a proposta fala em contratação mínima de 12.' },
     { id: 'renovacao', rotulo: 'Renovação', tipo: 'sel', opcoes: Object.entries(RENOVACAO), padrao: 'aditivo', obrig: true },
-    { id: 'aviso_previo_dias', rotulo: 'Aviso prévio para encerrar (dias)', tipo: 'numero', padrao: 30, obrig: true },
-    { id: 'multa_atraso_pct', rotulo: 'Multa por atraso de pagamento (%)', tipo: 'pct' },
-    { id: 'juros_mes_pct', rotulo: 'Juros por atraso (% ao mês)', tipo: 'pct', padrao: 1 },
+    ...CAMPOS_CONDICOES,
     { id: 'foro', rotulo: 'Foro (cidade/UF)', tipo: 'texto', obrig: true },
     { id: 'clausulas_adicionais', rotulo: 'Cláusulas adicionais (opcional)', tipo: 'area', copiar: false },
     { id: 'testemunha1_nome', rotulo: 'Testemunha 1: nome', tipo: 'texto', copiar: false },
@@ -238,6 +251,23 @@ function remuneracao(d, { contrato = false } = {}) {
   if (contrato && mensal != null) l.push('A mensalidade é paga contra a emissão da nota fiscal, por depósito ou transferência na conta indicada pela CONTRATADA.');
   return l;
 }
+// Cláusulas de atraso e encerramento (mesmo conteúdo na proposta e no contrato; muda só quem é quem)
+function condicoes(d, { cliente, prazoMinimo }) {
+  const atraso = [num(d.multa_atraso_pct) != null ? `multa de ${fmtPct(d.multa_atraso_pct)}` : '', num(d.juros_mes_pct) != null ? `juros de ${fmtPct(d.juros_mes_pct)} ao mês` : ''].filter(Boolean);
+  const revisao = t(d.revisao_meses);
+  const multa = num(d.multa_rescisoria_pct);
+  return {
+    atraso: [
+      atraso.length ? `O atraso no pagamento sujeita ${cliente} a ${atraso.join(' e ')}, além de correção monetária.` : '',
+      num(d.suspensao_dias) != null ? `Com mais de ${num(d.suspensao_dias)} dias de atraso, os serviços podem ser suspensos, mediante aviso por escrito, até a regularização, sem prejuízo das mensalidades devidas.` : ''],
+    encerramento: [
+      num(d.aviso_previo_dias) != null ? `Qualquer das partes pode encerrar a prestação dos serviços mediante aviso por escrito com ${num(d.aviso_previo_dias)} dias de antecedência${multa != null && prazoMinimo ? ', observada a multa abaixo' : ', sem indenização'}.` : '',
+      revisao ? `Ao fim de ${revisao} meses, as partes podem revisar as condições e, somente nesses momentos, encerrar sem multa.` : '',
+      multa != null && prazoMinimo ? `Fora ${revisao ? 'dessas revisões' : 'das hipóteses de descumprimento'}, a parte que encerrar antes de completar ${prazoMinimo} pagará à outra multa de ${fmtPct(multa)} sobre as mensalidades que faltarem até o fim desse prazo.` : '',
+      `Em qualquer encerramento, ${cliente} paga as mensalidades até a data de saída e a comissão de êxito das licitações vencidas durante a vigência, que continua devida depois do encerramento, na forma e nos prazos combinados.`],
+  };
+}
+
 function bancoLinhas(me) {
   const b = me?.banco;
   if (!b) return [];
@@ -313,6 +343,8 @@ function proposta({ me, cli, d }) {
   if (num(d.contratacao_minima_meses) != null) inv.push(`Contratação mínima: ${num(d.contratacao_minima_meses)} meses.`);
   s.push(sec('investimento', 'Investimento', inv, [], false));
   if (d.incluir_banco) s.push(sec('banco', 'Dados para pagamento', [], bancoLinhas(me), false));
+  const cp = condicoes(d, { cliente: 'o cliente', prazoMinimo: num(d.contratacao_minima_meses) != null ? `a contratação mínima de ${num(d.contratacao_minima_meses)} meses` : '' });
+  s.push(sec('condicoes', 'Atraso e encerramento', [...cp.atraso, ...cp.encerramento], [], false));
   if (t(d.observacoes)) s.push(sec('observacoes', 'Observações', [t(d.observacoes)], [], false));
   s.push(sec('validade', 'Validade', [num(d.validade_dias) != null ? `Proposta válida por ${num(d.validade_dias)} dias a contar da data acima.` : ''], [], false));
   return s;
@@ -333,8 +365,8 @@ function contrato({ me, cli, d }) {
   s.push(sec('escopo_limites', null, [
     'Não estão incluídos: recursos administrativos e medidas judiciais; planilhas de custos, cálculos de BDI e demais documentos técnicos; vistorias, amostras e entregas físicas; e a execução do contrato com o órgão. A representação da CONTRATANTE perante os órgãos e sistemas depende de procuração própria, com os poderes nela listados.']));
   const rem = remuneracao(d, { contrato: true });
-  const atraso = [num(d.multa_atraso_pct) != null ? `multa de ${fmtPct(d.multa_atraso_pct)}` : '', num(d.juros_mes_pct) != null ? `juros de ${fmtPct(d.juros_mes_pct)} ao mês` : ''].filter(Boolean);
-  if (atraso.length) rem.push(`O atraso no pagamento sujeita a CONTRATANTE a ${atraso.join(' e ')}, além de correção monetária.`);
+  const cc = condicoes(d, { cliente: 'a CONTRATANTE', prazoMinimo: num(d.vigencia_meses) != null ? `a vigência de ${num(d.vigencia_meses)} meses` : '' });
+  rem.push(...cc.atraso.filter(Boolean));
   s.push(sec('remuneracao', `${n(++i)} – DA REMUNERAÇÃO`, rem, d.incluir_banco ? bancoLinhas(me) : [], false));
   s.push(sec('obrigacoes_contratada', `${n(++i)} – DAS OBRIGAÇÕES DA CONTRATADA`, [], [
     'Executar os serviços com diligência, nos prazos combinados e conforme as regras de cada edital;',
@@ -354,9 +386,9 @@ function contrato({ me, cli, d }) {
     d.renovacao === 'automatica' ? 'Ao final, renova-se automaticamente por igual período, salvo aviso por escrito de qualquer das partes com a antecedência prevista na cláusula de rescisão.'
       : d.renovacao === 'aditivo' ? 'A prorrogação depende de termo aditivo assinado pelas partes.' : ''], [], false));
   s.push(sec('rescisao', `${n(++i)} – DA RESCISÃO`, [
-    num(d.aviso_previo_dias) != null ? `Qualquer das partes pode encerrar este contrato a qualquer tempo, mediante aviso por escrito com ${num(d.aviso_previo_dias)} dias de antecedência, sem indenização.` : '',
-    'O contrato pode ser rescindido de imediato em caso de descumprimento de cláusula, recuperação judicial ou extrajudicial ou falência de qualquer das partes.',
-    'Na rescisão, a CONTRATANTE paga as mensalidades e comissões devidas até a data do encerramento, inclusive as de licitações já vencidas.']));
+    cc.encerramento[0], cc.encerramento[1], cc.encerramento[2],
+    'O contrato pode ser rescindido de imediato, sem aviso prévio, em caso de descumprimento de cláusula não corrigido em 10 dias após notificação, recuperação judicial ou extrajudicial ou falência de qualquer das partes; nesse caso, a parte que deu causa responde pelas perdas e danos.',
+    cc.encerramento[3]]));
   s.push(sec('confidencialidade', `${n(++i)} – DA CONFIDENCIALIDADE`, [
     'As partes, seus sócios, empregados e prestadores guardarão sigilo sobre as informações a que tiverem acesso em razão deste contrato, inclusive preços e estratégias, e não as usarão nem divulgarão sem autorização prévia e por escrito.']));
   s.push(sec('lgpd', `${n(++i)} – DA PROTEÇÃO DE DADOS PESSOAIS`, [
@@ -440,7 +472,16 @@ export function montarDocumento(tipo, { me, cli, dados = {}, numero }) {
     ...pendenciasCampos(tipo, d, me),
   ];
   const localData = [t(d.local), dataExtenso(d.data)].filter(Boolean).join(', ');
-  return { tipo, titulo: TITULO_DOC[tipo], numero: numero || null, local_data: localData ? `${localData}.` : '', secoes, assinaturas: assinaturas(tipo, { me, cli, d }), pendencias };
+  return { tipo, titulo: TITULO_DOC[tipo], numero: numero || null, local_data: localData ? `${localData}.` : '', secoes, assinaturas: assinaturas(tipo, { me, cli, d }), pendencias,
+    destaques: destaquesDoc(tipo, { me, cli, d }) };
+}
+
+// Palavras e nomes em negrito no corpo do documento (pedido do Guido): os papéis das partes em todo o texto
+// e o nome de cada parte na qualificação.
+export const PAPEIS = { contrato: ['CONTRATANTE', 'CONTRATADA'], procuracao: ['OUTORGANTE', 'OUTORGADO', 'OUTORGADA'], proposta: [] };
+function destaquesDoc(tipo, { me, cli, d }) {
+  const nomes = tipo === 'contrato' ? [cli?.nome, me?.nome] : tipo === 'procuracao' ? [cli?.nome, d.outorgado_nome] : [];
+  return [...PAPEIS[tipo], ...nomes.map((x) => t(x).toUpperCase()).filter((x) => x.length >= 3)];
 }
 
 /** Texto padrão de cada seção editável (para o botão "restaurar padrão" da tela). */

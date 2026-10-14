@@ -332,3 +332,25 @@ test('Procuração: OUTORGANTE e OUTORGADO saem em negrito no PDF; outros docume
   const prop = montarDocumento('proposta', { me, cli, dados: dadosIniciais('proposta', { me: ME_PJ, hoje: '2026-10-13' }), numero: '001/2026' });
   assert.doesNotMatch(Buffer.from(pdfDocumento(prop, me).pdf).toString('latin1'), /Td \(OUTORGANTE\) Tj/);
 });
+
+test('Contrato: papéis e nomes das partes em negrito; proposta e contrato com atraso e encerramento', async () => {
+  const { pdfDocumento } = await import('../../server/services/captacao-pdf.js');
+  const me = parteMinhaEmpresa({ ...ME_PJ, documento: '11222333000181', representante_cpf: '52998224725' });
+  const cli = parteCliente({ ...CLI, cnpj: CNPJ_CLI });
+  const dc = { ...dadosIniciais('contrato', { me: ME_PJ, hoje: '2026-10-13' }), valor_mensal: 1000, vigencia_meses: 12, multa_rescisoria_pct: 50, antecedencia_horas: 48 };
+  const doc = montarDocumento('contrato', { me, cli, dados: dc, numero: '001/2026' });
+  const txt = Buffer.from(pdfDocumento(doc, me).pdf).toString('latin1');
+  assert.match(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(CONTRATANTE\) Tj/);
+  assert.match(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(CLIENTE\) Tj/); // nome da contratante em negrito
+  const corpo = doc.secoes.flatMap((s) => s.paragrafos).join('\n');
+  assert.match(corpo, /multa de 2% e juros de 1% ao mês/);
+  assert.match(corpo, /antes de completar a vigência de 12 meses pagará à outra multa de 50%/);
+  assert.match(corpo, /comissão de êxito das licitações vencidas durante a vigência, que continua devida depois do encerramento/);
+  // Sem multa rescisória preenchida: aviso prévio sem indenização e nenhuma frase de multa inventada
+  const sem = montarDocumento('proposta', { me, cli, dados: { ...dadosIniciais('proposta', { me: ME_PJ, hoje: '2026-10-13' }), valor_mensal: 1000 }, numero: '001/2026' });
+  const cond = sem.secoes.find((s) => s.id === 'condicoes').paragrafos.join('\n');
+  assert.match(cond, /30 dias de antecedência, sem indenização/);
+  assert.match(cond, /Ao fim de 3 e 6 meses/);
+  assert.doesNotMatch(cond, /sobre as mensalidades que faltarem/);
+  assert.deepEqual(sem.destaques, []);
+});
