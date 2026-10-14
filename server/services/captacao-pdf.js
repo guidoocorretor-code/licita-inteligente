@@ -2,13 +2,19 @@
 // local e data, espaços de assinatura, rodapé com contato e "Página X de Y" em todas as páginas.
 import fs from 'node:fs';
 import { criarPdf } from '../lib/pdf-simples.js';
-import { fmtDoc, fmtTelefone, enderecoLinha } from './captacao-modelos.js';
+import { fmtDoc, fmtTelefone, enderecoLinha, PAPEIS } from './captacao-modelos.js';
 import { caminhoArquivo } from './clientes.js';
+
+// Uma expressão com todos os destaques, os mais longos primeiro, sem pegar pedaço de palavra
+export function regexDestaque(lista = []) {
+  const itens = [...new Set(lista.filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!itens.length) return null;
+  const esc = itens.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${esc.join('|')})(?![\\p{L}\\p{N}])`, 'gu');
+}
 
 const AZUL = [0.06, 0.24, 0.43];
 const CINZA = [0.35, 0.37, 0.4];
-// Palavras que saem em negrito no corpo de cada documento
-const DESTAQUE = { procuracao: /\bOUTORGAD[OA]S?\b|\bOUTORGANTES?\b/g };
 
 function lerLogo(me) {
   if (!me?.logo) return null;
@@ -56,8 +62,8 @@ export function pdfDocumento(doc, me, { previa = false } = {}) {
   }, { depois: 8 });
   if (doc.tipo === 'proposta' && doc.local_data) pdf.texto(doc.local_data, { tam: 9.5, depois: 6 });
 
-  // Na procuração, as palavras OUTORGANTE e OUTORGADO saem em negrito (pedido do Guido, 13/10/2026)
-  const destaque = DESTAQUE[doc.tipo] || null;
+  // Papéis das partes (CONTRATANTE, OUTORGANTE...) e nomes na qualificação saem em negrito
+  const destaque = regexDestaque(doc.destaques ?? PAPEIS[doc.tipo]);
   for (const s of doc.secoes) {
     if (s.titulo) { pdf.espaco(3); pdf.texto(s.titulo.toUpperCase(), { tam: 9.5, negrito: true, cor: AZUL, depois: 2 }); }
     for (const p of s.paragrafos) {

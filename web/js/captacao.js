@@ -579,8 +579,13 @@ async function passo5(alvo, est, id, rota) {
   desenhar();
 }
 
-// Palavras em negrito no corpo (igual ao PDF): na procuração, OUTORGANTE e OUTORGADO
-const DESTAQUE = { procuracao: /\bOUTORGAD[OA]S?\b|\bOUTORGANTES?\b/g };
+// Negrito no corpo, igual ao PDF: papéis das partes (CONTRATANTE, OUTORGANTE...) e nomes na qualificação
+const PAPEIS = { contrato: ['CONTRATANTE', 'CONTRATADA'], procuracao: ['OUTORGANTE', 'OUTORGADO', 'OUTORGADA'] };
+const regexDestaque = (lista = []) => {
+  const itens = [...new Set(lista.filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!itens.length) return null;
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${itens.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![\\p{L}\\p{N}])`, 'gu');
+};
 const comDestaque = (texto, re) => {
   if (!re) return texto;
   const out = []; let i = 0;
@@ -591,7 +596,7 @@ const comDestaque = (texto, re) => {
 
 /** Folha A4 em HTML com as mesmas seções do PDF. */
 function folha(pv, me) {
-  const re = DESTAQUE[pv.tipo];
+  const re = regexDestaque(pv.destaques ?? PAPEIS[pv.tipo]);
   return h('article', { class: 'folha-doc', 'aria-label': 'Pré-visualização do documento' },
     h('header', {}, me?.tem_logo ? h('img', { src: `/api/minhas-empresas/${me.id}/logo?v=${encodeURIComponent(me.atualizado_em)}`, alt: 'Logo' }) : null,
       h('div', {}, h('strong', {}, me?.nome_fantasia || me?.nome || 'Minha Empresa não escolhida'),
