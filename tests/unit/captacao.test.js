@@ -319,3 +319,16 @@ test('Captação: sócios no passo 1 (gravados, validados, comparados com o cada
   assert.equal(pf.status, 201, JSON.stringify(pf.corpo));
   assert.equal(db.prepare('SELECT socios_json FROM clientes WHERE id=?').get(pf.corpo.cliente_id).socios_json, null);
 });
+
+test('Procuração: OUTORGANTE e OUTORGADO saem em negrito no PDF; outros documentos não mudam', async () => {
+  const { pdfDocumento } = await import('../../server/services/captacao-pdf.js');
+  const me = parteMinhaEmpresa({ ...ME_PJ, nome: ME_PJ.nome, documento: '11222333000181', representante_cpf: '52998224725' });
+  const cli = parteCliente({ ...CLI, cnpj: CNPJ_CLI });
+  const doc = montarDocumento('procuracao', { me, cli, dados: { ...dadosIniciais('procuracao', { me: ME_PJ, hoje: '2026-10-13' }), poderes: ['sicaf'] }, numero: '001/2026' });
+  const txt = Buffer.from(pdfDocumento(doc, me).pdf).toString('latin1');
+  assert.match(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(OUTORGANTE\) Tj/);
+  assert.match(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(OUTORGADO\) Tj/);
+  assert.doesNotMatch(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(nomeia\) Tj/);
+  const prop = montarDocumento('proposta', { me, cli, dados: dadosIniciais('proposta', { me: ME_PJ, hoje: '2026-10-13' }), numero: '001/2026' });
+  assert.doesNotMatch(Buffer.from(pdfDocumento(prop, me).pdf).toString('latin1'), /Td \(OUTORGANTE\) Tj/);
+});

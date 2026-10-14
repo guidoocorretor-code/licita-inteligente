@@ -13,14 +13,30 @@ const LARG = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 3
 const limpar = (s) => String(s ?? '').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-')
   .replace(/…/g, '...').replace(/•/g, '\x95').replace(/[   ]/g, ' ').replace(/[\r\t]/g, ' ');
 
+// Alguns sinais fora do ASCII que aparecem em documentos (nº, 1ª, 30°)
+const LATIN = { 'º': 370, 'ª': 370, '°': 400, '\x95': 350 };
+
 function largura(texto, tam, negrito) {
   let w = 0;
   for (const c of texto) {
     const base = c.normalize('NFD')[0];
     const cod = base.charCodeAt(0);
-    w += cod >= 32 && cod <= 126 ? LARG[cod - 32] : 556;
+    w += cod >= 32 && cod <= 126 ? LARG[cod - 32] : (LATIN[base] ?? 556);
   }
   return (w * tam * (negrito ? 1.1 : 1)) / 1000;
+}
+
+// Helvetica-Bold (AFM padrão) para letras, dígitos e pontuação comum. Usada só no texto com trechos em
+// negrito no meio da linha, onde a posição de cada trecho precisa ser exata.
+const NEG = { ' ': 278, ',': 278, '.': 278, ':': 333, ';': 333, '-': 333, '(': 333, ')': 333, '/': 278 };
+'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach((c, i) => { NEG[c] = [722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611][i]; });
+'abcdefghijklmnopqrstuvwxyz'.split('').forEach((c, i) => { NEG[c] = [556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611, 611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500][i]; });
+'0123456789'.split('').forEach((c) => { NEG[c] = 556; });
+function larguraExata(texto, tam, negrito) {
+  if (!negrito) return largura(texto, tam, false);
+  let w = 0;
+  for (const c of texto) { const b = c.normalize('NFD')[0]; w += NEG[b] ?? (largura(b, 1000, false) * 1.1); }
+  return (w * tam) / 1000;
 }
 
 // Bytes WinAnsi (Latin-1 nos acentos do português) com escape de \ ( )
@@ -103,6 +119,43 @@ export function criarPdf({ margem = 50 } = {}) {
           links.push({ r: [x, y - 3, x + w, y + tam], url });
         }
       });
+      y -= depois;
+      return api;
+    },
+    /**
+     * Parágrafo com algumas palavras em negrito no meio do texto: os trechos que casam com `destaque`
+     * (expressão regular com /g) saem em Helvetica-Bold, o resto em Helvetica.
+     */
+    textoDestacado(t, destaque, { tam = 10, x = M, maxW = W - 2 * M - (x - M), espaco = 1.35, depois = 2, marcador = null } = {}) {
+      // Cada palavra vira uma lista de trechos [texto, negrito]
+      const partes = (palavra) => {
+        const out = []; let i = 0;
+        for (const m of palavra.matchAll(destaque)) {
+          if (m.index > i) out.push([palavra.slice(i, m.index), false]);
+          out.push([m[0], true]); i = m.index + m[0].length;
+        }
+        if (i < palavra.length) out.push([palavra.slice(i), false]);
+        return out.map(([s, n]) => ({ s, n, w: larguraExata(s, tam, n) }));
+      };
+      const esp = largura(' ', tam, false);
+      for (const par of limpar(t).split('\n')) {
+        const linhas = []; let atual = []; let wa = 0;
+        for (const palavra of par.split(/ +/).filter(Boolean)) {
+          const ps = partes(palavra); const wp = ps.reduce((a, p) => a + p.w, 0);
+          if (atual.length && wa + esp + wp > maxW) { linhas.push(atual); atual = []; wa = 0; }
+          wa += (atual.length ? esp : 0) + wp; atual.push(ps);
+        }
+        linhas.push(atual);
+        linhas.forEach((linha, i) => {
+          garantir(tam * espaco); y -= tam * espaco;
+          if (marcador && i === 0) ops.push(`BT /F1 ${tam} Tf 0 0 0 rg ${(x - largura(marcador, tam, false) - 4).toFixed(2)} ${y.toFixed(2)} Td (${codificar(limpar(marcador))}) Tj ET`);
+          let cx = x;
+          linha.forEach((ps, k) => {
+            if (k) cx += esp;
+            for (const p of ps) { ops.push(`BT /${p.n ? 'F2' : 'F1'} ${tam} Tf 0 0 0 rg ${cx.toFixed(2)} ${y.toFixed(2)} Td (${codificar(p.s)}) Tj ET`); cx += p.w; }
+          });
+        });
+      }
       y -= depois;
       return api;
     },

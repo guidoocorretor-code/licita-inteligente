@@ -579,8 +579,19 @@ async function passo5(alvo, est, id, rota) {
   desenhar();
 }
 
+// Palavras em negrito no corpo (igual ao PDF): na procuração, OUTORGANTE e OUTORGADO
+const DESTAQUE = { procuracao: /\bOUTORGAD[OA]S?\b|\bOUTORGANTES?\b/g };
+const comDestaque = (texto, re) => {
+  if (!re) return texto;
+  const out = []; let i = 0;
+  for (const m of texto.matchAll(re)) { if (m.index > i) out.push(texto.slice(i, m.index)); out.push(h('strong', {}, m[0])); i = m.index + m[0].length; }
+  if (i < texto.length) out.push(texto.slice(i));
+  return out;
+};
+
 /** Folha A4 em HTML com as mesmas seções do PDF. */
 function folha(pv, me) {
+  const re = DESTAQUE[pv.tipo];
   return h('article', { class: 'folha-doc', 'aria-label': 'Pré-visualização do documento' },
     h('header', {}, me?.tem_logo ? h('img', { src: `/api/minhas-empresas/${me.id}/logo?v=${encodeURIComponent(me.atualizado_em)}`, alt: 'Logo' }) : null,
       h('div', {}, h('strong', {}, me?.nome_fantasia || me?.nome || 'Minha Empresa não escolhida'),
@@ -588,7 +599,7 @@ function folha(pv, me) {
     h('h2', {}, pv.titulo.toUpperCase()), pv.numero ? h('div', { class: 'num-doc' }, `Nº ${pv.numero}`) : null,
     pv.tipo === 'proposta' && pv.local_data ? h('p', {}, pv.local_data) : null,
     pv.secoes.map((s) => h('section', {}, s.titulo ? h('h3', {}, s.titulo, s.editada ? h('span', { class: 'etiqueta amarela pequena', style: { marginLeft: '6px' } }, 'texto editado') : null) : null,
-      s.paragrafos.map((p) => h('p', {}, p)), s.lista.length ? h('ul', {}, s.lista.map((i) => h('li', {}, i))) : null)),
+      s.paragrafos.map((p) => h('p', {}, comDestaque(p, re))), s.lista.length ? h('ul', {}, s.lista.map((i) => h('li', {}, comDestaque(i, re)))) : null)),
     pv.tipo !== 'proposta' && pv.local_data ? h('p', { style: { marginTop: '18px' } }, pv.local_data) : null,
     h('div', { class: 'assinaturas' }, pv.assinaturas.map((a) => h('div', { class: 'assinatura' }, h('div', { class: 'traco' }), h('strong', {}, a.titulo), a.linhas.map((l) => h('div', { class: 'pequeno suave' }, l))))));
 }
