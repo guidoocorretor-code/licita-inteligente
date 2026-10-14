@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from '../config.js';
-import { validarCnpj, caminhoArquivo, criarCliente, atualizarCliente } from './clientes.js';
+import { validarCnpj, caminhoArquivo, criarCliente, atualizarCliente, sociosJson } from './clientes.js';
 import { lerJpeg } from '../lib/pdf-simples.js';
 import { CAMPOS, TIPOS_DOC, PAGINAS_META, montarDocumento, dadosIniciais, parteMinhaEmpresa, parteCliente, faltasParte, soDigitos, fmtDoc, textosPadrao } from './captacao-modelos.js';
 import { pdfDocumento } from './captacao-pdf.js';
@@ -215,6 +215,8 @@ const CAMPOS_CLIENTE = {
 };
 const normalizarComparacao = (k, v) => (['cep', 'resp_cpf', 'telefone'].includes(k) ? soDigitos(v) : String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' '));
 
+const nomesSocios = (j) => { try { const l = JSON.parse(j || '[]'); return l.length ? l.map((x) => x.nome).join('; ') : null; } catch { return null; } };
+
 /** Lê o formulário do passo 1. Exige só tipo, documento, nome e um contato; o resto, se faltar, deixa a captação "Cadastro incompleto". */
 export function lerFormularioCliente(b) {
   const tipo = b.tipo_pessoa === 'PF' ? 'PF' : 'PJ';
@@ -229,6 +231,8 @@ export function lerFormularioCliente(b) {
   if (d.resp_cpf) { if (!validarCpf(d.resp_cpf)) throw erro(400, 'CPF do representante inválido.'); d.resp_cpf = soDigitos(d.resp_cpf); }
   for (const k of ['email', 'email_documentos']) if (d[k] && !EMAIL_RE.test(d[k])) throw erro(400, 'E-mail inválido.');
   if (!d.telefone && !d.email) throw erro(400, 'Informe ao menos um contato: telefone/WhatsApp ou e-mail.');
+  // Sócios só para pessoa jurídica; a validação (nome, CPF, e-mail) é a mesma do cadastro da empresa
+  if (tipo === 'PJ' && Array.isArray(b.socios)) { const j = sociosJson({ socios: b.socios }); if (j) d.socios_json = j; }
   return d;
 }
 
@@ -238,6 +242,9 @@ export function compararCliente(db, empresaId, form) {
   if (!atual) return null;
   const diferencas = Object.entries(CAMPOS_CLIENTE).filter(([k]) => form[k] != null && normalizarComparacao(k, form[k]) !== normalizarComparacao(k, atual[k]))
     .map(([k, rotulo]) => ({ campo: k, rotulo, atual: atual[k] ?? null, novo: form[k] }));
+  if (form.socios_json && form.socios_json !== atual.socios_json) {
+    diferencas.push({ campo: 'socios', rotulo: 'Sócios', atual: nomesSocios(atual.socios_json), novo: nomesSocios(form.socios_json) });
+  }
   return { id: atual.id, nome: atual.nome_fantasia || atual.razao_social, razao_social: atual.razao_social, ativo: !!atual.ativo, diferencas };
 }
 
@@ -269,6 +276,7 @@ export function atualizarClienteComFormulario(db, empresaId, clienteId, b, campo
   if (!atual) throw erro(404, 'Empresa não encontrada.');
   if (atual.cnpj !== form.cnpj) throw erro(400, 'O CPF/CNPJ do formulário é de outra empresa.');
   const mudar = Object.fromEntries(campos.filter((k) => CAMPOS_CLIENTE[k] && form[k] != null).map((k) => [k, form[k]]));
+  if (campos.includes('socios') && form.socios_json) mudar.socios_json = form.socios_json;
   if (Object.keys(mudar).length) atualizarCliente(db, empresaId, clienteId, mudar);
   return Object.keys(mudar);
 }

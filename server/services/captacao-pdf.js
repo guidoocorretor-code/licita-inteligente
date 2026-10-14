@@ -7,6 +7,8 @@ import { caminhoArquivo } from './clientes.js';
 
 const AZUL = [0.06, 0.24, 0.43];
 const CINZA = [0.35, 0.37, 0.4];
+// Palavras que saem em negrito no corpo de cada documento
+const DESTAQUE = { procuracao: /\bOUTORGAD[OA]S?\b|\bOUTORGANTES?\b/g };
 
 function lerLogo(me) {
   if (!me?.logo) return null;
@@ -54,10 +56,18 @@ export function pdfDocumento(doc, me, { previa = false } = {}) {
   }, { depois: 8 });
   if (doc.tipo === 'proposta' && doc.local_data) pdf.texto(doc.local_data, { tam: 9.5, depois: 6 });
 
+  // Na procuração, as palavras OUTORGANTE e OUTORGADO saem em negrito (pedido do Guido, 13/10/2026)
+  const destaque = DESTAQUE[doc.tipo] || null;
   for (const s of doc.secoes) {
     if (s.titulo) { pdf.espaco(3); pdf.texto(s.titulo.toUpperCase(), { tam: 9.5, negrito: true, cor: AZUL, depois: 2 }); }
-    for (const p of s.paragrafos) pdf.texto(p, { tam: 9.3, espaco: 1.3, depois: 3 });
-    for (const item of s.lista) pdf.texto(item, { tam: 9.3, x: 62, espaco: 1.3, depois: 1.5, marcador: '\x95' });
+    for (const p of s.paragrafos) {
+      if (destaque) pdf.textoDestacado(p, destaque, { tam: 9.3, espaco: 1.3, depois: 3 });
+      else pdf.texto(p, { tam: 9.3, espaco: 1.3, depois: 3 });
+    }
+    for (const item of s.lista) {
+      if (destaque) pdf.textoDestacado(item, destaque, { tam: 9.3, x: 62, espaco: 1.3, depois: 1.5, marcador: '\x95' });
+      else pdf.texto(item, { tam: 9.3, x: 62, espaco: 1.3, depois: 1.5, marcador: '\x95' });
+    }
     if (s.lista.length) pdf.espaco(2);
   }
 

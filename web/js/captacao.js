@@ -3,6 +3,7 @@
 // (PDF, impressão, e-mail, assinatura gov.br assistida e anexo do assinado).
 import { api, qs } from './api.js';
 import { h, toast, carregando, vazio, confirmar, modal, render, dataUtc } from './ui.js';
+import { editorSocios } from './socios.js';
 
 const papel = (e) => e.usuario.papel;
 const podeEditar = (e) => papel(e) !== 'leitor';
@@ -226,6 +227,19 @@ const CAMPOS_EMP = [
   ['telefone', 'Telefone / WhatsApp', { type: 'tel' }], ['email', 'E-mail', { type: 'email' }], ['email_documentos', 'E-mail para documentos', { type: 'email' }],
 ];
 
+// Bloco "Sócios" do passo 1 (só pessoa jurídica)
+const secaoSocios = (ed) => h('div', { class: 'secao-socios' },
+  h('h3', {}, 'Sócios'),
+  h('p', { class: 'suave pequeno' }, 'A Receita traz nome e qualificação. CPF e se assina sozinho ou em conjunto estão no contrato social: confira lá.'),
+  ed.caixa, ed.botao);
+// Copia o sócio escolhido para os campos de representante legal (quem assina os documentos)
+function usarComoRepresentante(el, sc) {
+  if (el.resp_nome) el.resp_nome.value = sc.nome;
+  if (el.resp_cpf && sc.cpf) el.resp_cpf.value = fmtDoc(sc.cpf);
+  if (el.resp_cargo && sc.qualificacao) el.resp_cargo.value = sc.qualificacao;
+  toast(`${sc.nome} é o representante legal. Salve para gravar.`);
+}
+
 async function passo1(alvo, est, id) {
   render(alvo, carregando());
   const det = id ? await api(`/captacoes/${id}`) : null;
@@ -266,9 +280,11 @@ async function passo1(alvo, est, id) {
     const rotDoc = h('span', {}, 'CNPJ *');
     el.obs_comerciais = h('textarea', { rows: 2, placeholder: 'Como chegou, interesse, combinados…' });
     const campos = CAMPOS_EMP.map(([k, rot, o = {}]) => { el[k] = h('input', { type: o.type || 'text', inputmode: o.inputmode, maxlength: o.maxlength }); const w = campoTexto(rot, el[k], { largo: o.largo }); if (o.pj) w.classList.add('so-pj'); return w; });
+    const socios = editorSocios([], { aoUsar: (sc) => usarComoRepresentante(el, sc) });
+    const blocoSocios = secaoSocios(socios);
     const aviso = h('div', {}); const erro = h('div', { class: 'aviso vermelho', style: { display: 'none' } });
-    const trocarTipo = () => { const pf = tipo.value === 'PF'; rotDoc.textContent = pf ? 'CPF *' : 'CNPJ *'; doc.placeholder = pf ? '000.000.000-00' : '00.000.000/0000-00'; campos.forEach((w) => { if (w.classList.contains('so-pj')) w.style.display = pf ? 'none' : ''; }); };
-    const ler = () => ({ tipo_pessoa: tipo.value, documento: dig(doc.value), ...Object.fromEntries(Object.entries(el).map(([k, x]) => [k, x.value.trim()])) });
+    const trocarTipo = () => { const pf = tipo.value === 'PF'; rotDoc.textContent = pf ? 'CPF *' : 'CNPJ *'; doc.placeholder = pf ? '000.000.000-00' : '00.000.000/0000-00'; campos.forEach((w) => { if (w.classList.contains('so-pj')) w.style.display = pf ? 'none' : ''; }); blocoSocios.style.display = pf ? 'none' : ''; };
+    const ler = () => ({ tipo_pessoa: tipo.value, documento: dig(doc.value), ...Object.fromEntries(Object.entries(el).map(([k, x]) => [k, x.value.trim()])), socios: tipo.value === 'PJ' ? socios.ler() : [] });
     // Empresa já cadastrada: mostra quem é e o que está diferente, com a opção de atualizar
     const mostrarExistente = (ex) => {
       if (!ex) return render(aviso);
@@ -303,12 +319,14 @@ async function passo1(alvo, est, id) {
         por('razao_social', r.razao_social); por('nome_fantasia', r.nome_fantasia); por('endereco', r.endereco); por('cep', r.cep); por('municipio', r.municipio);
         por('uf', r.uf); por('telefone', r.telefone); por('email', r.email);
         if (r.responsavel) { por('resp_nome', r.responsavel.nome); por('resp_cargo', r.responsavel.qualificacao); }
+        socios.preencherDaReceita(r.socios || []);
         toast(`Preenchido pela base pública da Receita (${r.fonte}). Confira antes de salvar.`, 6000);
       } catch (e) { toast(e.message, 6000); }
     };
     doc.addEventListener('blur', conferir);
     return h('form', { class: 'form-captacao', onsubmit: async (e) => {
       e.preventDefault(); erro.style.display = 'none';
+      if (!socios.valido()) { erro.textContent = 'Preencha o nome do sócio (ou remova a linha).'; erro.style.display = 'block'; return; }
       try {
         const r = await api('/captacoes/empresa', { metodo: 'POST', corpo: ler() });
         await criarCaptacao(r.cliente_id);
@@ -321,6 +339,7 @@ async function passo1(alvo, est, id) {
       h('div', {}, h('label', {}, rotDoc, h('div', { class: 'linha cnpj-linha' }, doc, h('button', { type: 'button', class: 'btn pequeno', title: 'Preencher com a base pública da Receita Federal', onclick: receita }, '🔎 Receita'))))),
     aviso,
     h('div', { class: 'filtros' }, ...campos),
+    blocoSocios,
     campoTexto('Observações comerciais', el.obs_comerciais, { largo: true }),
     h('p', { class: 'suave pequeno' }, 'Obrigatórios agora: tipo, CPF/CNPJ, nome e um contato. Endereço e representante podem ficar para depois, mas sem eles a captação fica como "Cadastro incompleto" e os documentos não são gerados.'),
     erro,
@@ -338,6 +357,9 @@ function passo1Existente(alvo, est, det) {
   const pf = c.tipo_pessoa === 'PF';
   const campos = CAMPOS_EMP.filter(([, , o = {}]) => !(pf && o.pj)).map(([k, rot, o = {}]) => { el[k] = h('input', { type: o.type || 'text', value: k === 'resp_cpf' && c[k] ? fmtDoc(c[k]) : c[k] ?? '', maxlength: o.maxlength }); return campoTexto(rot, el[k], { largo: o.largo }); });
   el.obs_comerciais = h('textarea', { rows: 2 }, c.obs_comerciais || '');
+  let lista = [];
+  try { lista = c.socios_json ? JSON.parse(c.socios_json) : []; } catch { lista = []; }
+  const socios = editorSocios(lista, { aoUsar: (sc) => usarComoRepresentante(el, sc) });
   const erro = h('div', { class: 'aviso vermelho', style: { display: 'none' } });
   render(alvo, ...casca(`Captação: ${nomeCli(c)}`, 1, id,
     h('form', { class: 'cartao form-captacao', onsubmit: async (e) => {
@@ -345,13 +367,17 @@ function passo1Existente(alvo, est, det) {
       const corpo = Object.fromEntries(Object.entries(el).map(([k, x]) => [k, x.value.trim()]));
       if (corpo.resp_cpf) corpo.resp_cpf = dig(corpo.resp_cpf);
       if (corpo.cep) corpo.cep = dig(corpo.cep);
+      if (!pf) {
+        if (!socios.valido()) { erro.textContent = 'Preencha o nome do sócio (ou remova a linha).'; erro.style.display = 'block'; return; }
+        corpo.socios = socios.ler();
+      }
       try { await api(`/clientes/${c.id}`, { metodo: 'PATCH', corpo }); toast('Cadastro da empresa atualizado.'); location.hash = `#/captacao/${id}/passo/2`; }
       catch (er) { erro.textContent = er.message; erro.style.display = 'block'; }
     } },
     h('h2', {}, `${pf ? 'CPF' : 'CNPJ'} ${fmtDoc(c.cnpj)}`),
     det.cliente_pendencias.length ? h('div', { class: 'aviso amarelo' }, h('strong', {}, 'Cadastro incompleto para gerar documentos: '), det.cliente_pendencias.map((p) => p.replace('Empresa assessorada: ', '')).join('; '), '.')
       : h('div', { class: 'aviso verde' }, 'Cadastro completo para gerar os documentos.'),
-    h('div', { class: 'filtros' }, ...campos), campoTexto('Observações comerciais', el.obs_comerciais, { largo: true }),
+    h('div', { class: 'filtros' }, ...campos), pf ? null : secaoSocios(socios), campoTexto('Observações comerciais', el.obs_comerciais, { largo: true }),
     h('p', { class: 'suave pequeno' }, 'Alterar aqui muda o cadastro central da empresa. Documentos já gerados não mudam (guardam uma cópia dos dados).'),
     erro,
     h('div', { class: 'linha', style: { justifyContent: 'flex-end' } },
@@ -553,8 +579,19 @@ async function passo5(alvo, est, id, rota) {
   desenhar();
 }
 
+// Palavras em negrito no corpo (igual ao PDF): na procuração, OUTORGANTE e OUTORGADO
+const DESTAQUE = { procuracao: /\bOUTORGAD[OA]S?\b|\bOUTORGANTES?\b/g };
+const comDestaque = (texto, re) => {
+  if (!re) return texto;
+  const out = []; let i = 0;
+  for (const m of texto.matchAll(re)) { if (m.index > i) out.push(texto.slice(i, m.index)); out.push(h('strong', {}, m[0])); i = m.index + m[0].length; }
+  if (i < texto.length) out.push(texto.slice(i));
+  return out;
+};
+
 /** Folha A4 em HTML com as mesmas seções do PDF. */
 function folha(pv, me) {
+  const re = DESTAQUE[pv.tipo];
   return h('article', { class: 'folha-doc', 'aria-label': 'Pré-visualização do documento' },
     h('header', {}, me?.tem_logo ? h('img', { src: `/api/minhas-empresas/${me.id}/logo?v=${encodeURIComponent(me.atualizado_em)}`, alt: 'Logo' }) : null,
       h('div', {}, h('strong', {}, me?.nome_fantasia || me?.nome || 'Minha Empresa não escolhida'),
@@ -562,7 +599,7 @@ function folha(pv, me) {
     h('h2', {}, pv.titulo.toUpperCase()), pv.numero ? h('div', { class: 'num-doc' }, `Nº ${pv.numero}`) : null,
     pv.tipo === 'proposta' && pv.local_data ? h('p', {}, pv.local_data) : null,
     pv.secoes.map((s) => h('section', {}, s.titulo ? h('h3', {}, s.titulo, s.editada ? h('span', { class: 'etiqueta amarela pequena', style: { marginLeft: '6px' } }, 'texto editado') : null) : null,
-      s.paragrafos.map((p) => h('p', {}, p)), s.lista.length ? h('ul', {}, s.lista.map((i) => h('li', {}, i))) : null)),
+      s.paragrafos.map((p) => h('p', {}, comDestaque(p, re))), s.lista.length ? h('ul', {}, s.lista.map((i) => h('li', {}, comDestaque(i, re)))) : null)),
     pv.tipo !== 'proposta' && pv.local_data ? h('p', { style: { marginTop: '18px' } }, pv.local_data) : null,
     h('div', { class: 'assinaturas' }, pv.assinaturas.map((a) => h('div', { class: 'assinatura' }, h('div', { class: 'traco' }), h('strong', {}, a.titulo), a.linhas.map((l) => h('div', { class: 'pequeno suave' }, l))))));
 }

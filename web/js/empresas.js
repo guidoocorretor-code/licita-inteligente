@@ -2,6 +2,7 @@
 import { api, clienteSelecionado, selecionarCliente } from './api.js';
 import { h, toast, carregando, vazio, confirmar, modal, render, data, dataUtc } from './ui.js';
 import { historicoDaEmpresa } from './captacao.js';
+import { editorSocios } from './socios.js';
 
 const podeEditar = (e) => e.usuario.papel !== 'leitor';
 const podeExcluir = (e) => ['gestor', 'admin', 'superadmin'].includes(e.usuario.papel);
@@ -54,36 +55,7 @@ function formEmpresa(est, c = {}, aoSalvar) {
   // Sócios: lista editável (a Receita traz nome e qualificação; CPF e forma de assinatura vêm do contrato social)
   let socios = [];
   try { socios = c.socios_json ? JSON.parse(c.socios_json) : []; } catch { socios = []; }
-  const caixaSocios = h('div', { class: 'lista-socios' });
-  const linhaSocio = (sc) => {
-    const el = {
-      nome: h('input', { value: sc.nome || '', placeholder: 'Nome completo', 'aria-label': 'Nome do sócio' }),
-      cpf: h('input', { value: sc.cpf ? fmtCpf(sc.cpf) : '', inputmode: 'numeric', placeholder: '000.000.000-00', 'aria-label': 'CPF do sócio' }),
-      qualificacao: h('input', { value: sc.qualificacao || '', placeholder: 'ex.: Sócio-Administrador', 'aria-label': 'Qualificação' }),
-      email: h('input', { type: 'email', value: sc.email || '', placeholder: 'E-mail', 'aria-label': 'E-mail do sócio' }),
-      telefone: h('input', { type: 'tel', value: sc.telefone || '', placeholder: 'Telefone / WhatsApp', 'aria-label': 'Telefone do sócio' }),
-      administrador: h('input', { type: 'checkbox', checked: !!sc.administrador }),
-      assinatura: h('select', { 'aria-label': 'Forma de assinatura' }, [['', 'Assinatura: não informada'], ['isolada', 'Assina sozinho'], ['conjunta', 'Assina em conjunto']]
-        .map(([v, t]) => h('option', { value: v, selected: (sc.assinatura || '') === v }, t))),
-    };
-    const bloco = h('div', { class: 'socio-linha' },
-      h('div', { class: 'filtros' },
-        h('div', { class: 'largo' }, h('label', {}, 'Nome do sócio'), el.nome),
-        h('div', {}, h('label', {}, 'CPF'), el.cpf),
-        h('div', {}, h('label', {}, 'Qualificação'), el.qualificacao),
-        h('div', {}, h('label', {}, 'E-mail'), el.email),
-        h('div', {}, h('label', {}, 'Telefone'), el.telefone)),
-      h('div', { class: 'linha socio-flags' },
-        h('label', { class: 'flag-socio' }, el.administrador, ' Sócio administrador'),
-        el.assinatura,
-        h('button', { type: 'button', class: 'btn pequeno perigo', onclick: () => { bloco.remove(); itensSocios.splice(itensSocios.indexOf(item), 1); } }, 'Remover')));
-    const item = { bloco, ler: () => ({ nome: el.nome.value.trim(), cpf: el.cpf.value.replace(/\D/g, ''), qualificacao: el.qualificacao.value.trim(),
-      email: el.email.value.trim(), telefone: el.telefone.value.trim(), administrador: el.administrador.checked, assinatura: el.assinatura.value || null }) };
-    return item;
-  };
-  const itensSocios = [];
-  const addSocio = (sc = {}) => { const it = linhaSocio(sc); itensSocios.push(it); caixaSocios.append(it.bloco); };
-  socios.forEach(addSocio);
+  const editor = editorSocios(socios);
   const statusReceita = h('div', { class: 'status-receita' });
   const seletorSocio = h('div', {});
   let ultimaConsulta = '';
@@ -106,10 +78,7 @@ function formEmpresa(est, c = {}, aoSalvar) {
       if (d.porte && (sempre || !campos.porte.value)) campos.porte.value = d.porte;
       const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
       escolherSocio(d.responsavel);
-      if (d.socios?.length && !itensSocios.some((it) => it.ler().nome)) {
-        itensSocios.splice(0).forEach((it) => it.bloco.remove());
-        d.socios.forEach((sc) => addSocio({ nome: sc.nome, qualificacao: sc.qualificacao, administrador: /administrador/i.test(sc.qualificacao || '') }));
-      }
+      editor.preencherDaReceita(d.socios || []);
       if (d.cnaes?.length) { cnaes = d.cnaes; mostrarCnaes(); }
       if (d.palavras_sugeridas?.length && !campos.palavras_chave.value.trim()) campos.palavras_chave.value = d.palavras_sugeridas.join('; ');
       render(seletorSocio, d.socios.length > 1 ? h('div', { class: 'campo' }, h('label', { for: 'e-socio' }, `Sócios na Receita (${d.socios.length}): escolha quem é o responsável`),
@@ -150,8 +119,8 @@ function formEmpresa(est, c = {}, aoSalvar) {
     statusReceita,
     h('h3', {}, 'Sócios'),
     h('p', { class: 'suave pequeno' }, 'A Receita traz nome e qualificação. CPF e se assina sozinho ou em conjunto estão no contrato social: confira lá.'),
-    caixaSocios,
-    h('button', { type: 'button', class: 'btn pequeno', onclick: () => addSocio() }, '+ Adicionar sócio'),
+    editor.caixa,
+    editor.botao,
     h('h3', {}, 'Responsável legal (assina a proposta)'),
     seletorSocio,
     h('div', { class: 'filtros' },
@@ -176,9 +145,8 @@ function formEmpresa(est, c = {}, aoSalvar) {
     const corpo = Object.fromEntries(Object.entries(campos).map(([k, el]) => [k, el.value.trim()]));
     corpo.cnpj = corpo.cnpj.replace(/\D/g, '');
     if (cnaes) corpo.cnaes = cnaes;
-    corpo.socios = itensSocios.map((it) => it.ler()).filter((x) => x.nome);
-    const semNome = itensSocios.map((it) => it.ler()).find((x) => !x.nome && (x.cpf || x.email || x.telefone));
-    if (semNome) { toast('Preencha o nome do sócio (ou remova a linha).', 5000); return false; }
+    corpo.socios = editor.ler();
+    if (!editor.valido()) { toast('Preencha o nome do sócio (ou remova a linha).', 5000); return false; }
     try {
       const r = c.id ? await api(`/clientes/${c.id}`, { metodo: 'PATCH', corpo }) : await api('/clientes', { metodo: 'POST', corpo });
       toast('Empresa salva.'); avisarAlteracao(); aoSalvar?.(c.id || r.id);

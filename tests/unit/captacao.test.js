@@ -292,3 +292,43 @@ test('Modelos: status geral, qualificação e nada inventado', () => {
     { razao_social: 'X', cnpj: '11444777000161', endereco: 'a', municipio: 'b', uf: 'ES', resp_nome: 'c', resp_cpf: '11144477735' }), 'proposta_enviada');
   assert.equal(statusGeral({ cancelada_em: null, minha_empresa_id: 1 }, [{ tipo: 'contrato', status: 'assinado' }], {}), 'concluido');
 });
+
+test('Captação: sócios no passo 1 (gravados, validados, comparados com o cadastro e ignorados em pessoa física)', async () => {
+  const g = await entrar('g@a.com');
+  const CNPJ_SOC = '45723174000110';
+  const corpo = { ...CLI, documento: CNPJ_SOC, razao_social: 'SOCIOS TESTE LTDA',
+    socios: [{ nome: 'Ana Sócia', cpf: CPF_A, qualificacao: 'Sócio-Administrador', administrador: true, assinatura: 'isolada' }, { nome: 'Bruno Sócio', qualificacao: 'Sócio' }, { nome: '' }] };
+  // CPF de sócio incompleto é recusado
+  const ruim = await g.json('/captacoes/empresa', { method: 'POST', corpo: { ...corpo, socios: [{ nome: 'X', cpf: '123' }] } });
+  assert.equal(ruim.status, 400); assert.match(ruim.corpo.erro, /CPF do sócio X/);
+  const r = await g.json('/captacoes/empresa', { method: 'POST', corpo });
+  assert.equal(r.status, 201, JSON.stringify(r.corpo));
+  const socios = JSON.parse(db.prepare('SELECT socios_json FROM clientes WHERE id=?').get(r.corpo.cliente_id).socios_json);
+  assert.deepEqual(socios.map((s) => s.nome), ['Ana Sócia', 'Bruno Sócio']);
+  assert.equal(socios[0].cpf, '52998224725'); assert.equal(socios[0].assinatura, 'isolada'); assert.equal(socios[1].cpf, null);
+  // Mesmo CNPJ com outro quadro de sócios: aparece como diferença e só muda se marcado
+  const conf = await g.json('/captacoes/conferir-empresa', { method: 'POST', corpo: { ...corpo, socios: [{ nome: 'Carla Nova' }] } });
+  const dif = conf.corpo.existente.diferencas.find((d) => d.campo === 'socios');
+  assert.equal(dif.atual, 'Ana Sócia; Bruno Sócio'); assert.equal(dif.novo, 'Carla Nova');
+  await g.json(`/captacoes/empresa/${r.corpo.cliente_id}/atualizar`, { method: 'POST', corpo: { dados: { ...corpo, socios: [{ nome: 'Carla Nova' }] }, campos: ['socios'] } });
+  const depois = db.prepare('SELECT socios_json, resp_nome FROM clientes WHERE id=?').get(r.corpo.cliente_id);
+  assert.deepEqual(JSON.parse(depois.socios_json).map((s) => s.nome), ['Carla Nova']);
+  assert.equal(depois.resp_nome, 'Beltrana Souza');
+  // Pessoa física não grava sócios
+  const pf = await g.json('/captacoes/empresa', { method: 'POST', corpo: { tipo_pessoa: 'PF', documento: '935.411.347-80', razao_social: 'PESSOA FISICA TESTE', telefone: '27999998888', socios: [{ nome: 'Não deve gravar' }] } });
+  assert.equal(pf.status, 201, JSON.stringify(pf.corpo));
+  assert.equal(db.prepare('SELECT socios_json FROM clientes WHERE id=?').get(pf.corpo.cliente_id).socios_json, null);
+});
+
+test('Procuração: OUTORGANTE e OUTORGADO saem em negrito no PDF; outros documentos não mudam', async () => {
+  const { pdfDocumento } = await import('../../server/services/captacao-pdf.js');
+  const me = parteMinhaEmpresa({ ...ME_PJ, nome: ME_PJ.nome, documento: '11222333000181', representante_cpf: '52998224725' });
+  const cli = parteCliente({ ...CLI, cnpj: CNPJ_CLI });
+  const doc = montarDocumento('procuracao', { me, cli, dados: { ...dadosIniciais('procuracao', { me: ME_PJ, hoje: '2026-10-13' }), poderes: ['sicaf'] }, numero: '001/2026' });
+  const txt = Buffer.from(pdfDocumento(doc, me).pdf).toString('latin1');
+  assert.match(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(OUTORGANTE\) Tj/);
+  assert.match(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(OUTORGADO\) Tj/);
+  assert.doesNotMatch(txt, /\/F2 [\d.]+ Tf 0 0 0 rg [\d.]+ [\d.]+ Td \(nomeia\) Tj/);
+  const prop = montarDocumento('proposta', { me, cli, dados: dadosIniciais('proposta', { me: ME_PJ, hoje: '2026-10-13' }), numero: '001/2026' });
+  assert.doesNotMatch(Buffer.from(pdfDocumento(prop, me).pdf).toString('latin1'), /Td \(OUTORGANTE\) Tj/);
+});
