@@ -152,6 +152,8 @@ export function salvarItens(db, licId, itens, fonte = 'pncp', agora = agoraBrasi
         valor_estimado_situacao = CASE WHEN ? THEN 'sigiloso' ELSE valor_estimado_situacao END,
         detalhes_sincronizados_em=datetime('now') WHERE id=?`)
       .run(itens.length, criterios.join('; ') || null, meEpp, sigiloso ? 1 : 0, sigiloso ? 1 : 0, licId);
+    // Itens baixados: a falha antiga de "detalhes" desta licitação deixa de ser pendência
+    db.prepare("UPDATE sync_falhas SET resolvida=1 WHERE resolvida=0 AND etapa='detalhes' AND json_extract(payload_json, '$.licitacao_id')=?").run(licId);
     recalcularStatusDe(db, licId, agora);
   });
 }

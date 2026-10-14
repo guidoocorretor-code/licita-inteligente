@@ -4,6 +4,7 @@ import { classificarSistemasEmSegundoPlano } from './services/sistemas.js';
 import { reclassificarSegmentosEmSegundoPlano } from './services/segmentos.js';
 import { criarApp } from './app.js';
 import { iniciarAgendador } from './services/scheduler.js';
+import { baixarFalhasJaResolvidas } from './services/sync.js';
 import { configuracaoInicial } from './bootstrap.js';
 
 const db = getDb();
@@ -16,5 +17,6 @@ app.listen(config.port, () => {
   classificarSistemasEmSegundoPlano(db);
   reclassificarSegmentosEmSegundoPlano(db);
   // Índice de busca desalinhado traz licitação errada na busca e nos jornais: confere e, se preciso, refaz
+  setTimeout(() => { try { const n = baixarFalhasJaResolvidas(db); if (n) console.log(`[falhas] ${n} já resolvidas`); } catch (e) { console.error('[falhas]', e.message); } }, 20_000).unref();
   setTimeout(() => { try { conferirIndiceBusca(db); } catch (e) { console.error('[indice]', e.message); } }, 15_000).unref();
 });

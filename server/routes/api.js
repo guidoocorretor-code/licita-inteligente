@@ -964,9 +964,14 @@ r.get('/contratos/exportar', (req, res) => {
 
 r.get('/fontes', (req, res) => {
   const fontes = db().prepare('SELECT id, codigo, nome, url_oficial, tipo_integracao, status_implementacao, situacao_conexao, habilitada, requer_credenciais, frequencia_minutos, ultima_sincronizacao, ultima_sincronizacao_ok, registros_importados, ultimo_erro, observacoes, config_json FROM fontes ORDER BY id').all();
-  const falhas = db().prepare('SELECT fonte_id, COUNT(*) n FROM sync_falhas WHERE resolvida=0 GROUP BY fonte_id').all();
-  const mapa = Object.fromEntries(falhas.map((f) => [f.fonte_id, f.n]));
-  res.json(fontes.map((f) => ({ ...f, config: JSON.parse(f.config_json), falhas_pendentes: mapa[f.id] || 0, tem_conector: !!CONECTORES[f.codigo] })));
+  const falhas = db().prepare('SELECT fonte_id, etapa, COUNT(*) n FROM sync_falhas WHERE resolvida=0 GROUP BY fonte_id, etapa').all();
+  const mapa = {}; const etapas = {};
+  for (const f of falhas) { mapa[f.fonte_id] = (mapa[f.fonte_id] || 0) + f.n; (etapas[f.fonte_id] ??= {})[f.etapa || 'outra'] = f.n; }
+  // Andamento do download dos itens das licitações abertas do PNCP (a busca acha produtos citados só nos itens)
+  const itens = db().prepare(`SELECT COUNT(*) total, COALESCE(SUM(detalhes_sincronizados_em IS NOT NULL), 0) baixadas FROM licitacoes
+    WHERE fonte_principal='pncp' AND status_calculado IN ('aguardando_propostas','aberta')`).get();
+  res.json(fontes.map((f) => ({ ...f, config: JSON.parse(f.config_json), falhas_pendentes: mapa[f.id] || 0, falhas_por_etapa: etapas[f.id] || {},
+    tem_conector: !!CONECTORES[f.codigo], ...(f.codigo === 'pncp' ? { itens_abertas: { total: itens.total, baixadas: itens.baixadas } } : {}) })));
 });
 r.get('/fontes/:codigo/execucoes', (req, res) => {
   res.json(db().prepare(`SELECT e.* FROM sync_execucoes e JOIN fontes f ON f.id=e.fonte_id WHERE f.codigo=? ORDER BY e.id DESC LIMIT 30`).all(req.params.codigo));
