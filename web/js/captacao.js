@@ -311,19 +311,27 @@ async function passo1(alvo, est, id) {
       catch (e) { render(aviso, h('div', { class: 'aviso vermelho' }, e.message)); }
     };
     // Dados públicos da Receita (base aberta do CNPJ) só preenchem campos vazios
-    const receita = async () => {
-      const d = dig(doc.value); if (tipo.value !== 'PJ' || d.length !== 14) return toast('Digite um CNPJ com 14 números.');
+    let ultimaReceita = '';
+    const receita = async (auto = false) => {
+      const d = dig(doc.value);
+      if (tipo.value !== 'PJ' || d.length !== 14) return auto ? null : toast('Digite um CNPJ com 14 números.');
+      if (auto && d === ultimaReceita) return;
+      ultimaReceita = d;
       try {
         const r = await api(`/cnpj/${d}/consulta`);
-        const por = (k, v) => { if (v && el[k] && !el[k].value.trim()) el[k].value = v; };
+        const preenchidos = [];
+        const por = (k, v) => { if (v && el[k] && !el[k].value.trim()) { el[k].value = v; preenchidos.push(k); } };
         por('razao_social', r.razao_social); por('nome_fantasia', r.nome_fantasia); por('endereco', r.endereco); por('cep', r.cep); por('municipio', r.municipio);
         por('uf', r.uf); por('telefone', r.telefone); por('email', r.email);
         if (r.responsavel) { por('resp_nome', r.responsavel.nome); por('resp_cargo', r.responsavel.qualificacao); }
         socios.preencherDaReceita(r.socios || []);
-        toast(`Preenchido pela base pública da Receita (${r.fonte}). Confira antes de salvar.`, 6000);
+        toast(preenchidos.length ? `Preenchido pela base pública da Receita (${r.fonte}). Confira antes de salvar.`
+          : 'Consultado na Receita: os campos já estavam preenchidos, nada foi trocado.', 6000);
       } catch (e) { toast(e.message, 6000); }
     };
-    doc.addEventListener('blur', conferir);
+    // Ao completar os 14 números do CNPJ, puxa sozinho da Receita (só campos vazios)
+    doc.addEventListener('input', () => { if (tipo.value === 'PJ' && dig(doc.value).length === 14) receita(true); });
+    doc.addEventListener('blur', () => { receita(true); conferir(); });
     return h('form', { class: 'form-captacao', onsubmit: async (e) => {
       e.preventDefault(); erro.style.display = 'none';
       if (!socios.valido()) { erro.textContent = 'Preencha o nome do sócio (ou remova a linha).'; erro.style.display = 'block'; return; }
@@ -336,7 +344,7 @@ async function passo1(alvo, est, id) {
       }
     } },
     h('div', { class: 'filtros' }, campoTexto('Tipo *', tipo),
-      h('div', {}, h('label', {}, rotDoc, h('div', { class: 'linha cnpj-linha' }, doc, h('button', { type: 'button', class: 'btn pequeno', title: 'Preencher com a base pública da Receita Federal', onclick: receita }, '🔎 Receita'))))),
+      h('div', {}, h('label', {}, rotDoc, h('div', { class: 'linha cnpj-linha' }, doc, h('button', { type: 'button', class: 'btn pequeno', title: 'Preencher com a base pública da Receita Federal', onclick: () => receita() }, '🔎 Receita'))))),
     aviso,
     h('div', { class: 'filtros' }, ...campos),
     blocoSocios,

@@ -69,13 +69,16 @@ function formEmpresa(est, c = {}, aoSalvar) {
     render(statusReceita, 'Consultando a base pública da Receita Federal...');
     try {
       const d = await api(`/cnpj/${cnpj}/consulta`);
-      const por = (k, v, sempre) => { if (v && (sempre || !campos[k].value.trim())) campos[k].value = v; };
+      const preenchidos = [];
+      const por = (k, v, sempre, rotulo) => {
+        if (v && (sempre || !campos[k].value.trim()) && campos[k].value.trim() !== v) { campos[k].value = v; preenchidos.push(rotulo); }
+      };
       const sempre = forcar && !!c.id;
-      por('razao_social', d.razao_social, sempre); por('nome_fantasia', d.nome_fantasia, sempre);
-      por('uf', d.uf, sempre); por('municipio', d.municipio, sempre);
-      por('email', d.email, sempre); por('telefone', d.telefone, sempre);
-      por('endereco', d.endereco, sempre); por('cep', d.cep, sempre);
-      if (d.porte && (sempre || !campos.porte.value)) campos.porte.value = d.porte;
+      por('razao_social', d.razao_social, sempre, 'razão social'); por('nome_fantasia', d.nome_fantasia, sempre, 'nome fantasia');
+      por('uf', d.uf, sempre, 'UF'); por('municipio', d.municipio, sempre, 'município');
+      por('email', d.email, sempre, 'e-mail'); por('telefone', d.telefone, sempre, 'telefone');
+      por('endereco', d.endereco, sempre, 'endereço'); por('cep', d.cep, sempre, 'CEP');
+      if (d.porte && (sempre || !campos.porte.value) && campos.porte.value !== d.porte) { campos.porte.value = d.porte; preenchidos.push('porte'); }
       const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
       escolherSocio(d.responsavel);
       editor.preencherDaReceita(d.socios || []);
@@ -87,7 +90,10 @@ function formEmpresa(est, c = {}, aoSalvar) {
       const inativa = d.situacao && !/ATIVA/i.test(d.situacao);
       statusReceita.className = `status-receita aviso ${inativa ? 'vermelho' : 'verde'}`;
       render(statusReceita,
-        h('strong', {}, inativa ? `Atenção: situação cadastral ${d.situacao}. ` : `Dados preenchidos pela Receita (situação: ${d.situacao || 'não informada'}). `),
+        inativa ? h('strong', {}, `Atenção: situação cadastral ${d.situacao}. `) : null,
+        h('strong', {}, preenchidos.length ? `Preenchido pela Receita: ${preenchidos.join(', ')}. ` : 'Consultado na Receita: os campos da empresa já estavam preenchidos, nada foi trocado. '),
+        inativa ? null : h('span', {}, `Situação: ${d.situacao || 'não informada'}. `),
+        d.endereco ? null : h('span', {}, 'A base pública não trouxe o endereço: preencha pelo cartão CNPJ. '),
         d.atividade ? h('span', {}, `Atividade principal: ${d.atividade}. `) : null,
         h('div', { class: 'pequeno', style: { marginTop: '4px' } },
           `Fonte: ${d.fonte}, base aberta do CNPJ da Receita Federal (pode ter algumas semanas de atraso). `,
@@ -103,8 +109,9 @@ function formEmpresa(est, c = {}, aoSalvar) {
       h('div', { class: 'largo' }, h('label', { for: 'e-cnpj' }, `${rotDoc(c)} *`),
         h('div', { class: 'linha cnpj-linha' },
           campos.cnpj = h('input', { id: 'e-cnpj', required: true, inputmode: 'numeric', placeholder: '00.000.000/0000-00', value: c.cnpj ? fmtCnpj(c.cnpj) : '',
-            oninput: (ev) => { if (!c.id && ev.target.value.replace(/\D/g, '').length === 14) consultarReceita(); },
-            onblur: () => { if (!c.id) consultarReceita(); } }),
+            // Ao completar os 14 números, consulta sozinho; sem clicar no botão, só preenche campos vazios
+            oninput: (ev) => { if (ev.target.value.replace(/\D/g, '').length === 14) consultarReceita(); },
+            onblur: () => consultarReceita() }),
           h('button', { type: 'button', class: 'btn pequeno', title: 'Buscar dados públicos da Receita Federal', onclick: () => consultarReceita(true) }, '🔎 Receita'))),
       inp('razao_social', 'Razão social *', { required: true }, true),
       inp('nome_fantasia', 'Nome fantasia'),
@@ -152,6 +159,8 @@ function formEmpresa(est, c = {}, aoSalvar) {
       toast('Empresa salva.'); avisarAlteracao(); aoSalvar?.(c.id || r.id);
     } catch (e) { toast(e.message, 5000); return false; }
   } }]);
+  // Empresa já cadastrada com dados faltando: completa sozinho pela Receita (só os campos vazios)
+  if (c.id && c.tipo_pessoa !== 'PF' && ['endereco', 'cep', 'email', 'telefone', 'municipio', 'uf', 'porte'].some((k) => !campos[k].value.trim())) consultarReceita();
 }
 
 // ---------- Lista de empresas ----------
