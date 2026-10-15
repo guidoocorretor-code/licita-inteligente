@@ -4,6 +4,7 @@
 // de representação em licitações). Nada é inventado: campo vazio vira pendência (obrigatório) ou some do
 // texto (opcional). Os textos NÃO foram revisados por advogado; a tela avisa isso.
 import { reaisPorExtenso } from '../../web/js/extenso.js';
+import { escolherAssinantes } from './assinantes.js';
 
 export const TIPOS_DOC = { proposta: 'Proposta', contrato: 'Contrato', procuracao: 'Procuração' };
 export const TITULO_DOC = {
@@ -176,13 +177,18 @@ export function parteMinhaEmpresa(m) {
     banco: m.banco ? { banco: m.banco, agencia: m.agencia, conta: m.conta, tipo_conta: m.tipo_conta, titular: m.titular, titular_documento: m.titular_documento, pix: m.pix } : null,
     logo: m.logo_caminho || null };
 }
-export function parteCliente(c) {
+// Quem assina pela empresa assessorada sai dos sócios: os escolhidos no documento (nomes) ou a sugestão do cadastro.
+export function parteCliente(c, assinantes) {
   if (!c) return null;
+  const pj = (c.tipo_pessoa || 'PJ') !== 'PF';
+  const reps = pj ? escolherAssinantes(c, assinantes) : [];
   return { tipo_pessoa: c.tipo_pessoa || 'PJ', nome: c.razao_social, nome_fantasia: c.nome_fantasia, documento: c.cnpj,
     endereco: c.endereco, municipio: c.municipio, uf: c.uf, cep: c.cep,
-    rep_nome: c.resp_nome, rep_cpf: c.resp_cpf, rep_cargo: c.resp_cargo,
+    reps, rep_nome: reps[0]?.nome || null, rep_cpf: reps[0]?.cpf || null, rep_cargo: reps[0]?.cargo || null,
     email: c.email, email_documentos: c.email_documentos, telefone: c.telefone || c.resp_telefone };
 }
+// Representantes de uma parte: a lista (empresa assessorada) ou o representante único (Minha Empresa)
+const repsDe = (p) => (p?.reps ? p.reps : t(p?.rep_nome) ? [{ nome: p.rep_nome, cpf: p.rep_cpf, cargo: p.rep_cargo }] : []);
 
 /** O que falta no cadastro de uma parte para ela aparecer qualificada no documento. */
 export function faltasParte(p, quem) {
@@ -192,8 +198,11 @@ export function faltasParte(p, quem) {
   if (!t(p.nome)) f.push(`${quem}: ${pj ? 'razão social' : 'nome'}`);
   if (![11, 14].includes(soDigitos(p.documento).length)) f.push(`${quem}: ${pj ? 'CNPJ' : 'CPF'}`);
   if (!t(p.endereco) || !t(p.municipio) || !t(p.uf)) f.push(`${quem}: endereço completo (rua, cidade e UF)`);
-  if (pj && !t(p.rep_nome)) f.push(`${quem}: nome do representante legal`);
-  if (pj && soDigitos(p.rep_cpf).length !== 11) f.push(`${quem}: CPF do representante legal`);
+  if (pj) {
+    const reps = repsDe(p);
+    if (!reps.length) f.push(p.reps ? `${quem}: cadastre os sócios e marque quem assina` : `${quem}: nome do representante legal`);
+    for (const r of reps) if (soDigitos(r.cpf).length !== 11) f.push(p.reps ? `${quem}: CPF do sócio ${t(r.nome)}` : `${quem}: CPF do representante legal`);
+  }
   return f;
 }
 
@@ -206,13 +215,20 @@ export function qualificacao(p, extra = {}) {
     return [`${t(p.nome).toUpperCase()}`, pessoais, t(extra.rg) ? `portador(a) do RG nº ${t(extra.rg)}` : '',
       `inscrito(a) no CPF sob o nº ${fmtDoc(p.documento)}`, end ? `residente e domiciliado(a) em ${end}` : ''].filter(Boolean).join(', ');
   }
-  const rep = t(p.rep_nome)
-    ? [`neste ato representada por seu(sua) ${t(p.rep_cargo) || 'representante legal'}, ${t(p.rep_nome).toUpperCase()}`,
+  const reps = repsDe(p);
+  const cpf = (r) => (soDigitos(r.cpf).length === 11 ? `inscrito(a) no CPF sob o nº ${fmtDoc(r.cpf)}` : '');
+  let rep = '';
+  if (reps.length === 1) {
+    const r = reps[0];
+    rep = [`neste ato representada por seu(sua) ${t(r.cargo) || 'representante legal'}, ${t(r.nome).toUpperCase()}`,
       [t(extra.nacionalidade), t(extra.estado_civil)].filter(Boolean).join(', '),
       t(extra.rg) ? `portador(a) do RG nº ${t(extra.rg)}` : '',
-      soDigitos(p.rep_cpf).length === 11 ? `inscrito(a) no CPF sob o nº ${fmtDoc(p.rep_cpf)}` : '',
-      t(extra.ato) ? `conforme ${t(extra.ato)}` : ''].filter(Boolean).join(', ')
-    : '';
+      cpf(r), t(extra.ato) ? `conforme ${t(extra.ato)}` : ''].filter(Boolean).join(', ');
+  } else if (reps.length > 1) {
+    // Assinatura em conjunto: cada sócio com o próprio CPF; nacionalidade/RG do formulário são de uma pessoa só e ficam de fora
+    const nomes = reps.map((r) => [t(r.nome).toUpperCase(), t(r.cargo), cpf(r)].filter(Boolean).join(', '));
+    rep = [`neste ato representada, em conjunto, por seus sócios ${nomes.slice(0, -1).join('; ')}; e ${nomes.at(-1)}`, t(extra.ato) ? `conforme ${t(extra.ato)}` : ''].filter(Boolean).join(', ');
+  }
   return [`${t(p.nome).toUpperCase()}`, 'pessoa jurídica de direito privado', `inscrita no CNPJ sob o nº ${fmtDoc(p.documento)}`,
     end ? `com sede em ${end}` : '', rep].filter(Boolean).join(', ');
 }
@@ -321,7 +337,8 @@ const sec = (id, titulo, paragrafos = [], lista = [], editavel = true) => ({ id,
 function proposta({ me, cli, d }) {
   const nomeMe = t(me?.nome_fantasia) || t(me?.nome);
   const s = [];
-  s.push(sec('destinatario', null, [`À ${t(cli?.nome)}`, t(cli?.rep_nome) ? `Aos cuidados de ${t(cli.rep_nome)}${t(cli.rep_cargo) ? ` (${t(cli.rep_cargo)})` : ''}` : ''], [], false));
+  const ac = repsDe(cli).map((r) => `${t(r.nome)}${t(r.cargo) ? ` (${t(r.cargo)})` : ''}`);
+  s.push(sec('destinatario', null, [`À ${t(cli?.nome)}`, ac.length ? `Aos cuidados de ${ac.join(' e ')}` : ''], [], false));
   s.push(sec('apresentacao', 'Apresentação', [
     `Apresentamos nossa proposta de serviços de assessoria em licitações${modalidadesTxt(d) ? ` nas modalidades ${modalidadesTxt(d)}` : ''}, com atuação ${t(d.plataformas) ? `no(s) portal(is) ${t(d.plataformas)}` : 'nos portais indicados nos editais'}.`,
     `A ${nomeMe} trabalha com planejamento, execução, conferência e melhoria contínua (ciclo PDCA), com foco na qualidade do serviço, na transparência e na satisfação do cliente.`,
@@ -434,22 +451,21 @@ function procuracao({ cli, d }) {
 
 function assinaturas(tipo, { me, cli, d }) {
   const doc = (p) => (p?.documento ? `${p.tipo_pessoa === 'PF' ? 'CPF' : 'CNPJ'} ${fmtDoc(p.documento)}` : '');
-  const rep = (p) => (p?.tipo_pessoa !== 'PF' && t(p?.rep_nome) ? `${t(p.rep_nome)}${t(p.rep_cargo) ? ` – ${t(p.rep_cargo)}` : ''}` : '');
+  const rot = (r) => `${t(r.nome)}${t(r.cargo) ? ` – ${t(r.cargo)}` : ''}`;
+  // Uma linha de assinatura por representante (sócios que assinam em conjunto assinam todos)
+  const blocos = (titulo, p, extra = []) => {
+    const reps = p?.tipo_pessoa !== 'PF' ? repsDe(p) : [];
+    if (!reps.length) return [{ titulo, linhas: [doc(p), ...extra].filter(Boolean) }];
+    return reps.map((r) => ({ titulo, linhas: [doc(p), rot(r), ...extra].filter(Boolean) }));
+  };
   if (tipo === 'proposta') {
-    return [
-      { titulo: t(me?.nome), linhas: [doc(me), rep(me)].filter(Boolean) },
-      { titulo: `De acordo: ${t(cli?.nome)}`, linhas: [doc(cli), rep(cli), 'Data: ____/____/______'].filter(Boolean) },
-    ];
+    return [...blocos(t(me?.nome), me), ...blocos(`De acordo: ${t(cli?.nome)}`, cli, ['Data: ____/____/______'])];
   }
   if (tipo === 'contrato') {
     const test = (k) => ({ titulo: `Testemunha ${k}`, linhas: [`Nome: ${t(d[`testemunha${k}_nome`]) || ''}`, `CPF: ${t(d[`testemunha${k}_cpf`]) ? fmtDoc(d[`testemunha${k}_cpf`]) : ''}`] });
-    return [
-      { titulo: `CONTRATANTE: ${t(cli?.nome)}`, linhas: [doc(cli), rep(cli)].filter(Boolean) },
-      { titulo: `CONTRATADA: ${t(me?.nome)}`, linhas: [doc(me), rep(me)].filter(Boolean) },
-      test(1), test(2),
-    ];
+    return [...blocos(`CONTRATANTE: ${t(cli?.nome)}`, cli), ...blocos(`CONTRATADA: ${t(me?.nome)}`, me), test(1), test(2)];
   }
-  return [{ titulo: t(cli?.nome), linhas: [doc(cli), rep(cli)].filter(Boolean) }];
+  return blocos(t(cli?.nome), cli);
 }
 
 /**

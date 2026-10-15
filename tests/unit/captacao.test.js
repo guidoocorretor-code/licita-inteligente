@@ -354,3 +354,32 @@ test('Contrato: papéis e nomes das partes em negrito; proposta e contrato com a
   assert.doesNotMatch(cond, /sobre as mensalidades que faltarem/);
   assert.deepEqual(sem.destaques, []);
 });
+
+test('Quem assina: sugestão pelos sócios, escolha no documento e assinatura em conjunto', async () => {
+  const { assinantesPadrao, escolherAssinantes } = await import('../../server/services/assinantes.js');
+  const base = { tipo_pessoa: 'PJ', razao_social: 'DUAS SÓCIAS LTDA', cnpj: '11444777000161', endereco: 'Av B', municipio: 'Vitória', uf: 'ES' };
+  const socios = [
+    { nome: 'Daniela Alves', qualificacao: 'Sócio-Administrador', administrador: false },
+    { nome: 'Alexandre Vareira', cpf: '52998224725', qualificacao: 'Sócio-Administrador', administrador: true, assinatura: 'isolada' },
+  ];
+  // Antigo "responsável legal" digitado (Daniela) não vence o sócio marcado como administrador que assina sozinho
+  const c = { ...base, socios_json: JSON.stringify(socios), resp_nome: 'Daniela Alves', resp_cpf: '11144477735' };
+  assert.deepEqual(assinantesPadrao(c).map((a) => a.nome), ['Alexandre Vareira']);
+  // Escolha no documento: os dois, em conjunto; o CPF antigo da Daniela completa o sócio dela
+  const dois = escolherAssinantes(c, ['Daniela Alves', 'Alexandre Vareira']);
+  assert.deepEqual(dois.map((a) => a.cpf), ['11144477735', '52998224725']);
+  // Nome que não é sócio é ignorado (volta para a sugestão)
+  assert.deepEqual(escolherAssinantes(c, ['Fulano']).map((a) => a.nome), ['Alexandre Vareira']);
+  // Cadastro antigo sem sócios continua usando o responsável legal
+  assert.deepEqual(assinantesPadrao({ ...base, resp_nome: 'Ana', resp_cpf: '11144477735' }).map((a) => a.nome), ['Ana']);
+
+  const me = parteMinhaEmpresa({ tipo_pessoa: 'PF', nome: 'Guido Exemplo', documento: '52998224725', endereco: 'Rua C', municipio: 'Vila Velha', uf: 'ES', email: 'g@x.com', telefone: '27999990000' });
+  const doc = montarDocumento('contrato', { me, cli: parteCliente(c, ['Daniela Alves', 'Alexandre Vareira']), dados: dadosIniciais('contrato', { me, hoje: '2026-10-13' }), numero: '001/2026' });
+  const partes = doc.secoes.find((s) => s.id === 'partes').paragrafos.join(' ');
+  assert.match(partes, /representada, em conjunto, por seus sócios DANIELA ALVES, Sócio-Administrador, inscrito\(a\) no CPF sob o nº 111\.444\.777-35; e ALEXANDRE VAREIRA, Sócio-Administrador, inscrito\(a\) no CPF sob o nº 529\.982\.247-25/);
+  assert.equal(doc.assinaturas.filter((a) => a.titulo.startsWith('CONTRATANTE')).length, 2);
+  // Sócio escolhido sem CPF vira pendência com o nome dele
+  const semCpf = { ...base, socios_json: JSON.stringify([{ nome: 'Carla Sem CPF', administrador: true }]) };
+  const d2 = montarDocumento('procuracao', { me, cli: parteCliente(semCpf), dados: dadosIniciais('procuracao', { me, hoje: '2026-10-13' }), numero: '001/2026' });
+  assert.ok(d2.pendencias.some((p) => /CPF do sócio Carla Sem CPF/.test(p)));
+});

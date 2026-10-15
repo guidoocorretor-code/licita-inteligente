@@ -25,8 +25,8 @@ function cabecalho(titulo, subtitulo, ...acoes) {
 // O que falta no cadastro da empresa para a proposta sair completa
 function faltasEmpresa(c) {
   if (!c) return ['empresa vinculada ao card'];
-  return [[!c.endereco, 'endereço'], [!c.cep, 'CEP'], [!c.telefone && !c.email, 'telefone ou e-mail'], [!c.resp_nome, 'responsável legal'],
-    [!c.resp_cpf, 'CPF do responsável'], [!(c.banco && c.agencia && c.conta), 'dados bancários']].filter(([f]) => f).map(([, t]) => t);
+  return [[!c.endereco, 'endereço'], [!c.cep, 'CEP'], [!c.telefone && !c.email, 'telefone ou e-mail'], [!c.assinantes?.length, 'sócios (quem assina)'],
+    [c.assinantes?.some((a) => String(a.cpf || '').length !== 11), 'CPF de quem assina'], [!(c.banco && c.agencia && c.conta), 'dados bancários']].filter(([f]) => f).map(([, t]) => t);
 }
 
 // ---------- Editor da proposta de uma oportunidade ----------
@@ -230,7 +230,7 @@ tfoot td { font-weight: 700; background: #f6f8fb; }
 <div class="bloco"><h2>Dados bancários</h2><div>Banco ${v(c.banco)} · Agência ${v(c.agencia)} · Conta corrente ${v(c.conta)}${c.pix ? ` · Pix ${esc(c.pix)}` : ''}</div></div>
 ${p.declaracoes.length ? `<div class="bloco"><h2>Declarações</h2><ul class="decl">${p.declaracoes.map((k) => `<li>${esc(d.declaracoes[k])}</li>`).join('')}</ul></div>` : ''}
 <div class="bloco">${esc([c.municipio, c.uf].filter(Boolean).join('/') || '')}${c.municipio ? ', ' : ''}${esc(dataExtenso())}.</div>
-<div class="assin"><div class="linha"></div><div><b>${v(c.resp_nome)}</b></div><div>${v(c.resp_cargo)} · CPF ${v(c.resp_cpf)}</div><div>${v(c.razao_social)}</div></div>
+${(c.assinantes?.length ? c.assinantes : [{}]).map((a) => `<div class="assin"><div class="linha"></div><div><b>${v(a.nome)}</b></div><div>${v(a.cargo)} · CPF ${v(a.cpf ? String(a.cpf).replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '')}</div><div>${v(c.razao_social)}</div></div>`).join('')}
 </div></body></html>`;
   janela.document.open(); janela.document.write(html); janela.document.close();
   // A política de segurança do site bloqueia script dentro da página impressa: o botão e a impressão são ligados daqui

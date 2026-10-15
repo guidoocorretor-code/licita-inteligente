@@ -1,14 +1,14 @@
 // Lista editável de sócios, usada no cadastro da empresa (Empresas Assessoradas) e no passo 1 da Captação.
 // A Receita traz nome e qualificação; CPF e forma de assinatura vêm do contrato social.
-import { h, toast } from './ui.js';
+import { h } from './ui.js';
 
 const fmtCpf = (c) => String(c || '').replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
 
 /**
  * Devolve { caixa, botao, adicionar, ler, valido, preencherDaReceita }.
- * aoUsar(socio): se informado, cada sócio ganha o botão "Usar como representante".
+ * Quem assina cada documento é escolhido entre estes sócios, na hora de gerar o documento.
  */
-export function editorSocios(socios = [], { aoUsar } = {}) {
+export function editorSocios(socios = []) {
   const caixa = h('div', { class: 'lista-socios' });
   const itens = [];
   const linha = (sc) => {
@@ -34,10 +34,6 @@ export function editorSocios(socios = [], { aoUsar } = {}) {
       h('div', { class: 'linha socio-flags' },
         h('label', { class: 'flag-socio' }, el.administrador, ' Sócio administrador'),
         el.assinatura,
-        aoUsar ? h('button', { type: 'button', class: 'btn pequeno', onclick: () => {
-          const s = ler(); if (!s.nome) return toast('Preencha o nome do sócio.');
-          aoUsar(s);
-        } }, 'Usar como representante') : null,
         h('button', { type: 'button', class: 'btn pequeno perigo', onclick: () => { bloco.remove(); itens.splice(itens.indexOf(item), 1); } }, 'Remover')));
     const item = { bloco, ler };
     return item;

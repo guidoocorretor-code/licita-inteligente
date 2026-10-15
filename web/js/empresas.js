@@ -55,9 +55,11 @@ function formEmpresa(est, c = {}, aoSalvar) {
   // Sócios: lista editável (a Receita traz nome e qualificação; CPF e forma de assinatura vêm do contrato social)
   let socios = [];
   try { socios = c.socios_json ? JSON.parse(c.socios_json) : []; } catch { socios = []; }
+  // CPF do antigo "responsável legal" passa para o sócio de mesmo nome que estiver sem CPF (não perde o dado)
+  const mesmo = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  socios = socios.map((sc) => (!sc.cpf && c.resp_cpf && mesmo(sc.nome, c.resp_nome) ? { ...sc, cpf: c.resp_cpf } : sc));
   const editor = editorSocios(socios);
   const statusReceita = h('div', { class: 'status-receita' });
-  const seletorSocio = h('div', {});
   let ultimaConsulta = '';
   // Preenche a partir da base pública da Receita; num cadastro novo só preenche campos vazios,
   // na edição (botão clicado) atualiza os dados da empresa e mantém o que foi digitado do responsável.
@@ -79,14 +81,9 @@ function formEmpresa(est, c = {}, aoSalvar) {
       por('email', d.email, sempre, 'e-mail'); por('telefone', d.telefone, sempre, 'telefone');
       por('endereco', d.endereco, sempre, 'endereço'); por('cep', d.cep, sempre, 'CEP');
       if (d.porte && (sempre || !campos.porte.value) && campos.porte.value !== d.porte) { campos.porte.value = d.porte; preenchidos.push('porte'); }
-      const escolherSocio = (s) => { if (!s) return; if (!campos.resp_nome.value.trim() || forcar) campos.resp_nome.value = s.nome; if (s.qualificacao && (!campos.resp_cargo.value.trim() || forcar)) campos.resp_cargo.value = s.qualificacao; };
-      escolherSocio(d.responsavel);
       editor.preencherDaReceita(d.socios || []);
       if (d.cnaes?.length) { cnaes = d.cnaes; mostrarCnaes(); }
       if (d.palavras_sugeridas?.length && !campos.palavras_chave.value.trim()) campos.palavras_chave.value = d.palavras_sugeridas.join('; ');
-      render(seletorSocio, d.socios.length > 1 ? h('div', { class: 'campo' }, h('label', { for: 'e-socio' }, `Sócios na Receita (${d.socios.length}): escolha quem é o responsável`),
-        h('select', { id: 'e-socio', onchange: (ev) => { forcar = true; escolherSocio(d.socios[ev.target.value]); } },
-          d.socios.map((s, i) => h('option', { value: i, selected: s === d.responsavel || (d.responsavel && s.nome === d.responsavel.nome) }, `${s.nome}${s.qualificacao ? ` (${s.qualificacao})` : ''}`)))) : null);
       const inativa = d.situacao && !/ATIVA/i.test(d.situacao);
       statusReceita.className = `status-receita aviso ${inativa ? 'vermelho' : 'verde'}`;
       render(statusReceita,
@@ -128,12 +125,7 @@ function formEmpresa(est, c = {}, aoSalvar) {
     h('p', { class: 'suave pequeno' }, 'A Receita traz nome e qualificação. CPF e se assina sozinho ou em conjunto estão no contrato social: confira lá.'),
     editor.caixa,
     editor.botao,
-    h('h3', {}, 'Responsável legal (assina a proposta)'),
-    seletorSocio,
-    h('div', { class: 'filtros' },
-      inp('resp_nome', 'Nome', {}, true), inp('resp_cargo', 'Cargo', { placeholder: 'Sócio-administrador' }),
-      inp('resp_email', 'E-mail', { type: 'email' }), inp('resp_telefone', 'Telefone / WhatsApp', { type: 'tel' }),
-      inp('resp_cpf', 'CPF (assina a proposta)', { inputmode: 'numeric', placeholder: '000.000.000-00' })),
+    h('p', { class: 'suave pequeno' }, 'Quem assina não é mais escolhido aqui: em cada contrato, proposta ou procuração você marca um sócio (assina sozinho) ou mais de um (assinam em conjunto). Marque acima o sócio administrador e a forma de assinatura para o sistema já sugerir.'),
     h('h3', {}, 'Responsável financeiro'),
     h('div', { class: 'filtros' },
       inp('fin_nome', 'Nome', {}, true), inp('fin_cargo', 'Cargo', { placeholder: 'ex.: Financeiro' }),
@@ -189,7 +181,7 @@ export async function empresas(alvo, rota, est) {
         h('div', {}, h('a', { class: 'objeto', href: `#/empresas/${c.id}` }, nomeCli(c)),
           h('div', { class: 'suave pequeno' }, `${rotDoc(c)} ${fmtCnpj(c.cnpj)}`, c.porte ? ` · ${c.porte}` : '', c.ativo ? '' : ' · arquivada')),
         String(c.id) === atual ? h('span', { class: 'etiqueta verde' }, 'Selecionada') : null),
-      c.resp_nome ? h('div', { class: 'pequeno', style: { marginTop: '6px' } }, `Responsável: ${c.resp_nome}`, c.resp_telefone ? ` · ${c.resp_telefone}` : '') : null,
+      c.assinantes?.length ? h('div', { class: 'pequeno', style: { marginTop: '6px' } }, `Assina: ${c.assinantes.map((a) => a.nome).join(' e ')}`, c.assinantes[0].telefone ? ` · ${c.assinantes[0].telefone}` : '') : null,
       h('div', { class: 'linha', style: { marginTop: '8px' } },
         c.vencidos ? h('span', { class: 'etiqueta vermelha' }, `${c.vencidos} vencido(s)`) : null,
         c.vencendo ? h('span', { class: 'etiqueta amarela' }, `${c.vencendo} vencendo em 30 dias`) : null,
@@ -234,11 +226,12 @@ async function empresaDetalhe(alvo, rota, est) {
         c.observacoes ? linha('Observações', c.observacoes) : null, c.obs_comerciais ? linha('Observações comerciais', c.obs_comerciais) : null),
       h('div', { class: 'linha', style: { marginTop: '8px' } },
         h('a', { class: 'btn pequeno', href: `https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp`, target: '_blank', rel: 'noopener noreferrer', title: 'Cartão CNPJ no site da Receita Federal' }, 'Cartão CNPJ (Receita) ↗'))),
-      h('div', { class: 'cartao' }, h('h2', {}, 'Responsável legal'), h('dl', { class: 'dados' },
-        linha('Nome', c.resp_nome), linha('Cargo', c.resp_cargo),
-        linha('E-mail', c.resp_email ? h('a', { href: `mailto:${c.resp_email}` }, c.resp_email) : null),
-        linha('Telefone', c.resp_telefone ? h('a', { href: `tel:${c.resp_telefone.replace(/[^\d+]/g, '')}` }, c.resp_telefone) : null)),
-      c.resp_telefone ? h('a', { class: 'btn pequeno', href: `https://wa.me/55${c.resp_telefone.replace(/\D/g, '').replace(/^55/, '')}`, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp ↗') : null)),
+      h('div', { class: 'cartao' }, h('h2', {}, 'Quem assina (sugestão)'),
+        c.assinantes?.length ? h('dl', { class: 'dados' }, c.assinantes.flatMap((a) => [
+          ...linha(a.nome, [a.cargo, a.cpf ? `CPF ${fmtCpf(a.cpf)}` : 'CPF não informado', a.email, a.telefone].filter(Boolean).join(' · '))]))
+          : h('p', { class: 'suave' }, 'Nenhum sócio cadastrado.'),
+        h('p', { class: 'suave pequeno' }, c.assinantes?.length > 1 ? 'Assinam em conjunto. ' : '', 'Sugestão pelos sócios marcados como administradores; em cada documento dá para trocar.'),
+        c.assinantes?.[0]?.telefone ? h('a', { class: 'btn pequeno', href: `https://wa.me/55${c.assinantes[0].telefone.replace(/\D/g, '').replace(/^55/, '')}`, target: '_blank', rel: 'noopener noreferrer' }, 'Abrir WhatsApp ↗') : null)),
     h('div', { class: 'grade duas', style: { marginTop: '14px' } },
       h('div', { class: 'cartao' }, h('h2', {}, `Sócios (${socios.length})`),
         socios.length ? h('ul', { class: 'lista-socios-det' }, socios.map((sc) => h('li', {},

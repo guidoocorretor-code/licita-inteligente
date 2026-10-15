@@ -23,6 +23,7 @@ import { eventosCalendario, gerarIcs, gerarTokenCalendario, revogarTokenCalendar
 import { statusEmail, enviarEmailTeste, emailConfigurado } from '../services/email.js';
 import { listarNotificacoes } from '../services/alertas.js';
 import { consultarCnpj } from '../services/cnpj.js';
+import { assinantesPadrao } from '../services/assinantes.js';
 import { lerSicafPdf } from '../services/sicaf.js';
 import { catalogoSistemas } from '../services/sistemas.js';
 import { ETAPAS_PADRAO, FASES, FASES_GANHAS } from '../services/execucao.js';
@@ -635,7 +636,7 @@ const uploadPdf = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 const receberPdf = (req, res, next) => uploadPdf(req, res, (e) => (e ? erro(res, 400, e.code === 'LIMIT_FILE_SIZE' ? 'O PDF pode ter no máximo 10 MB.' : 'Falha no envio do arquivo.') : next()));
 const clienteDaConta = (req) => db().prepare('SELECT * FROM clientes WHERE id=? AND empresa_id=?').get(inteiro(req.params.id), req.usuario.empresa_id);
 
-r.get('/clientes', (req, res) => res.json({ clientes: listarClientes(db(), req.usuario.empresa_id, hojeBr()), tipos: TIPOS_DOCUMENTO, portes: PORTES }));
+r.get('/clientes', (req, res) => res.json({ clientes: listarClientes(db(), req.usuario.empresa_id, hojeBr()).map((c) => ({ ...c, assinantes: assinantesPadrao(c) })), tipos: TIPOS_DOCUMENTO, portes: PORTES }));
 r.post('/clientes', exigirPapel('analista'), (req, res) => {
   let id;
   try { id = criarCliente(db(), req.usuario.empresa_id, req.body || {}); } catch (e) { return erro(res, e.status || 500, e.status ? e.message : 'Erro interno.'); }
@@ -644,7 +645,7 @@ r.post('/clientes', exigirPapel('analista'), (req, res) => {
 r.get('/clientes/:id', (req, res) => {
   const c = clienteDaConta(req);
   if (!c) return erro(res, 404, 'Empresa não encontrada.');
-  res.json({ cliente: c, documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: c.id, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO, portes: PORTES });
+  res.json({ cliente: { ...c, assinantes: assinantesPadrao(c) }, documentos: listarDocumentos(db(), req.usuario.empresa_id, { clienteId: c.id, hoje: hojeBr() }), tipos: TIPOS_DOCUMENTO, portes: PORTES });
 });
 r.patch('/clientes/:id', exigirPapel('analista'), (req, res) => {
   try { if (!atualizarCliente(db(), req.usuario.empresa_id, inteiro(req.params.id), req.body || {})) return erro(res, 404, 'Empresa não encontrada.'); }

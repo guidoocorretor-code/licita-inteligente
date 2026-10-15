@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { validarCnpj, caminhoArquivo, criarCliente, atualizarCliente, sociosJson } from './clientes.js';
 import { lerJpeg } from '../lib/pdf-simples.js';
+import { sociosDoCliente } from './assinantes.js';
 import { CAMPOS, TIPOS_DOC, PAGINAS_META, montarDocumento, dadosIniciais, parteMinhaEmpresa, parteCliente, faltasParte, soDigitos, fmtDoc, textosPadrao } from './captacao-modelos.js';
 import { pdfDocumento } from './captacao-pdf.js';
 import { agoraBrasilia } from './status.js';
@@ -490,6 +491,8 @@ function limparDados(tipo, b) {
     else if (c.tipo === 'sel') out[c.id] = c.opcoes.some(([k]) => k === v) ? v : null;
     else out[c.id] = texto(v, c.tipo === 'area' ? 4000 : 300) ?? '';
   }
+  // Sócios que assinam este documento (pelos nomes do cadastro)
+  if (Array.isArray(b.assinantes)) out.assinantes = b.assinantes.map((x) => texto(x, 150)).filter(Boolean).slice(0, 10);
   if (b.textos && typeof b.textos === 'object') {
     out.textos = Object.fromEntries(Object.entries(b.textos).filter(([k, v]) => /^[a-z_]{2,40}$/.test(k) && typeof v === 'string' && v.trim()).map(([k, v]) => [k, v.slice(0, 6000)]));
   }
@@ -519,7 +522,8 @@ function contexto(db, empresaId, d) {
   const c = db.prepare('SELECT * FROM captacoes WHERE id=?').get(d.captacao_id);
   const meRow = c.minha_empresa_id ? minhaEmpresaDaConta(db, empresaId, c.minha_empresa_id) : null;
   const cli = db.prepare('SELECT * FROM clientes WHERE id=?').get(c.cliente_id);
-  return { c, meRow, me: parteMinhaEmpresa(meRow), cli: parteCliente(cli), dados: JSON.parse(d.dados_json || '{}'), numero: numeroDoc(d) };
+  const dados = JSON.parse(d.dados_json || '{}');
+  return { c, cliRow: cli, meRow, me: parteMinhaEmpresa(meRow), cli: parteCliente(cli, dados.assinantes), dados, numero: numeroDoc(d) };
 }
 
 /** Pré-visualização com os dados atuais do cadastro (o documento gerado usa a cópia congelada). */
@@ -528,7 +532,10 @@ export function previaDocumento(db, empresaId, docId) {
   const ctx = contexto(db, empresaId, d);
   const doc = montarDocumento(d.tipo, ctx);
   if (!ctx.meRow) doc.pendencias.unshift('Escolha a Minha Empresa (passo 2)');
-  return { ...doc, status: d.status, versao: d.versao, textos_padrao: textosPadrao(d.tipo, ctx), campos: CAMPOS[d.tipo], dados: ctx.dados };
+  // Sócios para a escolha de quem assina (só pessoa jurídica)
+  const socios = ctx.cli?.tipo_pessoa === 'PF' ? null : sociosDoCliente(ctx.cliRow).map((s) => ({ nome: s.nome, cargo: s.qualificacao, cpf_ok: s.cpf.length === 11, assinatura: s.assinatura }));
+  return { ...doc, status: d.status, versao: d.versao, textos_padrao: textosPadrao(d.tipo, ctx), campos: CAMPOS[d.tipo], dados: ctx.dados,
+    socios, assinantes: (ctx.cli?.reps || []).map((r) => r.nome) };
 }
 export function pdfPrevia(db, empresaId, docId) {
   const d = documentoDaConta(db, empresaId, docId);
@@ -595,11 +602,13 @@ export function rascunhoEmail(db, empresaId, docId) {
   const d = documentoDaConta(db, empresaId, docId);
   const ctx = contexto(db, empresaId, d);
   const nomeMe = ctx.me?.nome_fantasia || ctx.me?.nome || '';
-  const cliRow = db.prepare('SELECT email, email_documentos, resp_email, resp_nome FROM clientes WHERE id=?').get(ctx.c.cliente_id);
-  const para = cliRow.email_documentos || cliRow.resp_email || cliRow.email || '';
+  const cliRow = ctx.cliRow;
+  const quem = ctx.cli?.reps?.[0];
+  const para = cliRow.email_documentos || quem?.email || cliRow.resp_email || cliRow.email || '';
   const pedir = d.tipo !== 'proposta';
   const assunto = `${TIPOS_DOC[d.tipo]} nº ${ctx.numero} – ${nomeMe}`;
-  const saudacao = cliRow.resp_nome ? `Olá, ${cliRow.resp_nome.split(' ')[0]}.` : 'Olá.';
+  const nomeSaud = ctx.cli?.reps?.length === 1 ? quem.nome : ctx.cli?.reps?.length ? null : cliRow.resp_nome;
+  const saudacao = nomeSaud ? `Olá, ${nomeSaud.split(' ')[0]}.` : 'Olá.';
   const corpo = [saudacao, '',
     d.tipo === 'proposta' ? `Segue em anexo a nossa proposta de serviços nº ${ctx.numero}. Se estiver de acordo, assine e devolva por este e-mail.`
       : d.tipo === 'contrato' ? `Segue em anexo o contrato de prestação de serviços nº ${ctx.numero} para a sua assinatura.`
