@@ -11,6 +11,7 @@ import { enviarEmail } from './email.js';
 import { ETAPAS_PADRAO } from './execucao.js';
 import { SQL_CAPAG_LIC } from './capag.js';
 import { itensDoPerfil } from './jornal-perfis.js';
+import { contatoPrincipal } from './assinantes.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const assinar = (nonce) => crypto.createHmac('sha256', config.jwtSecret).update(`jornal-link:${nonce}`).digest('base64url').slice(0, 32);
@@ -164,8 +165,11 @@ export function dadosEnvio(db, envioId) {
   if (!e) return null;
   const emp = db.prepare('SELECT nome, cnpj, email_contato FROM empresas WHERE id=?').get(e.empresa_id);
   const u = e.criado_por ? db.prepare('SELECT nome, email FROM usuarios WHERE id=?').get(e.criado_por) : null;
-  const cli = e.cliente_id ? db.prepare(`SELECT razao_social, nome_fantasia, cnpj, municipio, uf, endereco, cep, email, telefone, resp_nome, resp_cargo, resp_email
+  const linhaCli = e.cliente_id ? db.prepare(`SELECT razao_social, nome_fantasia, cnpj, municipio, uf, endereco, cep, email, telefone, resp_nome, resp_cargo, resp_cpf, resp_email, resp_telefone, socios_json
     FROM clientes WHERE id=?`).get(e.cliente_id) : null;
+  // "A/C" e saudação: o sócio que assina pela empresa (ou o antigo responsável legal, em cadastros sem sócios)
+  const cp = linhaCli ? contatoPrincipal(linhaCli) : null;
+  const cli = linhaCli ? { ...linhaCli, socios_json: undefined, resp_cpf: undefined, resp_nome: cp?.nome || null, resp_cargo: cp?.cargo || null, resp_email: cp?.email || linhaCli.resp_email } : null;
   return {
     envio: e, token: tokenDe(e.nonce),
     assessoria: { nome: emp?.nome || null, cnpj: emp?.cnpj || null, responsavel: u?.nome || null, email: emp?.email_contato || u?.email || null },

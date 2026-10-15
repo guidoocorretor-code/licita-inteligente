@@ -223,7 +223,6 @@ const casca = (titulo, atual, id, ...corpo) => [cabecalho(titulo, id ? null : 'O
 const CAMPOS_EMP = [
   ['razao_social', 'Razão social / nome completo *', { largo: true }], ['nome_fantasia', 'Nome fantasia'],
   ['endereco', 'Endereço (rua, número, bairro)', { largo: true }], ['cep', 'CEP', { inputmode: 'numeric' }], ['municipio', 'Cidade'], ['uf', 'UF', { maxlength: 2 }],
-  ['resp_nome', 'Representante legal', { largo: true, pj: true }], ['resp_cpf', 'CPF do representante', { inputmode: 'numeric', pj: true }], ['resp_cargo', 'Cargo', { pj: true }],
   ['telefone', 'Telefone / WhatsApp', { type: 'tel' }], ['email', 'E-mail', { type: 'email' }], ['email_documentos', 'E-mail para documentos', { type: 'email' }],
 ];
 
@@ -232,13 +231,6 @@ const secaoSocios = (ed) => h('div', { class: 'secao-socios' },
   h('h3', {}, 'Sócios'),
   h('p', { class: 'suave pequeno' }, 'A Receita traz nome e qualificação. CPF e se assina sozinho ou em conjunto estão no contrato social: confira lá.'),
   ed.caixa, ed.botao);
-// Copia o sócio escolhido para os campos de representante legal (quem assina os documentos)
-function usarComoRepresentante(el, sc) {
-  if (el.resp_nome) el.resp_nome.value = sc.nome;
-  if (el.resp_cpf && sc.cpf) el.resp_cpf.value = fmtDoc(sc.cpf);
-  if (el.resp_cargo && sc.qualificacao) el.resp_cargo.value = sc.qualificacao;
-  toast(`${sc.nome} é o representante legal. Salve para gravar.`);
-}
 
 async function passo1(alvo, est, id) {
   render(alvo, carregando());
@@ -280,7 +272,7 @@ async function passo1(alvo, est, id) {
     const rotDoc = h('span', {}, 'CNPJ *');
     el.obs_comerciais = h('textarea', { rows: 2, placeholder: 'Como chegou, interesse, combinados…' });
     const campos = CAMPOS_EMP.map(([k, rot, o = {}]) => { el[k] = h('input', { type: o.type || 'text', inputmode: o.inputmode, maxlength: o.maxlength }); const w = campoTexto(rot, el[k], { largo: o.largo }); if (o.pj) w.classList.add('so-pj'); return w; });
-    const socios = editorSocios([], { aoUsar: (sc) => usarComoRepresentante(el, sc) });
+    const socios = editorSocios([]);
     const blocoSocios = secaoSocios(socios);
     const aviso = h('div', {}); const erro = h('div', { class: 'aviso vermelho', style: { display: 'none' } });
     const trocarTipo = () => { const pf = tipo.value === 'PF'; rotDoc.textContent = pf ? 'CPF *' : 'CNPJ *'; doc.placeholder = pf ? '000.000.000-00' : '00.000.000/0000-00'; campos.forEach((w) => { if (w.classList.contains('so-pj')) w.style.display = pf ? 'none' : ''; }); blocoSocios.style.display = pf ? 'none' : ''; };
@@ -323,7 +315,6 @@ async function passo1(alvo, est, id) {
         const por = (k, v) => { if (v && el[k] && !el[k].value.trim()) { el[k].value = v; preenchidos.push(k); } };
         por('razao_social', r.razao_social); por('nome_fantasia', r.nome_fantasia); por('endereco', r.endereco); por('cep', r.cep); por('municipio', r.municipio);
         por('uf', r.uf); por('telefone', r.telefone); por('email', r.email);
-        if (r.responsavel) { por('resp_nome', r.responsavel.nome); por('resp_cargo', r.responsavel.qualificacao); }
         socios.preencherDaReceita(r.socios || []);
         toast(preenchidos.length ? `Preenchido pela base pública da Receita (${r.fonte}). Confira antes de salvar.`
           : 'Consultado na Receita: os campos já estavam preenchidos, nada foi trocado.', 6000);
@@ -349,7 +340,7 @@ async function passo1(alvo, est, id) {
     h('div', { class: 'filtros' }, ...campos),
     blocoSocios,
     campoTexto('Observações comerciais', el.obs_comerciais, { largo: true }),
-    h('p', { class: 'suave pequeno' }, 'Obrigatórios agora: tipo, CPF/CNPJ, nome e um contato. Endereço e representante podem ficar para depois, mas sem eles a captação fica como "Cadastro incompleto" e os documentos não são gerados.'),
+    h('p', { class: 'suave pequeno' }, 'Obrigatórios agora: tipo, CPF/CNPJ, nome e um contato. Endereço e sócios (com CPF) podem ficar para depois, mas sem eles a captação fica como "Cadastro incompleto" e os documentos não são gerados.'),
     erro,
     h('div', { class: 'linha', style: { justifyContent: 'flex-end' } }, h('button', { class: 'btn primario', type: 'submit' }, 'Salvar e continuar →')));
   }
@@ -363,17 +354,16 @@ function passo1Existente(alvo, est, det) {
   const c = det.cliente; const id = det.captacao.id;
   const el = {};
   const pf = c.tipo_pessoa === 'PF';
-  const campos = CAMPOS_EMP.filter(([, , o = {}]) => !(pf && o.pj)).map(([k, rot, o = {}]) => { el[k] = h('input', { type: o.type || 'text', value: k === 'resp_cpf' && c[k] ? fmtDoc(c[k]) : c[k] ?? '', maxlength: o.maxlength }); return campoTexto(rot, el[k], { largo: o.largo }); });
+  const campos = CAMPOS_EMP.filter(([, , o = {}]) => !(pf && o.pj)).map(([k, rot, o = {}]) => { el[k] = h('input', { type: o.type || 'text', value: c[k] ?? '', maxlength: o.maxlength }); return campoTexto(rot, el[k], { largo: o.largo }); });
   el.obs_comerciais = h('textarea', { rows: 2 }, c.obs_comerciais || '');
   let lista = [];
   try { lista = c.socios_json ? JSON.parse(c.socios_json) : []; } catch { lista = []; }
-  const socios = editorSocios(lista, { aoUsar: (sc) => usarComoRepresentante(el, sc) });
+  const socios = editorSocios(lista);
   const erro = h('div', { class: 'aviso vermelho', style: { display: 'none' } });
   render(alvo, ...casca(`Captação: ${nomeCli(c)}`, 1, id,
     h('form', { class: 'cartao form-captacao', onsubmit: async (e) => {
       e.preventDefault(); erro.style.display = 'none';
       const corpo = Object.fromEntries(Object.entries(el).map(([k, x]) => [k, x.value.trim()]));
-      if (corpo.resp_cpf) corpo.resp_cpf = dig(corpo.resp_cpf);
       if (corpo.cep) corpo.cep = dig(corpo.cep);
       if (!pf) {
         if (!socios.valido()) { erro.textContent = 'Preencha o nome do sócio (ou remova a linha).'; erro.style.display = 'block'; return; }
@@ -536,9 +526,19 @@ function formDados(doc, pv) {
         textos[sid]);
     }));
   const campos = (pv.campos || []).map(campo);
+  // Quem assina pela empresa assessorada: marque um sócio (assina sozinho) ou mais de um (assinam em conjunto)
+  const marcados = new Set(pv.assinantes || []);
+  const cbAssina = (pv.socios || []).map((sc) => ({ nome: sc.nome, cb: h('input', { type: 'checkbox', checked: marcados.has(sc.nome), onchange: marcarSujo }) }));
+  const blocoAssina = pv.socios ? h('fieldset', { class: 'multi-campo assinantes-doc' }, h('legend', {}, 'Quem assina pela empresa *'),
+    pv.socios.length ? [
+      ...pv.socios.map((sc, i) => h('label', { class: 'opcao' }, cbAssina[i].cb, ` ${sc.nome}`, sc.cargo ? h('span', { class: 'suave' }, ` (${sc.cargo})`) : null,
+        sc.assinatura === 'isolada' ? h('span', { class: 'etiqueta pequena' }, 'assina sozinho') : sc.assinatura === 'conjunta' ? h('span', { class: 'etiqueta pequena' }, 'assina em conjunto') : null,
+        sc.cpf_ok ? null : h('span', { class: 'etiqueta amarela pequena' }, 'sem CPF no cadastro'))),
+      h('div', { class: 'suave pequeno' }, 'Um marcado: assina sozinho. Dois ou mais: assinam em conjunto, cada um com sua linha de assinatura. Confira no contrato social quem tem poder para assinar.')]
+      : h('div', { class: 'aviso amarelo' }, 'Nenhum sócio cadastrado. Cadastre os sócios no passo 1 (nome e CPF) para escolher quem assina.')) : null;
   const el2 = h('div', { class: 'form-dados' },
     doc.status !== 'rascunho' ? h('div', { class: 'aviso amarelo' }, `Este documento está como "${doc.rotulo}". Alterar e salvar cria a versão ${doc.versao + 1} (a versão ${doc.versao} fica no histórico).`) : null,
-    h('div', { class: 'filtros' }, ...campos), blocoTextos);
+    blocoAssina, h('div', { class: 'filtros' }, ...campos), blocoTextos);
   return {
     el: el2, sujo: () => sujo, limpo: () => { sujo = false; },
     ler: () => {
@@ -549,6 +549,7 @@ function formDados(doc, pv) {
         else if (c.tipo === 'bool') out[c.id] = x.checked;
         else out[c.id] = x.value.trim();
       }
+      if (cbAssina.length) out.assinantes = cbAssina.filter((x) => x.cb.checked).map((x) => x.nome);
       // Só guarda o texto que o usuário mudou; o resto continua acompanhando o padrão do modelo
       out.textos = Object.fromEntries(Object.entries(textos).filter(([, t]) => !t.dataset.restaurado && (t.dataset.editado || t.value.trim() !== t.dataset.padrao.trim())).map(([k, t]) => [k, t.value]));
       return out;

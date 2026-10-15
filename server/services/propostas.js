@@ -1,6 +1,7 @@
 // Fase 4 · Propostas: proposta de preços de uma oportunidade, montada a partir das cotações.
 // O sistema monta o documento; quem confere e envia no portal do governo é a pessoa (não há envio automático).
 import { cotacoesDaOportunidade, margemNoPreco } from './fornecedores.js';
+import { assinantesPadrao } from './assinantes.js';
 
 const erro = (status, msg) => Object.assign(new Error(msg), { status });
 const texto = (v, max = 500) => { const t = String(v ?? '').trim().slice(0, max); return t || null; };
@@ -68,8 +69,10 @@ const lerJson = (t, padrao) => { try { return t ? JSON.parse(t) : padrao; } catc
 export function propostaDaOportunidade(db, empresaId, oportunidadeId) {
   const c = cotacoesDaOportunidade(db, empresaId, oportunidadeId);
   const op = c.oportunidade;
-  const cliente = op.cliente_id ? db.prepare(`SELECT id, cnpj, razao_social, nome_fantasia, porte, uf, municipio, email, telefone, resp_nome, resp_cargo, resp_cpf,
-      endereco, cep, banco, agencia, conta, pix FROM clientes WHERE id=? AND empresa_id=?`).get(op.cliente_id, empresaId) : null;
+  const cliRow = op.cliente_id ? db.prepare(`SELECT id, cnpj, razao_social, nome_fantasia, porte, uf, municipio, email, telefone, resp_nome, resp_cargo, resp_cpf,
+      resp_email, resp_telefone, socios_json, endereco, cep, banco, agencia, conta, pix FROM clientes WHERE id=? AND empresa_id=?`).get(op.cliente_id, empresaId) : null;
+  // Quem assina a proposta de preços: a sugestão pelos sócios (administrador que assina sozinho, ou os que assinam em conjunto)
+  const cliente = cliRow ? { ...cliRow, socios_json: undefined, assinantes: assinantesPadrao(cliRow) } : null;
   const lic = db.prepare('SELECT unidade_codigo, link_origem, sistema_eletronico, plataforma_origem, modalidade_nome, numero_compra, ano, processo, orgao_cnpj, unidade_nome FROM licitacoes WHERE id=?').get(op.licitacao_id);
   const p = db.prepare('SELECT * FROM propostas WHERE oportunidade_id=?').get(op.id);
   const gravados = new Map(p ? db.prepare('SELECT * FROM proposta_itens WHERE proposta_id=?').all(p.id).map((i) => [i.numero_item, i]) : []);
